@@ -98,14 +98,7 @@ npm run dev -- resolve-vote --bounty-id 123
 
 ## Social transparency
 
-Social post order of execution:
-- If `SOCIAL_POST_WEBHOOK_URL` is set, bot sends full decision payload to your relay/poster service.
-- The relay can publish the decision to Farcaster using your Neynar signer when that account has posting access/credits.
-- If posting is unavailable, the relay records the reason and the bot still writes proof artifacts and a complete Farcaster draft locally.
-- Native follow-up reply listening via `POST /webhooks/neynar` requires Neynar webhook access; the relay verifies `X-Neynar-Signature` with `NEYNAR_WEBHOOK_SECRET` when enabled.
-- On the free plan, the relay still supports `POST /follow-up` as a manual fallback for forwarding question events.
-
-Relay payload includes a deterministic `followUpAnswers` array so your poster can auto-reply with reasoning context.
+Social transparency is built into the run: if `SOCIAL_POST_WEBHOOK_URL` is set, the bot sends the full decision payload to a relay that can publish a Farcaster thread through Neynar when signer access and posting credits are available, while still writing the complete decision draft and proof artifacts locally if posting is unavailable. The relay also includes deterministic `followUpAnswers` for reasoning context, supports `POST /webhooks/neynar` for native webhook-driven replies when Neynar webhook access is enabled, and falls back to `POST /follow-up` for forwarded question events on the free path.
 
 Run the relay locally with:
 
