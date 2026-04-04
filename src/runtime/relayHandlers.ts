@@ -142,6 +142,15 @@ export async function handleDecision(request: IncomingMessage, response: ServerR
     };
 
     await writeRelayArtifacts(state);
+    if (mainCastHash) {
+      console.log(
+        `[relay] posted decision for bounty ${body.decision.bountyId.toString()} as ${mainCastHash}${
+          replyCastHash ? ` with reply ${replyCastHash}` : ""
+        }`
+      );
+    } else {
+      console.log(`[relay] saved decision draft for bounty ${body.decision.bountyId.toString()}`);
+    }
     jsonResponse(response, 200, {
       ok: true,
       publishedToFarcaster: Boolean(mainCastHash),
@@ -226,6 +235,14 @@ export async function handleFollowUp(request: IncomingMessage, response: ServerR
         }
       ]
     }));
+
+    if (farcasterCastHash) {
+      console.log(
+        `[relay] posted follow-up reply for bounty ${bountyId} under ${parentCastHash} as ${farcasterCastHash}`
+      );
+    } else {
+      console.log(`[relay] stored follow-up reply for bounty ${bountyId} (not posted to Farcaster)`);
+    }
 
     jsonResponse(response, 200, {
       ok: true,
