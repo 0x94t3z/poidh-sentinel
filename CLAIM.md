@@ -37,6 +37,8 @@ Social publishing runs through `SOCIAL_POST_WEBHOOK_URL` and a Farcaster relay t
 - `poidh-social-<bountyId>.json|md`
 - `poidh-farcaster-<bountyId>.json|md` (social draft only)
 
+The production report keeps both the declared bounty amount and the current on-chain amount when they differ, so the proof trail stays honest if a bounty is resumed or inspected later.
+
 ## Submission checklist
 
 - Public repo link

@@ -134,7 +134,7 @@ Artifacts written to `artifacts/production/`:
 - `poidh-social-<bountyId>.json|md`
 - `poidh-farcaster-<bountyId>.json|md` (social draft only)
 
-These include winner, reasons, and follow-up Q/A text.
+These include winner, reasons, follow-up Q/A text, and both the declared bounty amount and the current on-chain amount when they differ.
 
 ## Notes
 

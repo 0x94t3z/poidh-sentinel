@@ -39,5 +39,6 @@ It shows the same decision package that gets written to disk and can be shared t
 ## Notes
 
 - Real runtime reports are written to `artifacts/production/`.
+- The report keeps both the declared bounty amount and the current chain amount when they differ.
 - Generated folders stay out of git on purpose.
 - The sample above is redacted enough to show the workflow without exposing live runtime files.
