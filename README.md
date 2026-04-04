@@ -19,7 +19,8 @@ It creates a bounty from an EOA wallet, monitors claims, scores submissions with
   - JSON/markdown artifacts are written to `artifacts/production/`
   - webhook payload includes follow-up Q/A for transparent social replies
   - local relay can auto-post to Farcaster using a Neynar signer when the connected account has posting access/credits
-  - `POST /follow-up` accepts incoming question webhooks and replies in-thread from the stored reasoning
+  - `POST /webhooks/neynar` can reply to live Farcaster follow-up casts when Neynar webhook access is available
+  - `POST /follow-up` accepts forwarded question webhooks and replies in-thread from the stored reasoning
 
 ## Setup
 
@@ -42,7 +43,7 @@ cp .env.example .env
 - `POIDH_CHAIN` one of `arbitrum`, `base`, `degen`
 - For relay posting, set `SOCIAL_POST_WEBHOOK_URL=http://127.0.0.1:8787/decision`
 - For Farcaster posting, set `NEYNAR_API_KEY`, `FARCASTER_SIGNER_UUID`, and optionally `FARCASTER_CHANNEL_ID=poidh`
-- For Farcaster webhook verification, set `NEYNAR_WEBHOOK_SECRET`
+- For Farcaster webhook verification, set `NEYNAR_WEBHOOK_SECRET` only if your Neynar plan includes webhook access
 
 Recommended defaults in this repo:
 - `BOUNTY_KIND=solo`
@@ -97,8 +98,8 @@ Social post order of execution:
 - If `SOCIAL_POST_WEBHOOK_URL` is set, bot sends full decision payload to your relay/poster service.
 - The relay can publish the decision to Farcaster using your Neynar signer when that account has posting access/credits.
 - If posting is unavailable, the relay records the reason and the bot still writes proof artifacts and a complete Farcaster draft locally.
-- The relay exposes `POST /webhooks/neynar` for native Farcaster follow-up replies and verifies `X-Neynar-Signature` with `NEYNAR_WEBHOOK_SECRET`.
-- The relay also exposes `POST /follow-up` as a manual fallback for forwarding question events.
+- Native follow-up reply listening via `POST /webhooks/neynar` requires Neynar webhook access; the relay verifies `X-Neynar-Signature` with `NEYNAR_WEBHOOK_SECRET` when enabled.
+- On the free plan, the relay still supports `POST /follow-up` as a manual fallback for forwarding question events.
 
 Relay payload includes a deterministic `followUpAnswers` array so your poster can auto-reply with reasoning context.
 
