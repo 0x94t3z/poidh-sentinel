@@ -423,7 +423,7 @@ export class PoidhBot {
     const paths = demoPaths;
     console.log(`Demo artifact written to ${paths.jsonPath} and ${paths.markdownPath}`);
     console.log(`Social proof artifact written to ${socialPaths.jsonPath} and ${socialPaths.markdownPath}`);
-    console.log(`Farcaster proof artifact written to ${farcasterPaths.jsonPath} and ${farcasterPaths.markdownPath}`);
+    console.log(`X/Farcaster proof artifact written to ${farcasterPaths.jsonPath} and ${farcasterPaths.markdownPath}`);
     return artifact;
   }
 

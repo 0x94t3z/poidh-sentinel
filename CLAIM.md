@@ -14,7 +14,7 @@ This repo implements a Poidh bot that can:
 - Select a winner
 - Accept the claim on-chain for solo bounties
 - Submit the winning claim for vote and resolve the vote for open bounties
-- Publish a decision explanation through a webhook or local log
+- Publish a decision explanation through a webhook-backed relay or local log
 - Support an optional two-wallet demo harness and a production path that only watches public submissions
 
 ## Why this matches bounty 216
@@ -25,7 +25,7 @@ The bounty asks for an autonomous bot that can run a Poidh bounty end-to-end wit
 - `src/evaluate.ts` ranks claims using proof content and description overlap.
 - `src/bot.ts` orchestrates create, watch, evaluate, and accept actions.
 - `src/artifacts.ts` writes demo and production proof artifacts for submission.
-- `src/social.ts` prepares a public decision summary and Farcaster-ready cast draft.
+- `src/social.ts` prepares a public decision summary and X/Farcaster-ready cast draft.
 - `src/main.ts` exposes both `demo-cycle` and production-style `run` modes, plus `explain-bounty` for follow-up reasoning.
 - The shipped production preset is requirement-aligned: `Take a photo of something blue outdoors`.
 
@@ -35,12 +35,12 @@ The bounty asks for an autonomous bot that can run a Poidh bounty end-to-end wit
 - Demo submission slots use separate claimant wallets and never reuse the issuer wallet.
 - Production `run` mode does not self-submit claims.
 - The bot evaluates claims from on-chain `tokenURI` data and resolves payout actions without manual signing.
-- The bot prepares a Farcaster-ready cast draft and social proof artifact so the decision can be published cleanly.
+- The bot prepares an X/Farcaster-ready cast draft and social proof artifact so the decision can be published cleanly.
 
 ## Assumptions and limitations
 
-- Public reasoning is forwarded through a webhook or local log rather than a hard-coded X/Farcaster SDK.
-- The repo does not hard-code a Farcaster login; it prepares a cast-ready payload for manual posting or a relay.
+- Public reasoning is forwarded through a webhook-backed relay or local log rather than a hard-coded X/Farcaster SDK.
+- The repo does not hard-code a Farcaster login; it prepares a cast-ready payload for manual posting or a relay that publishes to X/Farcaster.
 - For a production claim, the bounty must be completed organically by outside claimants.
 
 ## Demo proof

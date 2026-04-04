@@ -22,7 +22,7 @@ It can:
 - Prepares reasoning for publication: `postDecision` plus `SOCIAL_POST_AUTHOR`
 - Supports demo and production modes: `demo-cycle` and `run`
 - Writes a ready-to-publish social proof draft for X/Farcaster workflows
-- Writes a Farcaster-ready cast draft artifact that a relay can publish directly
+- Writes an X/Farcaster-ready decision draft artifact that a relay can publish directly
 
 ## Why this repo exists
 
@@ -69,7 +69,7 @@ The same `.env` file can still be reused later if you prefer, but the split temp
 - `run` ignores self-claim behavior when `AUTO_SUBMIT_CLAIM=false`.
 
 The bot writes a social proof draft to `artifacts/demo/poidh-social-<bountyId>.md` for demo runs and `artifacts/production/poidh-social-<bountyId>.md` for live runs. You can paste either into X or Farcaster or hand it to a relay.
-It also writes `artifacts/demo/poidh-farcaster-<bountyId>.json` and `.md` for demo runs, plus the same structure under `artifacts/production/` for live runs. These contain a ready-to-send cast payload with embeds and should be treated as the main public-proof handoff file.
+It also writes `artifacts/demo/poidh-farcaster-<bountyId>.json` and `.md` for demo runs, plus the same structure under `artifacts/production/` for live runs. These contain an X/Farcaster-ready cast payload with embeds and should be treated as the main public-proof handoff file.
 
 Practical rule:
 - Use `.env.demo.example` when you want the demo/test flow.
@@ -144,7 +144,13 @@ That makes the reasoning easy to audit, which matters for a bounty like this.
 
 ## Social posting
 
-Set `SOCIAL_POST_WEBHOOK_URL` if you want the bot to forward its decision summary to another service, such as a Farcaster or X relay you control.
+Set `SOCIAL_POST_WEBHOOK_URL` to a relay endpoint that publishes the bot's decision payload to X or Farcaster.
+The bot sends one structured package with:
+
+- a plain-text decision summary
+- a Farcaster-ready cast draft
+- the bounty metadata and winner claim
+
 If you want the post to carry an attribution line, set `SOCIAL_POST_AUTHOR=0x94t3z.eth` or another handle you want displayed.
 
 If the webhook is unset, the bot prints the decision locally instead.
@@ -160,7 +166,7 @@ If the webhook is unset, the bot prints the decision locally instead.
 - Production runs write JSON and markdown artifacts to `artifacts/production/` by default.
 - You can override either mode with `ARTIFACT_DIR`.
 - The social proof artifact includes the exact post text and a few follow-up answers so your public proof stays consistent with the on-chain decision.
-- The Farcaster proof artifact is the cast-ready payload for manual posting or a relay, and it is the preferred handoff for public proof.
+- The X/Farcaster proof artifact is the cast-ready payload for a relay or manual posting, and it is the preferred handoff for public proof.
 - If you stop the bot and start it again without `BOUNTY_ID`, it will resume from the last bounty saved in `.poidh-state.json` unless you point `BOUNTY_STATE_FILE` somewhere else.
 
 ## Claim pack

@@ -2,6 +2,7 @@
 
 This is a sanitized example of the proof artifacts the bot produces after a bounty run.
 It is intended for repository review and client-facing demos only.
+The same decision package can be published through an X/Farcaster relay or posted manually.
 
 ## Summary
 
