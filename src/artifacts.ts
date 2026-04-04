@@ -118,10 +118,11 @@ function markdownLines(artifact: DemoArtifact): string[] {
 
 export async function writeDemoArtifact(
   artifactDir: string,
-  artifact: DemoArtifact
+  artifact: DemoArtifact,
+  baseNamePrefix = "poidh-demo"
 ): Promise<{ jsonPath: string; markdownPath: string }> {
   await mkdir(artifactDir, { recursive: true });
-  const baseName = `poidh-demo-${artifact.bountyId}`;
+  const baseName = `${baseNamePrefix}-${artifact.bountyId}`;
   const jsonPath = join(artifactDir, `${baseName}.json`);
   const markdownPath = join(artifactDir, `${baseName}.md`);
 

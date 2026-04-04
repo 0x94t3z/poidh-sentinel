@@ -26,6 +26,7 @@ export type BotConfig = {
   bountyDescription: string;
   bountyAmountEth: string;
   artifactDir?: string;
+  artifactPrefix: "demo" | "production";
   bountyId?: bigint;
   bountyStatePath?: string;
   demoClaims?: DemoClaimConfig[];
@@ -58,6 +59,7 @@ export class PoidhBot {
   readonly bountyDescription: string;
   readonly bountyAmountEth: string;
   readonly artifactDir?: string;
+  readonly artifactPrefix: "demo" | "production";
   readonly bountyStatePath?: string;
   bountyId?: bigint;
   lastDecisionKey?: string;
@@ -93,6 +95,7 @@ export class PoidhBot {
     this.bountyDescription = config.bountyDescription;
     this.bountyAmountEth = config.bountyAmountEth;
     this.artifactDir = config.artifactDir;
+    this.artifactPrefix = config.artifactPrefix;
     this.bountyStatePath = config.bountyStatePath;
     this.bountyId = config.bountyId;
     this.lastDecisionKey = undefined;
@@ -501,7 +504,7 @@ export class PoidhBot {
     };
 
     const reason = winner.reasons.join(" ");
-    const demoPaths = await writeDemoArtifact(artifactDir, artifact);
+    const demoPaths = await writeDemoArtifact(artifactDir, artifact, `poidh-${this.artifactPrefix}`);
     const socialPaths = await writeSocialProofArtifact(artifactDir, {
       generatedAt: new Date().toISOString(),
       chainName: this.issuerClient.chainName,

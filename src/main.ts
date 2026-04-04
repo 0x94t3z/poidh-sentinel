@@ -290,6 +290,7 @@ async function run() {
     bountyAmountEth,
     autoSubmitClaim,
     artifactDir: artifactDir || undefined,
+    artifactPrefix: command === "demo-cycle" ? "demo" : "production",
     bountyId,
     bountyStatePath,
     demoClaims: configuredDemoClaims,
