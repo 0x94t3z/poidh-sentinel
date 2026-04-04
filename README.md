@@ -19,6 +19,7 @@ It creates a bounty from an EOA wallet, monitors claims, scores submissions with
   - JSON/markdown artifacts are written to `artifacts/production/`
   - webhook payload includes follow-up Q/A for transparent social replies
   - local relay can auto-post to Farcaster using a Neynar signer when the connected account has posting access/credits
+  - `POST /follow-up` accepts incoming question webhooks and replies in-thread from the stored reasoning
 
 ## Setup
 
@@ -95,6 +96,7 @@ Social post order of execution:
 - If `SOCIAL_POST_WEBHOOK_URL` is set, bot sends full decision payload to your relay/poster service.
 - The relay can publish the decision to Farcaster using your Neynar signer when that account has posting access/credits.
 - If posting is unavailable, the relay records the reason and the bot still writes proof artifacts and a complete Farcaster draft locally.
+- The relay also exposes `POST /follow-up` so webhook-driven question events can be answered from the stored decision context.
 
 Relay payload includes a deterministic `followUpAnswers` array so your poster can auto-reply with reasoning context.
 

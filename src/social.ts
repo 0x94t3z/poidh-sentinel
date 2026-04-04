@@ -68,6 +68,79 @@ export function buildFollowUpAnswers(reason: string) {
   ];
 }
 
+function normalizeQuestion(question: string): string {
+  return question
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function answerFollowUpQuestion(
+  question: string,
+  context: {
+    reason: string;
+    finalActionTxHash?: string;
+  },
+  knownAnswers: Array<{
+    question: string;
+    answer: string;
+  }> = buildFollowUpAnswers(context.reason)
+): string {
+  const normalizedQuestion = normalizeQuestion(question);
+
+  for (const item of knownAnswers) {
+    const normalizedKnownQuestion = normalizeQuestion(item.question);
+    if (
+      normalizedQuestion === normalizedKnownQuestion ||
+      normalizedQuestion.includes(normalizedKnownQuestion) ||
+      normalizedKnownQuestion.includes(normalizedQuestion)
+    ) {
+      return item.answer;
+    }
+  }
+
+  if (
+    normalizedQuestion.includes("why") ||
+    normalizedQuestion.includes("win") ||
+    normalizedQuestion.includes("selected")
+  ) {
+    return context.reason;
+  }
+
+  if (
+    normalizedQuestion.includes("evidence") ||
+    normalizedQuestion.includes("proof") ||
+    normalizedQuestion.includes("check")
+  ) {
+    return "It checked the claim tokenURI, claim metadata, resolved content type, and the submission text.";
+  }
+
+  if (
+    normalizedQuestion.includes("automatic") ||
+    normalizedQuestion.includes("deterministic") ||
+    normalizedQuestion.includes("ai") ||
+    normalizedQuestion.includes("decision")
+  ) {
+    return "Yes. The winner is selected by deterministic scoring logic from all submitted claims.";
+  }
+
+  if (
+    normalizedQuestion.includes("payout") ||
+    normalizedQuestion.includes("on chain") ||
+    normalizedQuestion.includes("accept claim") ||
+    normalizedQuestion.includes("resolve")
+  ) {
+    if (context.finalActionTxHash) {
+      return `Yes. The on-chain final action was recorded in transaction ${context.finalActionTxHash}.`;
+    }
+
+    return "The bot resolves the bounty on-chain with acceptClaim for solo bounties or the vote flow for open bounties, and the final transaction is recorded once it completes.";
+  }
+
+  return `The bot selected the highest-scoring valid claim using deterministic scoring. ${context.reason}`;
+}
+
 export function buildFarcasterCastDraft(
   post: DecisionPost,
   author?: string

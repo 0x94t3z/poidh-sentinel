@@ -1,8 +1,8 @@
 import "dotenv/config";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { join } from "node:path";
-import { postCastViaNeynar, type DecisionRelayEnvelope } from "./social.js";
+import { answerFollowUpQuestion, postCastViaNeynar, type DecisionRelayEnvelope } from "./social.js";
 
 type RelayState = {
   generatedAt: string;
@@ -11,7 +11,33 @@ type RelayState = {
   publishedToFarcaster: boolean;
   farcasterCastIds: string[];
   farcasterError?: string;
+  followUpReplies: Array<{
+    generatedAt: string;
+    question: string;
+    answer: string;
+    postedToFarcaster: boolean;
+    farcasterCastHash?: string;
+    parentCastHash?: string;
+    source?: string;
+  }>;
 };
+
+type FollowUpRequest = {
+  bountyId?: string | number;
+  question?: string;
+  text?: string;
+  message?: string;
+  replyToCastHash?: string;
+  parentCastHash?: string;
+  source?: string;
+};
+
+function normalizeRelayState(state: RelayState): RelayState {
+  return {
+    ...state,
+    followUpReplies: state.followUpReplies ?? []
+  };
+}
 
 function getEnv(name: string, fallback = ""): string {
   const value = process.env[name]?.trim();
@@ -29,6 +55,10 @@ function getInt(name: string, fallback: number): number {
 
 function relayOutputDir(): string {
   return getEnv("RELAY_OUTPUT_DIR", "artifacts/relay");
+}
+
+function productionArtifactDir(): string {
+  return getEnv("ARTIFACT_DIR", "artifacts/production");
 }
 
 function relayPort(): number {
@@ -66,6 +96,32 @@ function buildCastTexts(envelope: DecisionRelayEnvelope): { main: string; reply:
   );
 
   return { main, reply };
+}
+
+function relayArtifactBaseName(bountyId: string): string {
+  return `poidh-relay-${bountyId}`;
+}
+
+async function readJsonFile<T>(path: string): Promise<T | undefined> {
+  try {
+    const raw = await readFile(path, "utf8");
+    return JSON.parse(raw) as T;
+  } catch {
+    return undefined;
+  }
+}
+
+async function loadRelayState(bountyId: string): Promise<RelayState | undefined> {
+  const state = await readJsonFile<RelayState>(join(relayOutputDir(), `${relayArtifactBaseName(bountyId)}.json`));
+  return state ? normalizeRelayState(state) : undefined;
+}
+
+async function loadProductionArtifact(
+  bountyId: string
+): Promise<{ finalActionTxHash?: string } | undefined> {
+  return readJsonFile<{ finalActionTxHash?: string }>(
+    join(productionArtifactDir(), `poidh-production-${bountyId}.json`)
+  );
 }
 
 function jsonResponse(
@@ -142,17 +198,49 @@ function renderRelayMarkdown(state: RelayState): string {
     lines.push(`  - ${item.answer}`);
   }
 
+  if (state.followUpReplies.length > 0) {
+    lines.push(``, `## Follow-up Replies`, ``);
+    for (const item of state.followUpReplies) {
+      lines.push(`- ${item.generatedAt}: ${item.question}`);
+      lines.push(`  - ${item.answer}`);
+      lines.push(`  - Posted to Farcaster: ${item.postedToFarcaster}`);
+      if (item.farcasterCastHash) {
+        lines.push(`  - Cast hash: ${item.farcasterCastHash}`);
+      }
+      if (item.parentCastHash) {
+        lines.push(`  - Parent cast hash: ${item.parentCastHash}`);
+      }
+      if (item.source) {
+        lines.push(`  - Source: ${item.source}`);
+      }
+    }
+  }
+
   return lines.join("\n");
 }
 
 async function writeRelayArtifacts(state: RelayState) {
   const outputDir = relayOutputDir();
   await mkdir(outputDir, { recursive: true });
-  const baseName = `poidh-relay-${state.envelope.decision.bountyId}`;
+  const baseName = relayArtifactBaseName(state.envelope.decision.bountyId.toString());
   const jsonPath = join(outputDir, `${baseName}.json`);
   const markdownPath = join(outputDir, `${baseName}.md`);
   await writeFile(jsonPath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
   await writeFile(markdownPath, `${renderRelayMarkdown(state)}\n`, "utf8");
+}
+
+async function recordRelayStateUpdate(
+  bountyId: string,
+  update: (state: RelayState) => RelayState
+): Promise<RelayState> {
+  const existing = await loadRelayState(bountyId);
+  if (!existing) {
+    throw new Error(`No relay state found for bounty ${bountyId}. Publish a decision first.`);
+  }
+
+  const nextState = update(existing);
+  await writeRelayArtifacts(nextState);
+  return nextState;
 }
 
 async function handleDecision(request: IncomingMessage, response: ServerResponse) {
@@ -190,7 +278,8 @@ async function handleDecision(request: IncomingMessage, response: ServerResponse
       envelope: body,
       publishedToFarcaster: Boolean(mainCastHash),
       farcasterCastIds: [mainCastHash, replyCastHash].filter(Boolean) as string[],
-      farcasterError
+      farcasterError,
+      followUpReplies: []
     };
 
     await writeRelayArtifacts(state);
@@ -207,12 +296,94 @@ async function handleDecision(request: IncomingMessage, response: ServerResponse
   }
 }
 
+async function handleFollowUp(request: IncomingMessage, response: ServerResponse) {
+  try {
+    const body = (await readJsonBody(request)) as FollowUpRequest;
+    const bountyId = body.bountyId?.toString().trim();
+    const question = body.question?.trim() || body.text?.trim() || body.message?.trim();
+
+    if (!bountyId || !question) {
+      jsonResponse(response, 400, {
+        ok: false,
+        error: "follow-up payload requires bountyId and question."
+      });
+      return;
+    }
+
+    const state = await loadRelayState(bountyId);
+    if (!state) {
+      jsonResponse(response, 404, {
+        ok: false,
+        error: `No decision thread stored for bounty ${bountyId}.`
+      });
+      return;
+    }
+
+    const productionArtifact = await loadProductionArtifact(bountyId);
+    const answer = answerFollowUpQuestion(question, {
+      reason: state.envelope.decision.reason,
+      finalActionTxHash: productionArtifact?.finalActionTxHash
+    });
+    const parentCastHash = body.replyToCastHash?.trim() || body.parentCastHash?.trim() || state.farcasterCastIds[0];
+
+    let farcasterCastHash: string | undefined;
+    let farcasterError: string | undefined;
+
+    try {
+      farcasterCastHash = await postCastViaNeynar(
+        {
+          text: answer,
+          embeds: [],
+          author: state.envelope.castDraft.author,
+          parentUrl: state.envelope.castDraft.parentUrl
+        },
+        { parentCastHash }
+      );
+    } catch (error) {
+      farcasterError = error instanceof Error ? error.message : "Unknown Farcaster reply error";
+      console.error(farcasterError);
+    }
+
+    const generatedAt = new Date().toISOString();
+    const nextState = await recordRelayStateUpdate(bountyId, (current) => ({
+      ...current,
+      farcasterError: farcasterError ?? current.farcasterError,
+      followUpReplies: [
+        ...current.followUpReplies,
+        {
+          generatedAt,
+          question,
+          answer,
+          postedToFarcaster: Boolean(farcasterCastHash),
+          farcasterCastHash,
+          parentCastHash,
+          source: body.source?.trim()
+        }
+      ]
+    }));
+
+    jsonResponse(response, 200, {
+      ok: true,
+      bountyId,
+      question,
+      answer,
+      postedToFarcaster: Boolean(farcasterCastHash),
+      farcasterCastHash,
+      farcasterError,
+      followUpReplies: nextState.followUpReplies.length
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown follow-up error";
+    jsonResponse(response, 500, { ok: false, error: message });
+  }
+}
+
 async function handleExplain(response: ServerResponse) {
   const outputDir = relayOutputDir();
   jsonResponse(response, 200, {
     ok: true,
     outputDir,
-    note: "The latest decision payload is written by the relay after each Farcaster post attempt."
+    note: "The latest decision payload is written by the relay after each Farcaster post attempt. Follow-up replies can be posted through /follow-up."
   });
 }
 
@@ -226,6 +397,11 @@ function startRelay() {
 
     if (request.method === "POST" && request.url === "/decision") {
       void handleDecision(request, response);
+      return;
+    }
+
+    if (request.method === "POST" && request.url === "/follow-up") {
+      void handleFollowUp(request, response);
       return;
     }
 
