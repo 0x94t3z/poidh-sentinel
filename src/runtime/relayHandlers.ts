@@ -144,12 +144,14 @@ export async function handleDecision(request: IncomingMessage, response: ServerR
     await writeRelayArtifacts(state);
     if (mainCastHash) {
       console.log(
-        `[relay] posted decision for bounty ${body.decision.bountyId.toString()} as ${mainCastHash}${
+        `[relay] posted decision for bounty ${body.decision.bountyId.toString()} thread ${mainCastHash}${
           replyCastHash ? ` with reply ${replyCastHash}` : ""
         }`
       );
     } else {
-      console.log(`[relay] saved decision draft for bounty ${body.decision.bountyId.toString()}`);
+      console.log(
+        `[relay] saved decision draft for bounty ${body.decision.bountyId.toString()} thread draft ${body.castDraft.parentUrl || "unknown"}`
+      );
     }
     jsonResponse(response, 200, {
       ok: true,
@@ -238,10 +240,12 @@ export async function handleFollowUp(request: IncomingMessage, response: ServerR
 
     if (farcasterCastHash) {
       console.log(
-        `[relay] posted follow-up reply for bounty ${bountyId} under ${parentCastHash} as ${farcasterCastHash}`
+        `[relay] posted webhook reply for bounty ${bountyId} thread ${parentCastHash} as ${farcasterCastHash}`
       );
     } else {
-      console.log(`[relay] stored follow-up reply for bounty ${bountyId} (not posted to Farcaster)`);
+      console.log(
+        `[relay] stored webhook reply for bounty ${bountyId} thread ${parentCastHash} (not posted to Farcaster)`
+      );
     }
 
     jsonResponse(response, 200, {
@@ -292,6 +296,10 @@ export async function handleNeynarWebhook(request: IncomingMessage, response: Se
       jsonResponse(response, 200, { ok: true, ignored: true, reason: "No matching bounty thread." });
       return;
     }
+
+    console.log(
+      `[relay] matched webhook reply to bounty ${relayState.envelope.decision.bountyId.toString()} thread ${parentCastHash}`
+    );
 
     const productionArtifact = await loadProductionArtifact(relayState.envelope.decision.bountyId.toString());
     const answer = answerFollowUpQuestion(event.data.text, {
