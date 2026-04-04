@@ -3,7 +3,13 @@ import { createHmac } from "node:crypto";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { join } from "node:path";
-import { answerFollowUpQuestion, postCastViaNeynar, type DecisionRelayEnvelope } from "./social.js";
+import {
+  answerFollowUpQuestion,
+  buildDecisionMessage,
+  buildDecisionReply,
+  postCastViaNeynar,
+  type DecisionRelayEnvelope
+} from "./social.js";
 
 type RelayState = {
   generatedAt: string;
@@ -87,25 +93,14 @@ function truncateText(text: string, maxLength: number): string {
 }
 
 function buildCastTexts(envelope: DecisionRelayEnvelope): { main: string; reply: string } {
-  const { bountyId, bountyTitle, winningClaimId, reason, url } = envelope.decision;
-
-  const main = truncateText(
-    [
-      `poidh decision: ${bountyTitle}`,
-      `winner claim: ${winningClaimId.toString()}`,
-      url ? url : undefined
-    ]
-      .filter(Boolean)
-      .join("\n"),
-    280
-  );
-
+  const main = truncateText(buildDecisionMessage(envelope.decision, envelope.castDraft.author), 280);
   const reply = truncateText(
-    [
-      `Why it won for bounty ${bountyId.toString()}:`,
-      `- ${truncateText(reason, 180)}`,
-      `- ${truncateText(envelope.followUpAnswers[1]?.answer ?? "The bot checked the claim metadata and proof content.", 180)}`
-    ].join("\n"),
+    buildDecisionReply(
+      envelope.decision,
+      envelope.decision.reason,
+      envelope.castDraft.author,
+      envelope.followUpAnswers
+    ),
     280
   );
 

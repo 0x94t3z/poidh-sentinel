@@ -42,10 +42,36 @@ function parseSocialTargets(rawTargets?: string): SocialTarget[] {
 export function buildDecisionMessage(post: DecisionPost, author?: string): string {
   return [
     author ? `by ${author}` : undefined,
-    `poidh decision for bounty ${post.bountyId.toString()}: ${post.bountyTitle}`,
-    `winner claim: ${post.winningClaimId.toString()}`,
-    `reason: ${post.reason}`,
-    post.url ? `url: ${post.url}` : undefined
+    `🏁 Poidh decision`,
+    `Bounty: ${post.bountyTitle}`,
+    `Winner: claim ${post.winningClaimId.toString()}`,
+    post.url ? `View bounty: ${post.url}` : undefined,
+    `Details in thread ↓`
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+export function buildDecisionReply(
+  post: DecisionPost,
+  reason: string,
+  author?: string,
+  followUpAnswers: Array<{
+    question: string;
+    answer: string;
+  }> = buildFollowUpAnswers(reason)
+): string {
+  const reasoning = followUpAnswers[0]?.answer ?? reason;
+  const evidence = followUpAnswers[1]?.answer ?? "It checked the claim tokenURI, claim metadata, resolved content type, and the submission text.";
+  const autonomy = followUpAnswers[2]?.answer ?? "Yes. The winner is selected by deterministic scoring logic from all submitted claims.";
+
+  return [
+    author ? `by ${author}` : undefined,
+    `Why it won:`,
+    `• ${reasoning}`,
+    `• ${evidence}`,
+    `• ${autonomy}`,
+    post.url ? `• Bounty: ${post.url}` : undefined
   ]
     .filter(Boolean)
     .join("\n");
