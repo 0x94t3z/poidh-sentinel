@@ -2,77 +2,11 @@ import { writeFile } from "node:fs/promises";
 import { parseEther } from "viem";
 import { evaluateClaims } from "./core/evaluate.js";
 import { resolveFrontendBountyUrl } from "./core/chains.js";
-import {
-  summarizeEvaluations,
-  writeDecisionArtifact,
-  writeFarcasterProofArtifact,
-  writeSocialProofArtifact
-} from "./core/artifacts.js";
-import { buildFarcasterCastDraft, buildFollowUpAnswers, postDecision } from "./core/social.js";
+import { postDecision } from "./core/social.js";
 import { PoidhClient } from "./core/poidh.js";
 import type { BountyTuple, ClaimEvaluation } from "./core/types.js";
-
-function normalizePrompt(text: string): string {
-  return text.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
-}
-
-function validateRealWorldBounty(name: string, description: string): string[] {
-  const combined = normalizePrompt(`${name} ${description}`);
-  const requiredSignals = [
-    "photo",
-    "picture",
-    "image",
-    "video",
-    "physical",
-    "outdoor",
-    "outdoors",
-    "proof",
-    "irl",
-    "real world",
-    "show",
-    "capture",
-    "record",
-    "take a photo",
-    "take a picture"
-  ];
-  const digitalSignals = [
-    "github",
-    "repo",
-    "website",
-    "web site",
-    "json",
-    "csv",
-    "api",
-    "code",
-    "program",
-    "script",
-    "click",
-    "like",
-    "follow",
-    "retweet",
-    "star",
-    "mint",
-    "online only",
-    "digital only"
-  ];
-
-  const matchedRequired = requiredSignals.filter((signal) => combined.includes(signal));
-  const matchedDigital = digitalSignals.filter((signal) => combined.includes(signal));
-
-  const reasons: string[] = [];
-  if (matchedRequired.length === 0) {
-    reasons.push(
-      "The bounty text must clearly ask for a real-world action such as a photo, video, physical task, or proof of action."
-    );
-  }
-  if (matchedDigital.length > 0 && matchedRequired.length === 0) {
-    reasons.push(
-      `The bounty text looks digital-only because it includes: ${matchedDigital.join(", ")}.`
-    );
-  }
-
-  return reasons;
-}
+import { validateRealWorldBounty } from "./runtime/bountyValidation.js";
+import { writeDecisionArtifacts } from "./runtime/decisionArtifacts.js";
 
 export type BotConfig = {
   chainName: "arbitrum" | "base" | "degen";
@@ -313,7 +247,7 @@ export class PoidhBot {
       try {
         const result = await this.actOnBounty(bountyId);
         if (result) {
-          await this.writeDecisionArtifacts(bountyId, result.bounty, result.evaluations);
+          await this.persistDecisionArtifacts(bountyId, result.bounty, result.evaluations);
         }
       } catch (error) {
         console.error(error);
@@ -323,50 +257,11 @@ export class PoidhBot {
     }
   }
 
-  async writeDecisionArtifacts(
+  async persistDecisionArtifacts(
     bountyId: bigint,
     bounty: Awaited<ReturnType<PoidhClient["getBounty"]>>,
     evaluations: ClaimEvaluation[]
-  ):
-    | Promise<
-        | {
-            artifact: {
-              generatedAt: string;
-              chainName: string;
-              issuerAddress: string;
-              issuerPendingWithdrawalsWei?: string;
-              bountyId: string;
-              bountyUrl: string;
-              bountyName: string;
-              bountyDescription: string;
-              bountyAmountWei: string;
-              bountyTxHash?: `0x${string}`;
-              claimId?: string;
-              claimTxHash?: `0x${string}`;
-              submittedClaims?: Array<{
-                claimId: string;
-                claimTxHash: `0x${string}`;
-                claimantAddress: string;
-                name: string;
-                description: string;
-              }>;
-              finalActionTxHash?: `0x${string}`;
-              winnerClaimId?: string;
-              evaluations: Array<{
-                claimId: string;
-                score: number;
-                accepted: boolean;
-                proof: string;
-                reasons: string[];
-              }>;
-            };
-            reportPaths: { jsonPath: string; markdownPath: string };
-            socialPaths: { jsonPath: string; markdownPath: string };
-            farcasterPaths: { jsonPath: string; markdownPath: string };
-          }
-        | undefined
-      >
-  {
+  ) {
     const winner = evaluations[0];
     if (!winner) {
       return undefined;
@@ -380,74 +275,29 @@ export class PoidhBot {
     const artifactDir = this.artifactDir ?? "artifacts";
     const bountyUrl = this.bountyUrl ?? resolveFrontendBountyUrl(this.issuerClient.chainName, bountyId);
     const issuerPendingWithdrawals = await this.issuerClient.getPendingWithdrawals(this.issuerClient.account.address);
-    const artifact = {
-      generatedAt: new Date().toISOString(),
+
+    const reason = winner.reasons.join(" ");
+    const { reportPaths, socialPaths, farcasterPaths } = await writeDecisionArtifacts({
+      artifactDir,
       chainName: this.issuerClient.chainName,
       issuerAddress: this.issuerClient.account.address,
       issuerPendingWithdrawalsWei: issuerPendingWithdrawals.toString(),
-      bountyId: bountyId.toString(),
+      bountyId,
+      bounty,
       bountyUrl,
-      bountyName: bounty.name,
-      bountyDescription: bounty.description,
-      bountyAmountWei: bounty.amount.toString(),
       bountyTxHash: this.lastBountyTxHash,
       claimId: this.lastClaimId?.toString(),
       claimTxHash: this.lastClaimTxHash,
       submittedClaims: this.submittedClaims,
       finalActionTxHash: this.lastFinalActionTxHash,
-      winnerClaimId: winner.claim.id.toString(),
-      evaluations: summarizeEvaluations(evaluations)
-    };
-
-    const reason = winner.reasons.join(" ");
-    const reportPaths = await writeDecisionArtifact(artifactDir, artifact);
-    const socialPaths = await writeSocialProofArtifact(artifactDir, {
-      generatedAt: new Date().toISOString(),
-      chainName: this.issuerClient.chainName,
-      bountyId: bountyId.toString(),
-      bountyUrl,
-      bountyTitle: bounty.name,
-      winnerClaimId: winner.claim.id.toString(),
+      winnerClaimId: winner.claim.id,
+      evaluations,
       reason,
-      author: process.env.SOCIAL_POST_AUTHOR?.trim(),
-      post: [
-        `poidh decision for bounty ${bountyId.toString()}: ${bounty.name}`,
-        `winner claim: ${winner.claim.id.toString()}`,
-        `reason: ${reason}`,
-        `url: ${bountyUrl}`
-      ].join("\n"),
-      followUpAnswers: [
-        ...buildFollowUpAnswers(reason),
-        {
-          question: "Was the payout handled on-chain?",
-          answer: this.lastFinalActionTxHash
-            ? `Yes, the final action transaction was ${this.lastFinalActionTxHash}.`
-            : "The bot has not submitted a final on-chain action yet."
-        }
-      ]
-    });
-    const farcasterPaths = await writeFarcasterProofArtifact(artifactDir, {
-      generatedAt: new Date().toISOString(),
-      chainName: this.issuerClient.chainName,
-      bountyId: bountyId.toString(),
-      bountyUrl,
-      bountyTitle: bounty.name,
-      winnerClaimId: winner.claim.id.toString(),
-      cast: buildFarcasterCastDraft(
-        {
-          bountyId,
-          bountyTitle: bounty.name,
-          winningClaimId: winner.claim.id,
-          reason,
-          url: bountyUrl
-        },
-        process.env.SOCIAL_POST_AUTHOR?.trim()
-      )
+      author: process.env.SOCIAL_POST_AUTHOR?.trim()
     });
 
     this.lastArtifactKey = decisionKey;
     return {
-      artifact,
       reportPaths,
       socialPaths,
       farcasterPaths

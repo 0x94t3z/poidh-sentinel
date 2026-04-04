@@ -106,9 +106,10 @@ npm run dev -- resolve-vote --bounty-id 123
 ## Code layout
 
 - `src/core/` holds the reusable chain, evaluation, relay, and artifact helpers
+- `src/runtime/` holds the workflow helpers for bounty validation, decision artifacts, and relay state/handlers
 - `src/bot.ts` coordinates bounty creation, claim monitoring, scoring, and payout
 - `src/main.ts` is the CLI entrypoint
-- `src/relay.ts` handles public decision publishing and follow-up replies
+- `src/relay.ts` starts the relay server
 
 Run the relay locally with:
 
