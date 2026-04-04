@@ -1,4 +1,7 @@
 node_modules
 dist
 .env
+.poidh-state.json
+artifacts/
 .DS_Store
+requirements.txt
