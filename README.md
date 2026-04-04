@@ -56,7 +56,30 @@ https://github.com/picsoritdidnthappen/poidh-app/blob/prod/SKILL.md
 
 ## Commands
 
-Create a bounty:
+Requirements flow (recommended):
+
+1. Start relay (for Farcaster decision posting).
+
+```bash
+npm run relay
+```
+
+2. Run autonomous flow.
+
+```bash
+npm run dev -- requirements-flow
+```
+
+`requirements-flow` (alias of `run`) follows the target flow:
+- Create a real-world bounty
+- Wait for public submissions
+- Evaluate and pick a winner
+- Execute on-chain final action (`acceptClaim` or open-bounty vote path)
+- Post public reasoning in the Farcaster thread
+
+Advanced commands:
+
+Create a bounty only:
 
 ```bash
 npm run dev -- create-bounty
@@ -80,6 +103,12 @@ Or let the bot create and manage its own bounty from env defaults:
 npm run dev -- run
 ```
 
+Alias:
+
+```bash
+npm run dev -- autonomous-run
+```
+
 Explain winner and reasoning:
 
 ```bash
@@ -90,6 +119,18 @@ Resolve open-bounty vote manually if needed:
 
 ```bash
 npm run dev -- resolve-vote --bounty-id 123
+```
+
+Resume watching an existing bounty:
+
+```bash
+npm run dev -- watch-bounty --bounty-id 123
+```
+
+Alias:
+
+```bash
+npm run dev -- resume-bounty --bounty-id 123
 ```
 
 Run the test suite:
@@ -151,6 +192,7 @@ These include winner, reasons, follow-up Q/A text, and both the declared bounty 
 - Keep `AUTO_ACCEPT=true` for autonomous payout behavior.
 - Use `MIN_CLAIMS_BEFORE_ACCEPT` and `MIN_DECISION_AGE_SECONDS` to keep the bounty open long enough for organic competition.
 - `MIN_CLAIMS_BEFORE_ACCEPT=2` is a good default for demos where you want more than one claim before payout.
+- In autonomous mode, final public decision posts are sent after the on-chain final action path is reached.
 
 ## Claim pack
 

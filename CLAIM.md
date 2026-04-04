@@ -23,6 +23,7 @@ It supports Poidh on Arbitrum, Base, and Degen Chain by selecting the chain thro
 
 - The bot signs transactions from `PRIVATE_KEY` directly.
 - `run` creates the bounty if missing, then keeps monitoring automatically.
+- `requirements-flow` (alias of `run`) is the recommended command for the end-to-end autonomous path.
 - `AUTO_ACCEPT=true` lets the bot finalize the winning claim without a manual step.
 - `MIN_CLAIMS_BEFORE_ACCEPT` and `MIN_DECISION_AGE_SECONDS` keep the bounty open long enough for organic competition. `MIN_DECISION_AGE_SECONDS` is a bot-side delay after the first claim is observed; it is not Poidh's own end timer.
 - Decision summaries and follow-up Q/A text are written to artifacts.

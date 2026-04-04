@@ -179,7 +179,10 @@ export class PoidhBot {
     console.log(`Best claim: ${winner.claim.id.toString()} (${winner.score.toFixed(2)})`);
     console.log(reason);
 
-    if (this.lastDecisionKey !== decisionKey) {
+    const publishDecisionIfNeeded = async () => {
+      if (this.lastDecisionKey === decisionKey) {
+        return;
+      }
       await postDecision({
         bountyId,
         bountyTitle: bounty.name,
@@ -189,9 +192,10 @@ export class PoidhBot {
       });
       this.lastDecisionKey = decisionKey;
       await this.persistBountyState(bountyId);
-    }
+    };
 
     if (!this.autoAccept) {
+      await publishDecisionIfNeeded();
       return { bounty, evaluations };
     }
 
@@ -220,6 +224,7 @@ export class PoidhBot {
 
     const currentVotingClaim = await this.issuerClient.getCurrentVotingClaim(bountyId);
     const hasExternalContributor = await this.issuerClient.hasExternalContributor(bountyId);
+    let canPublishFinalDecision = false;
 
     if (currentVotingClaim !== 0n) {
       const tracker = await this.issuerClient.getVotingTracker(bountyId);
@@ -229,6 +234,7 @@ export class PoidhBot {
         await this.issuerClient.waitForReceipt(resolveHash);
         this.lastFinalActionTxHash = resolveHash;
         console.log(`Resolved vote for bounty ${bountyId.toString()}.`);
+        canPublishFinalDecision = true;
       } else {
         console.log(
           `Vote still active for bounty ${bountyId.toString()} and ends at ${tracker.deadline.toString()}.`
@@ -239,13 +245,20 @@ export class PoidhBot {
       await this.issuerClient.waitForReceipt(voteHash);
       this.lastFinalActionTxHash = voteHash;
       console.log(`Submitted claim ${winner.claim.id.toString()} for vote.`);
+      canPublishFinalDecision = true;
     } else if (!winner.claim.accepted) {
       const acceptHash = await this.issuerClient.acceptClaim(bountyId, winner.claim.id);
       await this.issuerClient.waitForReceipt(acceptHash);
       this.lastFinalActionTxHash = acceptHash;
       console.log(`Accepted claim ${winner.claim.id.toString()}.`);
+      canPublishFinalDecision = true;
     } else {
       console.log(`Winner claim ${winner.claim.id.toString()} is already accepted.`);
+      canPublishFinalDecision = true;
+    }
+
+    if (canPublishFinalDecision) {
+      await publishDecisionIfNeeded();
     }
 
     return { bounty, evaluations };

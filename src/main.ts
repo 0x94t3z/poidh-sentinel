@@ -121,7 +121,13 @@ function parseFlagMap(argv: string[]) {
 }
 
 async function run() {
-  const [command = "run", ...rest] = process.argv.slice(2);
+  const [rawCommand = "run", ...rest] = process.argv.slice(2);
+  const commandAliases: Record<string, string> = {
+    "autonomous-run": "run",
+    "requirements-flow": "run",
+    "resume-bounty": "watch-bounty"
+  };
+  const command = commandAliases[rawCommand] ?? rawCommand;
   const { flags } = parseFlagMap(rest);
 
   const chainName = getChainName();
@@ -260,7 +266,7 @@ async function run() {
     }
     default:
       throw new Error(
-        `Unknown command "${command}". Use create-bounty, evaluate-bounty, explain-bounty, resolve-vote, watch-bounty, or run.`
+        `Unknown command "${rawCommand}". Use create-bounty, evaluate-bounty, explain-bounty, resolve-vote, watch-bounty, run, requirements-flow, or autonomous-run.`
       );
   }
 }
