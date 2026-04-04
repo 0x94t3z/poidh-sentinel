@@ -43,6 +43,8 @@ cp .env.example .env
 - For optional LLM polish on Farcaster copy, set `OPENROUTER_API_KEY` and optionally `OPENROUTER_MODEL=openrouter/free`
 - To prevent first-claim instant resolution, set `MIN_CLAIMS_BEFORE_ACCEPT` and/or `MIN_DECISION_AGE_SECONDS`
 
+Poidh itself does not end solo bounties on a timer; the creator accepts a claim when they decide it is good enough. Open bounties can move into the contract’s vote flow, which has its own on-chain deadline. `MIN_DECISION_AGE_SECONDS` is only a bot-side safety delay after the first claim is observed, so the bot does not jump on the first valid submission too early.
+
 Recommended defaults in this repo:
 - `BOUNTY_KIND=solo`
 - `BOUNTY_NAME=Take a photo of something blue outdoors`
@@ -130,6 +132,8 @@ npm run relay
 Set `SOCIAL_POST_WEBHOOK_URL` if you want the bot to forward its decision summary to another service, such as a Farcaster or X relay you control.
 
 If the webhook is unset, the bot prints the decision locally instead.
+
+That free path is enough for local testing: the bot still creates the bounty, monitors claims, scores them, and writes the decision artifacts. Only the public post handoff is skipped, so you can keep the whole workflow free until you decide to connect a paid or credit-backed posting service.
 
 Artifacts written to `artifacts/production/`:
 - `poidh-production-<bountyId>.json|md`

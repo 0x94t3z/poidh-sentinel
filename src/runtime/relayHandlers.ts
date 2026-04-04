@@ -286,20 +286,34 @@ export async function handleNeynarWebhook(request: IncomingMessage, response: Se
       return;
     }
 
-    const parentCastHash = event.data.parent_hash ?? event.data.thread_hash ?? undefined;
-    if (!parentCastHash) {
+    const threadCastHash = event.data.thread_hash?.trim() || undefined;
+    const parentCastHash = event.data.parent_hash?.trim() || undefined;
+    const candidateThreadHashes = [...new Set([threadCastHash, parentCastHash].filter(Boolean))];
+    if (candidateThreadHashes.length === 0) {
       jsonResponse(response, 200, { ok: true, ignored: true });
       return;
     }
 
-    const relayState = await findRelayStateByCastHash(parentCastHash);
+    let relayState: RelayState | undefined;
+    let matchedThreadHash: string | undefined;
+    for (const candidate of candidateThreadHashes) {
+      if (!candidate) {
+        continue;
+      }
+      relayState = await findRelayStateByCastHash(candidate);
+      if (relayState) {
+        matchedThreadHash = candidate;
+        break;
+      }
+    }
+
     if (!relayState) {
       jsonResponse(response, 200, { ok: true, ignored: true, reason: "No matching bounty thread." });
       return;
     }
 
     console.log(
-      `[relay] matched webhook reply to bounty ${relayState.envelope.decision.bountyId.toString()} thread ${parentCastHash}`
+      `[relay] matched webhook reply to bounty ${relayState.envelope.decision.bountyId.toString()} thread ${matchedThreadHash ?? threadCastHash ?? parentCastHash}`
     );
 
     if (event.data.hash && relayStateCastHashes(relayState).includes(event.data.hash)) {
@@ -317,6 +331,9 @@ export async function handleNeynarWebhook(request: IncomingMessage, response: Se
       finalActionTxHash: productionArtifact?.finalActionTxHash
     });
 
+    const replyParentHash =
+      event.data.hash?.trim() || matchedThreadHash || threadCastHash || parentCastHash;
+
     let farcasterCastHash: string | undefined;
     let farcasterError: string | undefined;
 
@@ -328,7 +345,7 @@ export async function handleNeynarWebhook(request: IncomingMessage, response: Se
           author: relayState.envelope.castDraft.author,
           parentUrl: relayState.envelope.castDraft.parentUrl
         },
-        { parentCastHash }
+        { parentCastHash: replyParentHash }
       );
     } catch (error) {
       farcasterError = error instanceof Error ? error.message : "Unknown Farcaster reply error";
@@ -348,7 +365,7 @@ export async function handleNeynarWebhook(request: IncomingMessage, response: Se
           answer,
           postedToFarcaster: Boolean(farcasterCastHash),
           farcasterCastHash,
-          parentCastHash,
+          parentCastHash: replyParentHash,
           source: `neynar-webhook:${event.data?.author?.fid ?? "unknown"}`
         }
       ]
