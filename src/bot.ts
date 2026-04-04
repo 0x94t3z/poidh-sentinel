@@ -1,16 +1,16 @@
 import { writeFile } from "node:fs/promises";
 import { parseEther } from "viem";
-import { evaluateClaims } from "./evaluate.js";
-import { resolveFrontendBountyUrl } from "./chains.js";
+import { evaluateClaims } from "./core/evaluate.js";
+import { resolveFrontendBountyUrl } from "./core/chains.js";
 import {
   summarizeEvaluations,
   writeDecisionArtifact,
   writeFarcasterProofArtifact,
   writeSocialProofArtifact
-} from "./artifacts.js";
-import { buildFarcasterCastDraft, buildFollowUpAnswers, postDecision } from "./social.js";
-import { PoidhClient } from "./poidh.js";
-import type { BountyTuple, ClaimEvaluation } from "./types.js";
+} from "./core/artifacts.js";
+import { buildFarcasterCastDraft, buildFollowUpAnswers, postDecision } from "./core/social.js";
+import { PoidhClient } from "./core/poidh.js";
+import type { BountyTuple, ClaimEvaluation } from "./core/types.js";
 
 function normalizePrompt(text: string): string {
   return text.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();

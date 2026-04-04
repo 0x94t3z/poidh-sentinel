@@ -10,7 +10,8 @@ import {
   postCastViaNeynar,
   polishDecisionCopy,
   type DecisionRelayEnvelope
-} from "./social.js";
+} from "./core/social.js";
+import { getEnv, getInt } from "./config.js";
 
 type RelayState = {
   generatedAt: string;
@@ -58,20 +59,6 @@ function normalizeRelayState(state: RelayState): RelayState {
     ...state,
     followUpReplies: state.followUpReplies ?? []
   };
-}
-
-function getEnv(name: string, fallback = ""): string {
-  const value = process.env[name]?.trim();
-  return value && value.length > 0 ? value : fallback;
-}
-
-function getInt(name: string, fallback: number): number {
-  const value = process.env[name]?.trim();
-  if (!value) {
-    return fallback;
-  }
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 function relayOutputDir(): string {

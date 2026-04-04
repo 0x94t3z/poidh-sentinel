@@ -8,13 +8,13 @@ Poidh Sentinel is an open-source TypeScript bot for Poidh bounty workflows. It c
 
 ## Why it matches
 
-- EOA control: `src/main.ts` and `src/poidh.ts`
+- EOA control: `src/main.ts` and `src/core/poidh.ts`
 - Bounty creation: `src/main.ts` (`create-bounty`, `run`)
 - Submission monitoring: `src/bot.ts` watcher loop
-- Evaluation logic: `src/evaluate.ts`
+- Evaluation logic: `src/core/evaluate.ts`
 - Winner selection logic: `src/bot.ts` (highest score)
 - On-chain payout flow: `acceptClaim`, `submitClaimForVote`, and `resolveVote`
-- Public reasoning: `src/social.ts`, `src/artifacts.ts`, and `src/relay.ts`
+- Public reasoning: `src/core/social.ts`, `src/core/artifacts.ts`, and `src/relay.ts`
 - Real-world guard: `src/bot.ts` rejects obvious digital-only bounty prompts before creation
 
 ## Autonomy model

@@ -1,37 +1,8 @@
 import "dotenv/config";
 import { readFile } from "node:fs/promises";
 import { PoidhBot } from "./bot.js";
-import { resolveFrontendBountyUrl } from "./chains.js";
-
-function getEnv(name: string, fallback = ""): string {
-  const value = process.env[name]?.trim();
-  return value && value.length > 0 ? value : fallback;
-}
-
-function requireEnv(name: string): string {
-  const value = process.env[name]?.trim();
-  if (!value) {
-    throw new Error(`Missing required environment variable: ${name}`);
-  }
-  return value;
-}
-
-function getBool(name: string, fallback: boolean): boolean {
-  const value = process.env[name]?.trim();
-  if (!value) {
-    return fallback;
-  }
-  return ["1", "true", "yes", "on"].includes(value.toLowerCase());
-}
-
-function getInt(name: string, fallback: number): number {
-  const value = process.env[name]?.trim();
-  if (!value) {
-    return fallback;
-  }
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
+import { resolveFrontendBountyUrl } from "./core/chains.js";
+import { getBool, getEnv, getInt, requireEnv } from "./config.js";
 
 function getChainName(): "arbitrum" | "base" | "degen" {
   const value = getEnv("POIDH_CHAIN", "arbitrum").toLowerCase();

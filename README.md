@@ -103,6 +103,13 @@ npm run dev -- resolve-vote --bounty-id 123
 - Real-world bounty prompts are guarded so obvious digital-only tasks are rejected before creation
 - Auto-accept safeguards can keep the bounty open long enough for organic competition
 
+## Code layout
+
+- `src/core/` holds the reusable chain, evaluation, relay, and artifact helpers
+- `src/bot.ts` coordinates bounty creation, claim monitoring, scoring, and payout
+- `src/main.ts` is the CLI entrypoint
+- `src/relay.ts` handles public decision publishing and follow-up replies
+
 Run the relay locally with:
 
 ```bash
