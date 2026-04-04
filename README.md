@@ -33,6 +33,7 @@ cp .env.example .env
 3. Fill in your values.
 
 - `PRIVATE_KEY` must be an EOA private key, not a smart wallet.
+- `CLAIM_PRIVATE_KEY` is optional, but it should be a different EOA if you want the bot to submit a proof claim on a bounty it created.
 - `RPC_URL` should point at the chain you want to use.
 - `POIDH_CHAIN` must be `arbitrum`, `base`, or `degen`.
 
@@ -60,6 +61,12 @@ Run the watcher loop:
 
 ```bash
 npm run dev -- watch-bounty --bounty-id 123
+```
+
+Run a full demo cycle that creates a bounty, submits a claim from the claimant wallet, evaluates the claims, and writes proof artifacts:
+
+```bash
+npm run dev -- demo-cycle
 ```
 
 Or let the bot create and manage its own bounty from env defaults:
@@ -99,6 +106,7 @@ If the webhook is unset, the bot prints the decision locally instead.
 - This repo is set up for solo bounties first, because they are the simplest end-to-end proof of autonomy.
 - If you want to use the bot for open bounties with external contributors, keep it running so it can submit the winning claim for vote and resolve the vote after the window closes.
 - If you create a bounty with the bot's issuer wallet, use a separate claimant wallet for demos. Poidh prevents the issuer from claiming its own bounty.
+- Demo runs write JSON and markdown artifacts to `artifacts/` by default. You can override that with `ARTIFACT_DIR`.
 
 ## Next step for the bounty
 

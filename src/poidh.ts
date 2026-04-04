@@ -282,6 +282,7 @@ export class PoidhClient {
       hash,
       receipt,
       bountyId,
+      issuerAddress: this.account.address,
       url: resolveFrontendBountyUrl(this.chainName, bountyId)
     };
   }

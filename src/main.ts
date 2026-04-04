@@ -1,5 +1,6 @@
 import { PoidhBot } from "./bot.js";
 import { resolveFrontendBountyUrl } from "./chains.js";
+import { PoidhClient } from "./poidh.js";
 
 function getEnv(name: string, fallback = ""): string {
   const value = process.env[name]?.trim();
@@ -90,6 +91,8 @@ async function run() {
   const bountyName = getEnv("BOUNTY_NAME", "Autonomous poidh demo");
   const bountyDescription = getEnv("BOUNTY_DESCRIPTION", "Real-world action bounty for a demo run.");
   const bountyAmountEth = getEnv("BOUNTY_AMOUNT_ETH", "0.001");
+  const claimPrivateKey = getEnv("CLAIM_PRIVATE_KEY");
+  const artifactDir = getEnv("ARTIFACT_DIR");
   const flagBountyId = typeof flags.bountyId === "string" ? flags.bountyId : undefined;
   const bountyId = parseBountyId(flagBountyId ?? getEnv("BOUNTY_ID"));
 
@@ -97,12 +100,14 @@ async function run() {
     chainName,
     rpcUrl,
     privateKey,
+    claimPrivateKey: claimPrivateKey || undefined,
     pollIntervalMs,
     autoAccept,
     bountyKind,
     bountyName,
     bountyDescription,
     bountyAmountEth,
+    artifactDir: artifactDir || undefined,
     bountyId,
     claimName: getEnv("CLAIM_NAME"),
     claimDescription: getEnv("CLAIM_DESCRIPTION"),
@@ -116,6 +121,10 @@ async function run() {
       console.log(`Bounty ID: ${id.toString()}`);
       console.log(`Frontend URL: ${resolveFrontendBountyUrl(chainName, id)}`);
       console.log(`Issuer: ${client.account.address}`);
+      if (claimPrivateKey) {
+        const claimClient = new PoidhClient(chainName, rpcUrl, claimPrivateKey);
+        console.log(`Claim wallet: ${claimClient.account.address}`);
+      }
       break;
     }
     case "submit-claim": {
@@ -161,9 +170,13 @@ async function run() {
       await bot.runWatcher();
       break;
     }
+    case "demo-cycle": {
+      await bot.runDemoCycle();
+      break;
+    }
     default:
       throw new Error(
-        `Unknown command "${command}". Use create-bounty, submit-claim, evaluate-bounty, resolve-vote, watch-bounty, or run.`
+        `Unknown command "${command}". Use create-bounty, submit-claim, evaluate-bounty, resolve-vote, watch-bounty, demo-cycle, or run.`
       );
   }
 }
