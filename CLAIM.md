@@ -11,7 +11,7 @@ This repo provides a production-style autonomous Poidh bot that:
 - Evaluates claims with deterministic, auditable logic
 - Selects a winner automatically
 - Executes `acceptClaim` (solo) or open-bounty vote flow on-chain
-- Produces a public decision explanation payload for X publishing or manual handoff when posting access is unavailable
+- Produces a public decision explanation payload for Farcaster publishing or manual handoff when posting access is unavailable
 
 ## Why this matches the requirement
 
@@ -22,7 +22,7 @@ This repo provides a production-style autonomous Poidh bot that:
 - Winner selection logic: `src/bot.ts` (highest score)
 - Automation entrypoint: `src/main.ts` (`run`, `watch-bounty`)
 - Public reasoning + social payload: `src/social.ts` and `src/artifacts.ts`
-- X relay: `src/relay.ts`
+- Farcaster relay: `src/relay.ts`
 
 ## Autonomy model
 
@@ -34,7 +34,7 @@ This repo provides a production-style autonomous Poidh bot that:
 ## Assumptions and limitations
 
 - Social publishing is automated through `SOCIAL_POST_WEBHOOK_URL` (relay).
-- The relay uses X API credentials to publish the decision thread when the connected X account has posting access/credits.
+- The relay uses a Neynar signer UUID to publish the decision thread when the connected Farcaster account has posting access/credits.
 - If posting is unavailable, the relay records the failure and the bot still generates local artifacts and a complete post draft.
 - Open bounty finalization depends on Poidh voting window timing.
 
@@ -44,11 +44,11 @@ This repo provides a production-style autonomous Poidh bot that:
 
 - `poidh-production-<bountyId>.json|md`
 - `poidh-social-<bountyId>.json|md`
-- `poidh-x-<bountyId>.json|md` (social draft only)
+- `poidh-farcaster-<bountyId>.json|md` (social draft only)
 
 ## Submission checklist
 
 - Public repo link
 - Proof of one real end-to-end bounty run on Poidh
-- Public X decision post link
+- Public Farcaster decision post link
 - Matching artifact files from `artifacts/production/`

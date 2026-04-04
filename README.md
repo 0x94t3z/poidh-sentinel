@@ -2,7 +2,7 @@
 
 Open-source TypeScript bot for autonomous Poidh bounty execution.
 
-It creates a bounty from an EOA wallet, monitors claims, scores submissions with auditable logic, picks a winner, executes on-chain resolution, and produces social-proof output for X publishing or manual handoff when posting access is unavailable.
+It creates a bounty from an EOA wallet, monitors claims, scores submissions with auditable logic, picks a winner, executes on-chain resolution, and produces social-proof output for Farcaster publishing or manual handoff when posting access is unavailable.
 
 ## Requirement match
 
@@ -18,7 +18,7 @@ It creates a bounty from an EOA wallet, monitors claims, scores submissions with
   - decision text is generated automatically
   - JSON/markdown artifacts are written to `artifacts/production/`
   - webhook payload includes follow-up Q/A for transparent social replies
-  - local relay can auto-post to X when the connected X account has posting access/credits
+  - local relay can auto-post to Farcaster using a Neynar signer when the connected account has posting access/credits
 
 ## Setup
 
@@ -40,7 +40,7 @@ cp .env.example .env
 - `RPC_URL` chain RPC URL
 - `POIDH_CHAIN` one of `arbitrum`, `base`, `degen`
 - For relay posting, set `SOCIAL_POST_WEBHOOK_URL=http://127.0.0.1:8787/decision`
-- For X posting, set `X_CONSUMER_KEY`, `X_CONSUMER_SECRET`, `X_ACCESS_TOKEN`, and `X_ACCESS_TOKEN_SECRET`
+- For Farcaster posting, set `NEYNAR_API_KEY`, `FARCASTER_SIGNER_UUID`, and optionally `FARCASTER_CHANNEL_ID=poidh`
 
 Recommended defaults in this repo:
 - `BOUNTY_KIND=solo`
@@ -93,8 +93,8 @@ npm run dev -- resolve-vote --bounty-id 123
 
 Social post order of execution:
 - If `SOCIAL_POST_WEBHOOK_URL` is set, bot sends full decision payload to your relay/poster service.
-- The relay can publish the decision to X using your X API credentials when that X account has posting access/credits.
-- If posting is unavailable, the relay records the reason and the bot still writes proof artifacts and a complete post draft locally.
+- The relay can publish the decision to Farcaster using your Neynar signer when that account has posting access/credits.
+- If posting is unavailable, the relay records the reason and the bot still writes proof artifacts and a complete Farcaster draft locally.
 
 Relay payload includes a deterministic `followUpAnswers` array so your poster can auto-reply with reasoning context.
 
@@ -107,7 +107,7 @@ npm run relay
 Artifacts written to `artifacts/production/`:
 - `poidh-production-<bountyId>.json|md`
 - `poidh-social-<bountyId>.json|md`
-- `poidh-x-<bountyId>.json|md` (social draft only)
+- `poidh-farcaster-<bountyId>.json|md` (social draft only)
 
 These include winner, reasons, and follow-up Q/A text.
 

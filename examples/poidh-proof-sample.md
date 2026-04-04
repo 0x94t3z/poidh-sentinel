@@ -2,7 +2,7 @@
 
 This is a sanitized example of the proof artifacts the bot produces after a bounty run.
 It is intended for repository review and submission packaging.
-The same decision package can be published through an X/Farcaster relay or posted manually.
+The same decision package can be published through a Farcaster relay or posted manually.
 
 ## Summary
 

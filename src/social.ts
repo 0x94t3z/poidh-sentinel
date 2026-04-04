@@ -33,7 +33,7 @@ function parseSocialTargets(rawTargets?: string): SocialTarget[] {
     .filter((target): target is SocialTarget => target === "x" || target === "farcaster");
 
   if (!targets || targets.length === 0) {
-    return ["x", "farcaster"];
+    return ["farcaster"];
   }
 
   return [...new Set(targets)];
@@ -104,15 +104,21 @@ function stringifyWithBigInts(value: unknown): string {
 
 type NeynarCastResponse = {
   success?: boolean;
+  cast?: {
+    hash?: string;
+  };
 };
 
-export async function postCastViaNeynar(castDraft: FarcasterCastDraft): Promise<boolean> {
+export async function postCastViaNeynar(
+  castDraft: FarcasterCastDraft,
+  options?: { parentCastHash?: string }
+): Promise<string | undefined> {
   const apiKey = process.env.NEYNAR_API_KEY?.trim();
   const signerUuid = process.env.FARCASTER_SIGNER_UUID?.trim();
   const channelId = process.env.FARCASTER_CHANNEL_ID?.trim();
 
   if (!apiKey || !signerUuid) {
-    return false;
+    return undefined;
   }
 
   const response = await fetch("https://api.neynar.com/v2/farcaster/cast/", {
@@ -126,7 +132,7 @@ export async function postCastViaNeynar(castDraft: FarcasterCastDraft): Promise<
       text: castDraft.text,
       embeds: castDraft.embeds.map((embed) => ({ url: embed.url })),
       channel_id: channelId || undefined,
-      parent: castDraft.parentUrl || undefined
+      parent: options?.parentCastHash || undefined
     })
   });
 
@@ -135,7 +141,11 @@ export async function postCastViaNeynar(castDraft: FarcasterCastDraft): Promise<
   }
 
   const payload = (await response.json()) as NeynarCastResponse;
-  return payload.success !== false;
+  if (payload.success === false) {
+    throw new Error("Failed to post Farcaster cast via Neynar: success=false");
+  }
+
+  return payload.cast?.hash;
 }
 
 export async function postDecision(post: DecisionPost): Promise<boolean> {

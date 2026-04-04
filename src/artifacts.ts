@@ -175,17 +175,17 @@ export async function writeSocialProofArtifact(
   return { jsonPath, markdownPath };
 }
 
-export async function writeXProofArtifact(
+export async function writeFarcasterProofArtifact(
   artifactDir: string,
   artifact: FarcasterProofArtifact
 ): Promise<{ jsonPath: string; markdownPath: string }> {
   await mkdir(artifactDir, { recursive: true });
-  const baseName = `poidh-x-${artifact.bountyId}`;
+  const baseName = `poidh-farcaster-${artifact.bountyId}`;
   const jsonPath = join(artifactDir, `${baseName}.json`);
   const markdownPath = join(artifactDir, `${baseName}.md`);
 
   const lines = [
-    `# poidh x proof`,
+    `# poidh farcaster proof`,
     ``,
     `- Generated at: ${artifact.generatedAt}`,
     `- Chain: ${artifact.chainName}`,
