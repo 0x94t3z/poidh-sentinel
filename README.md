@@ -18,7 +18,7 @@ It creates a bounty from an EOA wallet, monitors claims, scores submissions with
   - decision text is generated automatically
   - JSON/markdown artifacts are written to `artifacts/production/`
   - webhook payload includes follow-up Q/A for transparent social replies
-  - can auto-post to Farcaster via Neynar signer without manual compose
+  - can auto-post to Farcaster via a local relay or Neynar signer without manual compose
 
 ## Setup
 
@@ -39,6 +39,7 @@ cp .env.example .env
 - `PRIVATE_KEY` issuer EOA key
 - `RPC_URL` chain RPC URL
 - `POIDH_CHAIN` one of `arbitrum`, `base`, `degen`
+- For relay posting, set `SOCIAL_POST_WEBHOOK_URL=http://127.0.0.1:8787/decision`
 - For direct Farcaster posting, set `NEYNAR_API_KEY` and `FARCASTER_SIGNER_UUID`
 
 Recommended defaults in this repo:
@@ -96,6 +97,12 @@ Social post order of execution:
 - Else, bot prints the decision locally and still writes proof artifacts.
 
 Relay payload includes a deterministic `followUpAnswers` array so your poster can auto-reply with reasoning context.
+
+Run the relay locally with:
+
+```bash
+npm run relay
+```
 
 Artifacts written to `artifacts/production/`:
 - `poidh-production-<bountyId>.json|md`

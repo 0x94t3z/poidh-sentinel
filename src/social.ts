@@ -100,7 +100,7 @@ type NeynarCastResponse = {
   success?: boolean;
 };
 
-async function postViaNeynar(castDraft: FarcasterCastDraft): Promise<boolean> {
+export async function postCastViaNeynar(castDraft: FarcasterCastDraft): Promise<boolean> {
   const apiKey = process.env.NEYNAR_API_KEY?.trim();
   const signerUuid = process.env.FARCASTER_SIGNER_UUID?.trim();
   const channelId = process.env.FARCASTER_CHANNEL_ID?.trim();
@@ -150,7 +150,7 @@ export async function postDecision(post: DecisionPost): Promise<boolean> {
     return true;
   }
 
-  const postedViaNeynar = await postViaNeynar(envelope.castDraft);
+  const postedViaNeynar = await postCastViaNeynar(envelope.castDraft);
   if (postedViaNeynar) {
     return true;
   }

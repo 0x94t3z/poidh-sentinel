@@ -22,6 +22,7 @@ This repo provides a production-style autonomous Poidh bot that:
 - Winner selection logic: `src/bot.ts` (highest score)
 - Automation entrypoint: `src/main.ts` (`run`, `watch-bounty`)
 - Public reasoning + social payload: `src/social.ts` and `src/artifacts.ts`
+- Optional webhook relay: `src/relay.ts`
 
 ## Autonomy model
 

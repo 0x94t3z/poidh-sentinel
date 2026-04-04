@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx src/main.ts",
+    "relay": "tsx src/relay.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/main.js",
     "check": "tsc -p tsconfig.json --noEmit"
