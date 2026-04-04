@@ -1,32 +1,20 @@
 # Poidh Sentinel
 
-Open-source TypeScript bot for autonomous Poidh bounty execution.
+Open-source TypeScript bot for Poidh bounty workflows on Arbitrum, Base, and Degen Chain.
 
-It creates a bounty from an EOA wallet, monitors claims, scores submissions with auditable logic, picks a winner, executes on-chain resolution, and produces social-proof output for Farcaster publishing or manual handoff when posting access is unavailable.
+It can:
 
-## Requirement match
+- Create a bounty from an EOA wallet
+- Poll claims automatically
+- Resolve claim URIs and metadata
+- Rank submissions with auditable scoring
+- Accept the winner on-chain for solo bounties
+- Submit a claim for vote and later resolve open bounty votes
+- Publish a public decision update through a relay
 
-- EOA control: issuer actions sign from `PRIVATE_KEY` (no MetaMask/manual prompt flow)
-- Bounty creation: `create-bounty` or `run`
-- Submission monitoring: polling loop in `run` / `watch-bounty`
-- Evaluation logic: deterministic scoring in `src/evaluate.ts`
-- Winner selection: highest-score claim in `src/bot.ts`
-- Auto-accept safeguards:
-  - `MIN_CLAIMS_BEFORE_ACCEPT` can require multiple claims before final action
-  - `MIN_DECISION_AGE_SECONDS` can hold acceptance window open to avoid first-claim instant resolution
-- On-chain payout flow:
-  - Solo bounty: `acceptClaim`
-  - Open bounty: `submitClaimForVote` then `resolveVote`
-- Real-world guard:
-  - bounty creation refuses obvious digital-only prompts
-  - default bounty text targets a real-world photo task
-- Public reasoning:
-  - decision text is generated automatically
-  - JSON/markdown artifacts are written to `artifacts/production/`
-  - webhook payload includes follow-up Q/A for transparent social replies
-  - local relay can auto-post to Farcaster using a Neynar signer when the connected account has posting access/credits
-  - `POST /webhooks/neynar` can reply to live Farcaster follow-up casts when Neynar webhook access is available
-  - `POST /follow-up` accepts forwarded question webhooks and replies in-thread from the stored reasoning
+## Why this repo exists
+
+The bounty at `poidh.xyz/arbitrum/bounty/216` asks for a bot that can run Poidh end-to-end without human intervention. This repo gives you a reproducible starting point for that automation.
 
 ## Setup
 
@@ -42,16 +30,16 @@ npm install
 cp .env.example .env
 ```
 
-3. Fill required values.
+3. Fill in your values.
 
-- `PRIVATE_KEY` issuer EOA key
-- `RPC_URL` chain RPC URL
-- `POIDH_CHAIN` one of `arbitrum`, `base`, `degen`
+- `PRIVATE_KEY` must be an EOA private key, not a smart wallet
+- `RPC_URL` should point at the chain you want to use
+- `POIDH_CHAIN` must be `arbitrum`, `base`, or `degen`
 - For relay posting, set `SOCIAL_POST_WEBHOOK_URL=http://127.0.0.1:8787/decision`
 - For Farcaster posting, set `NEYNAR_API_KEY`, `FARCASTER_SIGNER_UUID`, and optionally `FARCASTER_CHANNEL_ID=poidh`
 - For Farcaster webhook verification, set `NEYNAR_WEBHOOK_SECRET` only if your Neynar plan includes webhook access
 - For optional LLM polish on Farcaster copy, set `OPENROUTER_API_KEY` and optionally `OPENROUTER_MODEL=openrouter/free`
-- To prevent first-claim instant resolution, set `MIN_CLAIMS_BEFORE_ACCEPT` (e.g. `2`) and/or `MIN_DECISION_AGE_SECONDS` (e.g. `300`)
+- To prevent first-claim instant resolution, set `MIN_CLAIMS_BEFORE_ACCEPT` and/or `MIN_DECISION_AGE_SECONDS`
 
 Recommended defaults in this repo:
 - `BOUNTY_KIND=solo`
@@ -64,28 +52,28 @@ https://github.com/picsoritdidnthappen/poidh-app/blob/prod/SKILL.md
 
 ## Commands
 
-Create bounty only:
+Create a bounty:
 
 ```bash
 npm run dev -- create-bounty
 ```
 
-Watch and act on an existing bounty:
+Evaluate a bounty without sending a transaction:
+
+```bash
+npm run dev -- evaluate-bounty --bounty-id 123
+```
+
+Run the watcher loop:
 
 ```bash
 npm run dev -- watch-bounty --bounty-id 123
 ```
 
-Run end-to-end (create if needed, then monitor/evaluate/act):
+Or let the bot create and manage its own bounty from env defaults:
 
 ```bash
 npm run dev -- run
-```
-
-Evaluate without sending tx:
-
-```bash
-npm run dev -- evaluate-bounty --bounty-id 123
 ```
 
 Explain winner and reasoning:
@@ -100,15 +88,32 @@ Resolve open-bounty vote manually if needed:
 npm run dev -- resolve-vote --bounty-id 123
 ```
 
-## Social transparency
+## How it works
 
-Social transparency is built into the run: if `SOCIAL_POST_WEBHOOK_URL` is set, the bot sends the full decision payload to a relay that can publish a Farcaster thread through Neynar when signer access and posting credits are available, while still writing the complete decision draft and proof artifacts locally if posting is unavailable. The relay also includes deterministic `followUpAnswers` for reasoning context, supports `POST /webhooks/neynar` for native webhook-driven replies when Neynar webhook access is enabled, and falls back to `POST /follow-up` for forwarded question events on the free path.
+- `createSoloBounty` and `createOpenBounty` fund a bounty from an EOA
+- `getClaimsByBountyId` fetches public submissions
+- `poidhNft().tokenURI(claimId)` resolves the claim NFT metadata
+- `acceptClaim` finalizes solo bounties
+- `submitClaimForVote` and `resolveVote` handle open bounties with contributors
+- Claim evaluation is deterministic by default and uses:
+  - token and description overlap
+  - the claim proof URL and metadata
+  - whether the claim resolves to image, video, or web evidence
+  - whether the evidence looks like a real-world proof artifact
+- Real-world bounty prompts are guarded so obvious digital-only tasks are rejected before creation
+- Auto-accept safeguards can keep the bounty open long enough for organic competition
 
 Run the relay locally with:
 
 ```bash
 npm run relay
 ```
+
+## Social posting
+
+Set `SOCIAL_POST_WEBHOOK_URL` if you want the bot to forward its decision summary to another service, such as a Farcaster or X relay you control.
+
+If the webhook is unset, the bot prints the decision locally instead.
 
 Artifacts written to `artifacts/production/`:
 - `poidh-production-<bountyId>.json|md`
@@ -123,6 +128,7 @@ These include winner, reasons, and follow-up Q/A text.
 - If you stop and restart without `BOUNTY_ID`, bot resumes from `BOUNTY_STATE_FILE` (`.poidh-state.json` by default).
 - Keep `AUTO_ACCEPT=true` for autonomous payout behavior.
 - Use `MIN_CLAIMS_BEFORE_ACCEPT` and `MIN_DECISION_AGE_SECONDS` to keep the bounty open long enough for organic competition.
+- `MIN_CLAIMS_BEFORE_ACCEPT=2` is a good default for demos where you want more than one claim before payout.
 
 ## Claim pack
 

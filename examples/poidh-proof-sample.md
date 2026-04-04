@@ -1,8 +1,7 @@
 # Poidh Proof Sample
 
 This is a sanitized example of the proof artifacts the bot produces after a bounty run.
-It is intended for repository review and submission packaging.
-The same decision package can be published through a Farcaster relay or posted manually.
+It shows the same decision package that gets written to disk and can be shared through a relay or posted manually.
 
 ## Summary
 
@@ -39,6 +38,6 @@ The same decision package can be published through a Farcaster relay or posted m
 
 ## Notes
 
-- The real runtime reports are written to `artifacts/production/`.
-- Those generated folders stay out of git on purpose.
+- Real runtime reports are written to `artifacts/production/`.
+- Generated folders stay out of git on purpose.
 - The sample above is redacted enough to show the workflow without exposing live runtime files.

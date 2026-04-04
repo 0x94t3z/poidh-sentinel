@@ -4,30 +4,30 @@ Target bounty: [Build An AI That Pays Humans To Do Things IRL](https://poidh.xyz
 
 ## What this repo does
 
-Poidh Sentinel is a production-style autonomous Poidh bot that creates a bounty from an issuer EOA, watches public claims, evaluates them with deterministic and auditable logic, selects a winner automatically, executes `acceptClaim` for solo bounties or the open-bounty vote flow on-chain, and publishes a Farcaster decision thread or a local handoff draft when posting access is unavailable.
+Poidh Sentinel is an open-source TypeScript bot for Poidh bounty workflows. It creates a bounty from an issuer EOA, watches public claims, evaluates them with deterministic scoring, picks a winner, resolves the bounty on-chain, and publishes a public decision update through a relay.
 
-## Why this matches the requirement
+## Why it matches
 
-- Wallet handling logic: `src/poidh.ts`
-- Chain interaction logic: `src/poidh.ts`
+- EOA control: `src/main.ts` and `src/poidh.ts`
+- Bounty creation: `src/main.ts` (`create-bounty`, `run`)
 - Submission monitoring: `src/bot.ts` watcher loop
 - Evaluation logic: `src/evaluate.ts`
 - Winner selection logic: `src/bot.ts` (highest score)
-- Automation entrypoint: `src/main.ts` (`run`, `watch-bounty`)
-- Public reasoning + social payload: `src/social.ts` and `src/artifacts.ts`
-- Farcaster relay: `src/relay.ts`
+- On-chain payout flow: `acceptClaim`, `submitClaimForVote`, and `resolveVote`
+- Public reasoning: `src/social.ts`, `src/artifacts.ts`, and `src/relay.ts`
 - Real-world guard: `src/bot.ts` rejects obvious digital-only bounty prompts before creation
 
 ## Autonomy model
 
-- Bot signs transactions from `PRIVATE_KEY` directly (EOA).
-- `run` creates the bounty if missing, then loops automatically.
-- No manual acceptance step is needed when `AUTO_ACCEPT=true`.
-- Decision summaries and follow-up Q/A text are generated and written to artifacts.
+- The bot signs transactions from `PRIVATE_KEY` directly.
+- `run` creates the bounty if missing, then keeps monitoring automatically.
+- `AUTO_ACCEPT=true` lets the bot finalize the winning claim without a manual step.
+- `MIN_CLAIMS_BEFORE_ACCEPT` and `MIN_DECISION_AGE_SECONDS` keep the bounty open long enough for organic competition.
+- Decision summaries and follow-up Q/A text are written to artifacts.
 
 ## Assumptions and limitations
 
-Social publishing is handled through `SOCIAL_POST_WEBHOOK_URL` and a Farcaster relay that can publish the decision thread with Neynar when the connected account has posting access and credits, while still writing the full decision draft and proof artifacts locally if posting is unavailable. When `OPENROUTER_API_KEY` is present, the relay can optionally polish the Farcaster copy with `OPENROUTER_MODEL` (default `openrouter/free`). Native follow-up reply listening via `POST /webhooks/neynar` is supported when Neynar webhook access is enabled and verifies `X-Neynar-Signature` with `NEYNAR_WEBHOOK_SECRET`; on the free path, the relay still exposes `POST /follow-up` as a manual fallback for forwarded question events. Open-bounty finalization still depends on Poidh voting window timing.
+Social publishing runs through `SOCIAL_POST_WEBHOOK_URL` and a Farcaster relay that can publish the decision thread with Neynar when the connected account has posting access and credits, while still writing the full decision draft and proof artifacts locally if posting is unavailable. When `OPENROUTER_API_KEY` is present, the relay can optionally polish the Farcaster copy with `OPENROUTER_MODEL` (default `openrouter/free`). Native follow-up reply listening via `POST /webhooks/neynar` is supported when Neynar webhook access is enabled and verifies `X-Neynar-Signature` with `NEYNAR_WEBHOOK_SECRET`; on the free path, the relay still exposes `POST /follow-up` as a manual fallback for forwarded question events. Open-bounty finalization still depends on Poidh voting window timing.
 
 ## Runtime outputs for proof
 
