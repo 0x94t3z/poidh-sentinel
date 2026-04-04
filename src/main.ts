@@ -49,6 +49,8 @@ type BountyState = {
   chainName: "arbitrum" | "base" | "degen";
   bountyId: string;
   bountyUrl?: string;
+  lastDecisionKey?: string;
+  lastArtifactKey?: string;
   updatedAt: string;
 };
 
@@ -63,14 +65,21 @@ function getDefaultArtifactDir(command: string): string {
   return "artifacts";
 }
 
-async function readBountyState(chainName: "arbitrum" | "base" | "degen"): Promise<bigint | undefined> {
+async function readBountyState(chainName: "arbitrum" | "base" | "degen"): Promise<BountyState | undefined> {
   try {
     const raw = await readFile(getBountyStatePath(), "utf8");
     const parsed = JSON.parse(raw) as Partial<BountyState>;
     if (parsed.chainName !== chainName || !parsed.bountyId) {
       return undefined;
     }
-    return BigInt(parsed.bountyId);
+    return {
+      chainName: parsed.chainName,
+      bountyId: parsed.bountyId,
+      bountyUrl: parsed.bountyUrl,
+      lastDecisionKey: parsed.lastDecisionKey,
+      lastArtifactKey: parsed.lastArtifactKey,
+      updatedAt: parsed.updatedAt ?? new Date().toISOString()
+    };
   } catch {
     return undefined;
   }
@@ -139,8 +148,8 @@ async function run() {
         : undefined;
   const explicitBountyId = parseBountyId(flagBountyId ?? getEnv("BOUNTY_ID"));
   const shouldReuseState = command !== "create-bounty";
-  const stateBountyId = shouldReuseState && !explicitBountyId ? await readBountyState(chainName) : undefined;
-  const bountyId = explicitBountyId ?? stateBountyId;
+  const state = shouldReuseState && !explicitBountyId ? await readBountyState(chainName) : undefined;
+  const bountyId = explicitBountyId ?? (state ? BigInt(state.bountyId) : undefined);
 
   const bot = new PoidhBot({
     chainName,
@@ -156,7 +165,9 @@ async function run() {
     bountyAmountEth,
     artifactDir: artifactDir || undefined,
     bountyId,
-    bountyStatePath
+    bountyStatePath,
+    persistedDecisionKey: state?.lastDecisionKey,
+    persistedArtifactKey: state?.lastArtifactKey
   });
 
   if (bountyId !== undefined && (command === "run" || command === "watch-bounty")) {

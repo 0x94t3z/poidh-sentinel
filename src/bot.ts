@@ -23,6 +23,8 @@ export type BotConfig = {
   artifactDir?: string;
   bountyId?: bigint;
   bountyStatePath?: string;
+  persistedDecisionKey?: string;
+  persistedArtifactKey?: string;
 };
 
 export class PoidhBot {
@@ -38,6 +40,8 @@ export class PoidhBot {
   readonly declaredBountyAmountWei: bigint;
   readonly artifactDir?: string;
   readonly bountyStatePath?: string;
+  readonly persistedDecisionKey?: string;
+  readonly persistedArtifactKey?: string;
   bountyId?: bigint;
   lastDecisionKey?: string;
   lastArtifactKey?: string;
@@ -67,9 +71,11 @@ export class PoidhBot {
     this.declaredBountyAmountWei = parseEther(config.bountyAmountEth);
     this.artifactDir = config.artifactDir;
     this.bountyStatePath = config.bountyStatePath;
+    this.persistedDecisionKey = config.persistedDecisionKey;
+    this.persistedArtifactKey = config.persistedArtifactKey;
     this.bountyId = config.bountyId;
-    this.lastDecisionKey = undefined;
-    this.lastArtifactKey = undefined;
+    this.lastDecisionKey = config.persistedDecisionKey;
+    this.lastArtifactKey = config.persistedArtifactKey;
     this.lastBountyTxHash = undefined;
     this.lastClaimTxHash = undefined;
     this.lastFinalActionTxHash = undefined;
@@ -94,6 +100,8 @@ export class PoidhBot {
           chainName: this.issuerClient.chainName,
           bountyId: bountyId.toString(),
           bountyUrl,
+          lastDecisionKey: this.lastDecisionKey,
+          lastArtifactKey: this.lastArtifactKey,
           updatedAt: new Date().toISOString()
         },
         null,
@@ -180,6 +188,7 @@ export class PoidhBot {
         url: frontendUrl
       });
       this.lastDecisionKey = decisionKey;
+      await this.persistBountyState(bountyId);
     }
 
     if (!this.autoAccept) {
@@ -300,6 +309,7 @@ export class PoidhBot {
     });
 
     this.lastArtifactKey = decisionKey;
+    await this.persistBountyState(bountyId);
     return {
       reportPaths,
       socialPaths,
