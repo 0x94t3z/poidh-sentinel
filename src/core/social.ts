@@ -110,12 +110,12 @@ export async function polishDecisionCopy(
     body: JSON.stringify({
       model,
       temperature: 0.2,
-      max_tokens: 300,
+      max_tokens: 180,
       messages: [
         {
           role: "system",
           content:
-            "You write concise, friendly Farcaster casts. Return only strict JSON with keys main and reply. Keep main under 240 characters and reply under 280 characters. Do not add markdown fences."
+            "You write concise, friendly Farcaster casts. Return only strict JSON with keys main and reply. Keep main under 200 characters and reply under 220 characters. Use a natural Farcaster tone. Do not repeat the reason verbatim. Do not add markdown fences."
         },
         {
           role: "user",
@@ -155,9 +155,14 @@ export async function polishDecisionCopy(
   try {
     const parsed = JSON.parse(stripJsonEnvelope(rawText)) as Partial<{ main: string; reply: string }>;
     if (typeof parsed.main === "string" && typeof parsed.reply === "string") {
+      const main = parsed.main.trim();
+      const reply = parsed.reply.trim();
+      if (main.length > 220 || reply.length > 260) {
+        return undefined;
+      }
       return {
-        main: parsed.main.trim(),
-        reply: parsed.reply.trim()
+        main,
+        reply
       };
     }
   } catch {
