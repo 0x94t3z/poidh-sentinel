@@ -156,11 +156,6 @@ export async function postDecision(post: DecisionPost): Promise<boolean> {
     return true;
   }
 
-  const postedViaNeynar = await postCastViaNeynar(envelope.castDraft);
-  if (postedViaNeynar) {
-    return true;
-  }
-
   console.log(envelope.message);
   return false;
 }

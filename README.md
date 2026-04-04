@@ -2,7 +2,7 @@
 
 Open-source TypeScript bot for autonomous Poidh bounty execution.
 
-It creates a bounty from an EOA wallet, monitors claims, scores submissions with auditable logic, picks a winner, executes on-chain resolution, and produces social-proof output for X/Farcaster publishing.
+It creates a bounty from an EOA wallet, monitors claims, scores submissions with auditable logic, picks a winner, executes on-chain resolution, and produces social-proof output for X publishing.
 
 ## Requirement match
 
@@ -18,7 +18,7 @@ It creates a bounty from an EOA wallet, monitors claims, scores submissions with
   - decision text is generated automatically
   - JSON/markdown artifacts are written to `artifacts/production/`
   - webhook payload includes follow-up Q/A for transparent social replies
-  - can auto-post to Farcaster via a local relay or Neynar signer without manual compose
+  - local relay can auto-post to X without manual compose
 
 ## Setup
 
@@ -40,7 +40,7 @@ cp .env.example .env
 - `RPC_URL` chain RPC URL
 - `POIDH_CHAIN` one of `arbitrum`, `base`, `degen`
 - For relay posting, set `SOCIAL_POST_WEBHOOK_URL=http://127.0.0.1:8787/decision`
-- For direct Farcaster posting, set `NEYNAR_API_KEY` and `FARCASTER_SIGNER_UUID`
+- For X posting, set `X_CONSUMER_KEY`, `X_CONSUMER_SECRET`, `X_ACCESS_TOKEN`, and `X_ACCESS_TOKEN_SECRET`
 
 Recommended defaults in this repo:
 - `BOUNTY_KIND=solo`
@@ -93,8 +93,8 @@ npm run dev -- resolve-vote --bounty-id 123
 
 Social post order of execution:
 - If `SOCIAL_POST_WEBHOOK_URL` is set, bot sends full decision payload to your relay/poster service.
-- Else, if `NEYNAR_API_KEY` and `FARCASTER_SIGNER_UUID` are set, bot posts directly to Farcaster.
-- Else, bot prints the decision locally and still writes proof artifacts.
+- The relay can publish the decision to X using your X API credentials.
+- If no relay is configured, bot prints the decision locally and still writes proof artifacts.
 
 Relay payload includes a deterministic `followUpAnswers` array so your poster can auto-reply with reasoning context.
 
@@ -107,7 +107,7 @@ npm run relay
 Artifacts written to `artifacts/production/`:
 - `poidh-production-<bountyId>.json|md`
 - `poidh-social-<bountyId>.json|md`
-- `poidh-farcaster-<bountyId>.json|md`
+- `poidh-farcaster-<bountyId>.json|md` (social draft only)
 
 These include winner, reasons, and follow-up Q/A text.
 

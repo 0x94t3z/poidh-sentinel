@@ -1,14 +1,16 @@
 import "dotenv/config";
+import { createHmac, randomBytes } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { join } from "node:path";
-import { postCastViaNeynar, type DecisionRelayEnvelope } from "./social.js";
+import { type DecisionRelayEnvelope } from "./social.js";
 
 type RelayState = {
   generatedAt: string;
   sourceIp?: string;
   envelope: DecisionRelayEnvelope;
-  publishedToFarcaster: boolean;
+  publishedToX: boolean;
+  xPostIds: string[];
 };
 
 function getEnv(name: string, fallback = ""): string {
@@ -31,6 +33,149 @@ function relayOutputDir(): string {
 
 function relayPort(): number {
   return getInt("RELAY_PORT", 8787);
+}
+
+function percentEncode(value: string): string {
+  return encodeURIComponent(value).replace(/[!'()*]/g, (character) =>
+    `%${character.charCodeAt(0).toString(16).toUpperCase()}`
+  );
+}
+
+function normalizeUrl(rawUrl: string): string {
+  const url = new URL(rawUrl);
+  url.search = "";
+  url.hash = "";
+  return url.toString();
+}
+
+function buildOAuth1Header(
+  method: string,
+  url: string,
+  consumerKey: string,
+  consumerSecret: string,
+  accessToken: string,
+  accessTokenSecret: string
+): string {
+  const oauthParams = {
+    oauth_consumer_key: consumerKey,
+    oauth_nonce: randomBytes(16).toString("hex"),
+    oauth_signature_method: "HMAC-SHA1",
+    oauth_timestamp: Math.floor(Date.now() / 1000).toString(),
+    oauth_token: accessToken,
+    oauth_version: "1.0"
+  };
+
+  const sortedParams = Object.entries(oauthParams).sort(([leftKey, leftValue], [rightKey, rightValue]) =>
+    `${percentEncode(leftKey)}=${percentEncode(leftValue)}`.localeCompare(
+      `${percentEncode(rightKey)}=${percentEncode(rightValue)}`
+    )
+  );
+
+  const parameterString = sortedParams
+    .map(([key, value]) => `${percentEncode(key)}=${percentEncode(value)}`)
+    .join("&");
+
+  const baseString = [
+    method.toUpperCase(),
+    percentEncode(normalizeUrl(url)),
+    percentEncode(parameterString)
+  ].join("&");
+
+  const signingKey = `${percentEncode(consumerSecret)}&${percentEncode(accessTokenSecret)}`;
+  const signature = createHmac("sha1", signingKey).update(baseString).digest("base64");
+
+  return `OAuth ${Object.entries({
+    ...oauthParams,
+    oauth_signature: signature
+  })
+    .map(([key, value]) => `${percentEncode(key)}="${percentEncode(value)}"`)
+    .join(", ")}`;
+}
+
+function truncateText(text: string, maxLength: number): string {
+  if (text.length <= maxLength) {
+    return text;
+  }
+  return `${text.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
+function buildXPostTexts(envelope: DecisionRelayEnvelope): { main: string; reply: string } {
+  const { bountyId, bountyTitle, winningClaimId, reason, url } = envelope.decision;
+
+  const main = truncateText(
+    [
+      `poidh decision: ${bountyTitle}`,
+      `winner claim: ${winningClaimId.toString()}`,
+      url ? url : undefined
+    ]
+      .filter(Boolean)
+      .join("\n"),
+    280
+  );
+
+  const reply = truncateText(
+    [
+      `Why it won for bounty ${bountyId.toString()}:`,
+      `- ${truncateText(reason, 180)}`,
+      `- ${truncateText(envelope.followUpAnswers[1]?.answer ?? "The bot checked the claim metadata and proof content.", 180)}`
+    ].join("\n"),
+    280
+  );
+
+  return { main, reply };
+}
+
+type XPostResponse = {
+  data?: {
+    id?: string;
+  };
+};
+
+async function postTweet(text: string, replyToTweetId?: string): Promise<string | undefined> {
+  const consumerKey = process.env.X_CONSUMER_KEY?.trim();
+  const consumerSecret = process.env.X_CONSUMER_SECRET?.trim();
+  const accessToken = process.env.X_ACCESS_TOKEN?.trim();
+  const accessTokenSecret = process.env.X_ACCESS_TOKEN_SECRET?.trim();
+
+  if (!consumerKey || !consumerSecret || !accessToken || !accessTokenSecret) {
+    return undefined;
+  }
+
+  const url = "https://api.x.com/2/tweets";
+  const authorization = buildOAuth1Header(
+    "POST",
+    url,
+    consumerKey,
+    consumerSecret,
+    accessToken,
+    accessTokenSecret
+  );
+
+  const body = replyToTweetId
+    ? {
+        text,
+        reply: {
+          in_reply_to_tweet_id: replyToTweetId
+        }
+      }
+    : { text };
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      authorization,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Failed to post X status: ${response.status} ${response.statusText} - ${errorText}`);
+  }
+
+  const payload = (await response.json()) as XPostResponse;
+  return payload.data?.id;
 }
 
 function jsonResponse(
@@ -74,7 +219,8 @@ function renderRelayMarkdown(state: RelayState): string {
     `# poidh relay payload`,
     ``,
     `- Generated at: ${state.generatedAt}`,
-    `- Published to Farcaster: ${state.publishedToFarcaster}`,
+    `- Published to X: ${state.publishedToX}`,
+    `- X post IDs: ${state.xPostIds.join(", ") || "none"}`,
     `- Targets: ${state.envelope.targets.join(", ")}`,
     `- Message:`,
     `  ${state.envelope.message}`
@@ -84,7 +230,7 @@ function renderRelayMarkdown(state: RelayState): string {
     lines.push(`- Source IP: ${state.sourceIp}`);
   }
 
-  lines.push(``, `## Cast`, ``, `- Text:`, `  ${state.envelope.castDraft.text}`);
+  lines.push(``, `## Post Draft`, ``, `- Text:`, `  ${state.envelope.castDraft.text}`);
 
   if (state.envelope.castDraft.author) {
     lines.push(`- Author: ${state.envelope.castDraft.author}`);
@@ -126,18 +272,22 @@ async function handleDecision(request: IncomingMessage, response: ServerResponse
       return;
     }
 
-    const publishedToFarcaster = await postCastViaNeynar(body.castDraft);
+    const { main, reply } = buildXPostTexts(body);
+    const mainTweetId = await postTweet(main);
+    const replyTweetId = mainTweetId ? await postTweet(reply, mainTweetId) : undefined;
     const state: RelayState = {
       generatedAt: new Date().toISOString(),
       sourceIp: request.socket.remoteAddress ?? undefined,
       envelope: body,
-      publishedToFarcaster
+      publishedToX: Boolean(mainTweetId),
+      xPostIds: [mainTweetId, replyTweetId].filter(Boolean) as string[]
     };
 
     await writeRelayArtifacts(state);
     jsonResponse(response, 200, {
       ok: true,
-      publishedToFarcaster,
+      publishedToX: Boolean(mainTweetId),
+      xPostIds: state.xPostIds,
       targetCount: body.targets.length
     });
   } catch (error) {
@@ -151,7 +301,7 @@ async function handleExplain(response: ServerResponse) {
   jsonResponse(response, 200, {
     ok: true,
     outputDir,
-    note: "The latest decision payload is written by the relay after each post."
+    note: "The latest decision payload is written by the relay after each X post."
   });
 }
 

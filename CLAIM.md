@@ -11,7 +11,7 @@ This repo provides a production-style autonomous Poidh bot that:
 - Evaluates claims with deterministic, auditable logic
 - Selects a winner automatically
 - Executes `acceptClaim` (solo) or open-bounty vote flow on-chain
-- Produces a public decision explanation payload for X/Farcaster publishing
+- Produces a public decision explanation payload for X publishing
 
 ## Why this matches the requirement
 
@@ -22,7 +22,7 @@ This repo provides a production-style autonomous Poidh bot that:
 - Winner selection logic: `src/bot.ts` (highest score)
 - Automation entrypoint: `src/main.ts` (`run`, `watch-bounty`)
 - Public reasoning + social payload: `src/social.ts` and `src/artifacts.ts`
-- Optional webhook relay: `src/relay.ts`
+- X relay: `src/relay.ts`
 
 ## Autonomy model
 
@@ -33,8 +33,9 @@ This repo provides a production-style autonomous Poidh bot that:
 
 ## Assumptions and limitations
 
-- Social publishing is automated through either `SOCIAL_POST_WEBHOOK_URL` (relay) or direct Farcaster posting (`NEYNAR_API_KEY` + `FARCASTER_SIGNER_UUID`).
-- If both are unset, output is still generated locally in artifacts and stdout.
+- Social publishing is automated through `SOCIAL_POST_WEBHOOK_URL` (relay).
+- The relay uses X API credentials to publish the decision thread.
+- If the relay is unset, output is still generated locally in artifacts and stdout.
 - Open bounty finalization depends on Poidh voting window timing.
 
 ## Runtime outputs for proof
@@ -43,11 +44,11 @@ This repo provides a production-style autonomous Poidh bot that:
 
 - `poidh-production-<bountyId>.json|md`
 - `poidh-social-<bountyId>.json|md`
-- `poidh-farcaster-<bountyId>.json|md`
+- `poidh-farcaster-<bountyId>.json|md` (social draft only)
 
 ## Submission checklist
 
 - Public repo link
 - Proof of one real end-to-end bounty run on Poidh
-- Public X or Farcaster decision post link
+- Public X decision post link
 - Matching artifact files from `artifacts/production/`
