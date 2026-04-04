@@ -4,6 +4,7 @@ import { resolveFrontendBountyUrl } from "./chains.js";
 import { summarizeEvaluations, writeDemoArtifact } from "./artifacts.js";
 import { postDecision } from "./social.js";
 import { PoidhClient } from "./poidh.js";
+import { uploadClaimMetadataToPinata, uploadProofFileToPinata } from "./upload.js";
 import { buildClaimTokenUri, isJsonMetadataTokenUri } from "./uri.js";
 import type { ClaimEvaluation } from "./types.js";
 
@@ -23,6 +24,9 @@ export type BotConfig = {
   claimName?: string;
   claimDescription?: string;
   claimProofUri?: string;
+  claimProofFile?: string;
+  pinataJwt?: string;
+  pinataGatewayUrl?: string;
 };
 
 export class PoidhBot {
@@ -45,6 +49,10 @@ export class PoidhBot {
   readonly claimName?: string;
   readonly claimDescription?: string;
   readonly claimProofUri?: string;
+  readonly claimProofFile?: string;
+  readonly pinataJwt?: string;
+  readonly pinataGatewayUrl?: string;
+  private resolvedClaimProofUri?: string;
 
   constructor(config: BotConfig) {
     this.client = new PoidhClient(config.chainName, config.rpcUrl, config.privateKey);
@@ -68,6 +76,10 @@ export class PoidhBot {
     this.claimName = config.claimName;
     this.claimDescription = config.claimDescription;
     this.claimProofUri = config.claimProofUri;
+    this.claimProofFile = config.claimProofFile;
+    this.pinataJwt = config.pinataJwt;
+    this.pinataGatewayUrl = config.pinataGatewayUrl;
+    this.resolvedClaimProofUri = undefined;
   }
 
   async createBountyIfNeeded() {
@@ -89,8 +101,78 @@ export class PoidhBot {
     return result.bountyId;
   }
 
+  async resolveClaimProofUri(): Promise<string | undefined> {
+    if (this.resolvedClaimProofUri) {
+      return this.resolvedClaimProofUri;
+    }
+
+    const claimName = this.claimName;
+    const claimDescription = this.claimDescription;
+    if (!claimName || !claimDescription) {
+      throw new Error("Claim name and description are required before resolving claim proof.");
+    }
+
+    if (this.claimProofFile) {
+      if (!this.pinataJwt) {
+        throw new Error("CLAIM_PROOF_FILE requires PINATA_JWT so the bot can upload the image.");
+      }
+
+      const proofUpload = await uploadProofFileToPinata(
+        this.claimProofFile,
+        this.pinataJwt,
+        this.pinataGatewayUrl
+      );
+
+      const metadataUpload = await uploadClaimMetadataToPinata(
+        {
+          name: claimName,
+          description: claimDescription,
+          image: proofUpload.gatewayUrl
+        },
+        this.pinataJwt,
+        this.pinataGatewayUrl
+      );
+
+      this.resolvedClaimProofUri = metadataUpload.gatewayUrl;
+      console.log(`Uploaded claim proof file ${this.claimProofFile} to ${proofUpload.gatewayUrl}`);
+      console.log(`Uploaded claim metadata to ${metadataUpload.gatewayUrl}`);
+      return this.resolvedClaimProofUri;
+    }
+
+    if (this.claimProofUri) {
+      if (isJsonMetadataTokenUri(this.claimProofUri)) {
+        this.resolvedClaimProofUri = this.claimProofUri;
+        return this.resolvedClaimProofUri;
+      }
+
+      if (this.pinataJwt) {
+        const metadataUpload = await uploadClaimMetadataToPinata(
+          {
+            name: claimName,
+            description: claimDescription,
+            image: this.claimProofUri
+          },
+          this.pinataJwt,
+          this.pinataGatewayUrl
+        );
+        this.resolvedClaimProofUri = metadataUpload.gatewayUrl;
+        console.log(`Uploaded claim metadata to ${metadataUpload.gatewayUrl}`);
+        return this.resolvedClaimProofUri;
+      }
+
+      this.resolvedClaimProofUri = buildClaimTokenUri({
+        name: claimName,
+        description: claimDescription,
+        imageUrl: this.claimProofUri
+      });
+      return this.resolvedClaimProofUri;
+    }
+
+    return undefined;
+  }
+
   async submitClaimIfConfigured(bountyId: bigint) {
-    if (!this.claimName || !this.claimDescription || !this.claimProofUri) {
+    if (!this.claimName || !this.claimDescription) {
       return undefined;
     }
 
@@ -100,12 +182,17 @@ export class PoidhBot {
       return undefined;
     }
 
-    const tokenUri = isJsonMetadataTokenUri(this.claimProofUri)
-      ? this.claimProofUri
+    const claimProofUri = await this.resolveClaimProofUri();
+    if (!claimProofUri) {
+      return undefined;
+    }
+
+    const tokenUri = isJsonMetadataTokenUri(claimProofUri)
+      ? claimProofUri
       : buildClaimTokenUri({
           name: this.claimName,
           description: this.claimDescription,
-          imageUrl: this.claimProofUri
+          imageUrl: claimProofUri
         });
 
     const hash = await submitter.createClaim(
@@ -228,8 +315,11 @@ export class PoidhBot {
     if (!this.claimClient) {
       throw new Error("demo-cycle requires DEMO_CLAIM_PRIVATE_KEY for a separate claimant wallet.");
     }
-    if (!this.claimName || !this.claimDescription || !this.claimProofUri) {
-      throw new Error("demo-cycle requires CLAIM_NAME, CLAIM_DESCRIPTION, and CLAIM_PROOF_URI.");
+    if (!this.claimName || !this.claimDescription) {
+      throw new Error("demo-cycle requires CLAIM_NAME and CLAIM_DESCRIPTION.");
+    }
+    if (!this.claimProofUri && !this.claimProofFile) {
+      throw new Error("demo-cycle requires CLAIM_PROOF_URI or CLAIM_PROOF_FILE.");
     }
 
     const bountyId = await this.createBountyIfNeeded();

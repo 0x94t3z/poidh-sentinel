@@ -34,7 +34,10 @@ cp .env.example .env
 
 - `PRIVATE_KEY` must be an EOA private key, not a smart wallet.
 - `DEMO_CLAIM_PRIVATE_KEY` is optional, but it should be a different EOA if you want the bot to submit a proof claim on a bounty it created. `CLAIM_PRIVATE_KEY` still works as a backward-compatible alias.
-- `CLAIM_PROOF_URI` can be a direct image, video, IPFS, or metadata URL. If you give the bot a direct image URL, it wraps it in JSON metadata so Poidh can render a preview image instead of `no image`.
+- `CLAIM_PROOF_FILE` points at a local image or video file. If you set it, the bot uploads that file to Pinata using `PINATA_JWT`, then uploads ERC721 metadata that points to the file, and finally submits the metadata URL to Poidh.
+- `CLAIM_PROOF_URI` can be a direct image, video, IPFS, or metadata URL. Use this if the proof is already public. If `PINATA_JWT` is also set, the bot uploads ERC721 metadata for that URL so Poidh can preview it consistently.
+- `PINATA_JWT` is required only when you use `CLAIM_PROOF_FILE`.
+- `PINATA_GATEWAY_URL` is optional if you want to override the default Pinata gateway URL.
 - `RPC_URL` should point at the chain you want to use.
 - `POIDH_CHAIN` must be `arbitrum`, `base`, or `degen`.
 - The app loads `.env` automatically, so you can keep secrets in the local file instead of exporting them in your shell.
@@ -70,6 +73,8 @@ Run a full demo cycle that creates a bounty, submits a claim from the claimant w
 ```bash
 npm run dev -- demo-cycle
 ```
+
+If you want the demo to use a real uploaded file, set `CLAIM_PROOF_FILE` and `PINATA_JWT` in `.env` first.
 
 Or let the bot create and manage its own bounty from env defaults:
 

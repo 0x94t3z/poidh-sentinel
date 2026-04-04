@@ -98,6 +98,9 @@ async function run() {
   const bountyAmountEth = getEnv("BOUNTY_AMOUNT_ETH", "0.001");
   const claimPrivateKey = getDemoClaimPrivateKey();
   const artifactDir = getEnv("ARTIFACT_DIR");
+  const claimProofFile = getEnv("CLAIM_PROOF_FILE");
+  const pinataJwt = getEnv("PINATA_JWT");
+  const pinataGatewayUrl = getEnv("PINATA_GATEWAY_URL", "https://gateway.pinata.cloud/ipfs");
   const flagBountyId = typeof flags.bountyId === "string" ? flags.bountyId : undefined;
   const bountyId = parseBountyId(flagBountyId ?? getEnv("BOUNTY_ID"));
 
@@ -116,7 +119,10 @@ async function run() {
     bountyId,
     claimName: getEnv("CLAIM_NAME"),
     claimDescription: getEnv("CLAIM_DESCRIPTION"),
-    claimProofUri: getEnv("CLAIM_PROOF_URI")
+    claimProofUri: getEnv("CLAIM_PROOF_URI"),
+    claimProofFile: claimProofFile || undefined,
+    pinataJwt: pinataJwt || undefined,
+    pinataGatewayUrl: pinataGatewayUrl || undefined
   });
 
   switch (command) {
