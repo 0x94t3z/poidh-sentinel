@@ -79,11 +79,18 @@ npm run dev -- requirements-flow
 
 Advanced commands:
 
-Create a bounty only:
+Create and continue autonomous flow from that bounty:
 
 ```bash
 npm run dev -- create-bounty
 ```
+
+Create bounty and stop (no watcher loop):
+
+```bash
+npm run dev -- create-bounty-only
+```
+Alias: `npm run dev -- create-only`
 
 Evaluate a bounty without sending a transaction:
 
@@ -91,23 +98,12 @@ Evaluate a bounty without sending a transaction:
 npm run dev -- evaluate-bounty --bounty-id 123
 ```
 
-Run the watcher loop:
+Watch an existing bounty:
 
 ```bash
 npm run dev -- watch-bounty --bounty-id 123
 ```
-
-Or let the bot create and manage its own bounty from env defaults:
-
-```bash
-npm run dev -- run
-```
-
-Alias:
-
-```bash
-npm run dev -- autonomous-run
-```
+Alias: `npm run dev -- resume-bounty --bounty-id 123`
 
 Explain winner and reasoning:
 
@@ -119,18 +115,6 @@ Resolve open-bounty vote manually if needed:
 
 ```bash
 npm run dev -- resolve-vote --bounty-id 123
-```
-
-Resume watching an existing bounty:
-
-```bash
-npm run dev -- watch-bounty --bounty-id 123
-```
-
-Alias:
-
-```bash
-npm run dev -- resume-bounty --bounty-id 123
 ```
 
 Run the test suite:
@@ -161,12 +145,6 @@ npm test
 - `src/bot.ts` coordinates bounty creation, claim monitoring, scoring, and payout
 - `src/main.ts` is the CLI entrypoint
 - `src/relay.ts` starts the relay server
-
-Run the relay locally with:
-
-```bash
-npm run relay
-```
 
 ## Social posting
 
