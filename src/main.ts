@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { PoidhBot } from "./bot.js";
 import { resolveFrontendBountyUrl } from "./chains.js";
 import { PoidhClient } from "./poidh.js";

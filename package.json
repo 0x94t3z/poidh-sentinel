@@ -9,6 +9,7 @@
     "check": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "dotenv": "^17.2.1",
     "viem": "^2.27.0"
   },
   "devDependencies": {

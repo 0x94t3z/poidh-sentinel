@@ -36,6 +36,7 @@ cp .env.example .env
 - `DEMO_CLAIM_PRIVATE_KEY` is optional, but it should be a different EOA if you want the bot to submit a proof claim on a bounty it created. `CLAIM_PRIVATE_KEY` still works as a backward-compatible alias.
 - `RPC_URL` should point at the chain you want to use.
 - `POIDH_CHAIN` must be `arbitrum`, `base`, or `degen`.
+- The app loads `.env` automatically, so you can keep secrets in the local file instead of exporting them in your shell.
 
 ## Commands
 

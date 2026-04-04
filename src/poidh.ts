@@ -109,16 +109,20 @@ export class PoidhClient {
       args: [bountyId, offset]
     })) as readonly (readonly [bigint, `0x${string}`, bigint, `0x${string}`, string, string, bigint, boolean])[];
 
-    return result.map((claim) => ({
-      id: claim[0],
-      issuer: claim[1],
-      bountyId: claim[2],
-      bountyIssuer: claim[3],
-      name: claim[4],
-      description: claim[5],
-      createdAt: claim[6],
-      accepted: claim[7]
-    }));
+    // Poidh can return fixed-size pages padded with zero-value rows.
+    // Filter those placeholders out so pagination and evaluation don't hang.
+    return result
+      .filter((claim) => claim[0] !== 0n)
+      .map((claim) => ({
+        id: claim[0],
+        issuer: claim[1],
+        bountyId: claim[2],
+        bountyIssuer: claim[3],
+        name: claim[4],
+        description: claim[5],
+        createdAt: claim[6],
+        accepted: claim[7]
+      }));
   }
 
   async getAllClaims(bountyId: bigint): Promise<ClaimTuple[]> {
