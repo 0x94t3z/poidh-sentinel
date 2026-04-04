@@ -291,6 +291,28 @@ function stringifyWithBigInts(value: unknown): string {
   );
 }
 
+function formatFetchFailure(target: string, error: unknown): Error {
+  if (error instanceof Error) {
+    const cause = error.cause as { code?: string; address?: string; port?: number } | undefined;
+    if (cause?.code === "ECONNREFUSED") {
+      const location = cause.address && cause.port ? `${cause.address}:${cause.port}` : target;
+      return new Error(
+        `Unable to reach ${location}. Start the relay or social service before running the bot.`
+      );
+    }
+
+    if (cause?.code === "ENOTFOUND") {
+      return new Error(`Unable to resolve ${target}. Check the webhook or API URL.`);
+    }
+
+    if (cause?.code === "ETIMEDOUT") {
+      return new Error(`Timed out while contacting ${target}. Check network connectivity.`);
+    }
+  }
+
+  return new Error(`Failed to contact ${target}.`);
+}
+
 type NeynarCastResponse = {
   success?: boolean;
   cast?: {
@@ -323,6 +345,8 @@ export async function postCastViaNeynar(
       channel_id: channelId || undefined,
       parent: options?.parentCastHash || undefined
     })
+  }).catch((error: unknown) => {
+    throw formatFetchFailure("https://api.neynar.com/v2/farcaster/cast/", error);
   });
 
   if (!response.ok) {
@@ -346,6 +370,8 @@ export async function postDecision(post: DecisionPost): Promise<boolean> {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: stringifyWithBigInts(envelope)
+    }).catch((error: unknown) => {
+      throw formatFetchFailure(webhookUrl, error);
     });
 
     if (!response.ok) {
