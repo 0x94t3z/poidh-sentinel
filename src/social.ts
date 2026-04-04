@@ -96,6 +96,12 @@ export function buildDecisionRelayEnvelope(post: DecisionPost): DecisionRelayEnv
   };
 }
 
+function stringifyWithBigInts(value: unknown): string {
+  return JSON.stringify(value, (_, current) =>
+    typeof current === "bigint" ? current.toString() : current
+  );
+}
+
 type NeynarCastResponse = {
   success?: boolean;
 };
@@ -140,7 +146,7 @@ export async function postDecision(post: DecisionPost): Promise<boolean> {
     const response = await fetch(webhookUrl, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(envelope)
+      body: stringifyWithBigInts(envelope)
     });
 
     if (!response.ok) {
