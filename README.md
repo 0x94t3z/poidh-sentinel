@@ -59,6 +59,7 @@ cp .env.production.example .env
 The shipped production bounty preset is intentionally requirement-aligned:
 - `BOUNTY_NAME=Take a photo of something blue outdoors`
 - `BOUNTY_DESCRIPTION=Upload a clear outdoor photo of something blue.`
+- Poidh’s official skill guide says the minimum bounty amount on Arbitrum and Base is `0.001 ETH`, and the minimum contribution is `0.00001 ETH`. See the [Poidh beginner guide and skill docs](https://github.com/picsoritdidnthappen/poidh-app/blob/prod/SKILL.md).
 
 For production, start from `.env.production.example`.
 For a repeatable two-wallet test harness, use `.env.demo.example`.
@@ -165,6 +166,7 @@ If the webhook is unset, the bot prints the decision locally instead.
 ## Claim pack
 
 See [CLAIM.md](./CLAIM.md) for a short submission-ready summary tied directly to bounty 216.
+See [examples/poidh-proof-sample.md](./examples/poidh-proof-sample.md) for one sanitized proof sample you can show in the repo.
 
 ## Next step for the bounty
 

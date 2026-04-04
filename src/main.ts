@@ -50,6 +50,32 @@ function parseBountyId(flagValue?: string): bigint | undefined {
   return BigInt(flagValue);
 }
 
+function getErrorText(error: unknown): string {
+  if (error instanceof Error) {
+    const shortMessage = (error as Error & { shortMessage?: string }).shortMessage;
+    return shortMessage || error.message;
+  }
+  if (typeof error === "string") {
+    return error;
+  }
+  return "Unknown error";
+}
+
+function formatCliError(error: unknown): string[] {
+  const text = getErrorText(error);
+  const lowerText = text.toLowerCase();
+
+  if (lowerText.includes("insufficient funds") || lowerText.includes("exceeds the balance of the account")) {
+    return [
+      "Insufficient funds for the bounty transaction.",
+      "Top up the issuer wallet on Arbitrum, then rerun the command.",
+      "For a 0.001 ETH bounty, keep a little extra for gas."
+    ];
+  }
+
+  return [text];
+}
+
 type BountyState = {
   chainName: "arbitrum" | "base" | "degen";
   bountyId: string;
@@ -385,6 +411,8 @@ async function run() {
 }
 
 run().catch((error) => {
-  console.error(error);
+  for (const line of formatCliError(error)) {
+    console.error(line);
+  }
   process.exitCode = 1;
 });
