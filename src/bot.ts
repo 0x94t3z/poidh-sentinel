@@ -217,7 +217,7 @@ export class PoidhBot {
 
   async runDemoCycle() {
     if (!this.claimClient) {
-      throw new Error("demo-cycle requires CLAIM_PRIVATE_KEY for a separate claimant wallet.");
+      throw new Error("demo-cycle requires DEMO_CLAIM_PRIVATE_KEY for a separate claimant wallet.");
     }
     if (!this.claimName || !this.claimDescription || !this.claimProofUri) {
       throw new Error("demo-cycle requires CLAIM_NAME, CLAIM_DESCRIPTION, and CLAIM_PROOF_URI.");

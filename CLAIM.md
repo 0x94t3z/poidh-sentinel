@@ -52,4 +52,5 @@ That will:
 
 - The bot uses EOA wallets because Poidh bounty creation and acceptance require `msg.sender == tx.origin`.
 - For a real end-to-end demo, use two wallets: one issuer wallet and one claimant wallet.
+- The claimant wallet is configured with `DEMO_CLAIM_PRIVATE_KEY` in `.env.example`.
 - The repo is intentionally open source and reproducible from the checked-in files.

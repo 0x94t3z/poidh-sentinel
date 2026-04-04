@@ -33,7 +33,7 @@ cp .env.example .env
 3. Fill in your values.
 
 - `PRIVATE_KEY` must be an EOA private key, not a smart wallet.
-- `CLAIM_PRIVATE_KEY` is optional, but it should be a different EOA if you want the bot to submit a proof claim on a bounty it created.
+- `DEMO_CLAIM_PRIVATE_KEY` is optional, but it should be a different EOA if you want the bot to submit a proof claim on a bounty it created. `CLAIM_PRIVATE_KEY` still works as a backward-compatible alias.
 - `RPC_URL` should point at the chain you want to use.
 - `POIDH_CHAIN` must be `arbitrum`, `base`, or `degen`.
 

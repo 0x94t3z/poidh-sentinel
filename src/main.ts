@@ -47,6 +47,10 @@ function parseBountyId(flagValue?: string): bigint | undefined {
   return BigInt(flagValue);
 }
 
+function getDemoClaimPrivateKey(): string {
+  return getEnv("DEMO_CLAIM_PRIVATE_KEY", getEnv("CLAIM_PRIVATE_KEY"));
+}
+
 function parseFlagMap(argv: string[]) {
   const flags: Record<string, string | boolean> = {};
   const positionals: string[] = [];
@@ -91,7 +95,7 @@ async function run() {
   const bountyName = getEnv("BOUNTY_NAME", "Autonomous poidh demo");
   const bountyDescription = getEnv("BOUNTY_DESCRIPTION", "Real-world action bounty for a demo run.");
   const bountyAmountEth = getEnv("BOUNTY_AMOUNT_ETH", "0.001");
-  const claimPrivateKey = getEnv("CLAIM_PRIVATE_KEY");
+  const claimPrivateKey = getDemoClaimPrivateKey();
   const artifactDir = getEnv("ARTIFACT_DIR");
   const flagBountyId = typeof flags.bountyId === "string" ? flags.bountyId : undefined;
   const bountyId = parseBountyId(flagBountyId ?? getEnv("BOUNTY_ID"));
