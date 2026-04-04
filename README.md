@@ -2,7 +2,7 @@
 
 Open-source TypeScript bot for autonomous Poidh bounty execution.
 
-It creates a bounty from an EOA wallet, monitors claims, scores submissions with auditable logic, picks a winner, executes on-chain resolution, and produces social-proof output for X publishing.
+It creates a bounty from an EOA wallet, monitors claims, scores submissions with auditable logic, picks a winner, executes on-chain resolution, and produces social-proof output for X publishing or manual handoff when posting access is unavailable.
 
 ## Requirement match
 
@@ -18,7 +18,7 @@ It creates a bounty from an EOA wallet, monitors claims, scores submissions with
   - decision text is generated automatically
   - JSON/markdown artifacts are written to `artifacts/production/`
   - webhook payload includes follow-up Q/A for transparent social replies
-  - local relay can auto-post to X without manual compose
+  - local relay can auto-post to X when the connected X account has posting access/credits
 
 ## Setup
 
@@ -93,8 +93,8 @@ npm run dev -- resolve-vote --bounty-id 123
 
 Social post order of execution:
 - If `SOCIAL_POST_WEBHOOK_URL` is set, bot sends full decision payload to your relay/poster service.
-- The relay can publish the decision to X using your X API credentials.
-- If no relay is configured, bot prints the decision locally and still writes proof artifacts.
+- The relay can publish the decision to X using your X API credentials when that X account has posting access/credits.
+- If posting is unavailable, the relay records the reason and the bot still writes proof artifacts and a complete post draft locally.
 
 Relay payload includes a deterministic `followUpAnswers` array so your poster can auto-reply with reasoning context.
 

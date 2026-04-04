@@ -11,7 +11,7 @@ This repo provides a production-style autonomous Poidh bot that:
 - Evaluates claims with deterministic, auditable logic
 - Selects a winner automatically
 - Executes `acceptClaim` (solo) or open-bounty vote flow on-chain
-- Produces a public decision explanation payload for X publishing
+- Produces a public decision explanation payload for X publishing or manual handoff when posting access is unavailable
 
 ## Why this matches the requirement
 
@@ -34,8 +34,8 @@ This repo provides a production-style autonomous Poidh bot that:
 ## Assumptions and limitations
 
 - Social publishing is automated through `SOCIAL_POST_WEBHOOK_URL` (relay).
-- The relay uses X API credentials to publish the decision thread.
-- If the relay is unset, output is still generated locally in artifacts and stdout.
+- The relay uses X API credentials to publish the decision thread when the connected X account has posting access/credits.
+- If posting is unavailable, the relay records the failure and the bot still generates local artifacts and a complete post draft.
 - Open bounty finalization depends on Poidh voting window timing.
 
 ## Runtime outputs for proof
