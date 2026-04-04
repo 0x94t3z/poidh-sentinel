@@ -44,5 +44,6 @@ export function startRelay() {
   server.listen(port, () => {
     console.log(`poidh relay listening on http://127.0.0.1:${port}`);
     console.log(`POST decisions to http://127.0.0.1:${port}/decision`);
+    console.log(`Watching tracked bounty threads for follow-up replies at http://127.0.0.1:${port}/webhooks/neynar`);
   });
 }
