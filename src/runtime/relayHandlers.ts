@@ -72,7 +72,51 @@ async function readRequestBody(request: IncomingMessage): Promise<{ raw: string;
   return { raw, json: JSON.parse(raw) as unknown };
 }
 
-async function buildCastTexts(envelope: DecisionRelayEnvelope): Promise<{ main: string; reply: string }> {
+function splitForThread(text: string, maxLength = 260): string[] {
+  const normalized = text.trim().replace(/\s+/g, " ");
+  if (!normalized) {
+    return [];
+  }
+  if (normalized.length <= maxLength) {
+    return [normalized];
+  }
+
+  const chunks: string[] = [];
+  let remaining = normalized;
+  while (remaining.length > maxLength) {
+    let splitAt = remaining.lastIndexOf(" ", maxLength);
+    if (splitAt < maxLength / 2) {
+      splitAt = maxLength;
+    }
+    chunks.push(remaining.slice(0, splitAt).trim());
+    remaining = remaining.slice(splitAt).trim();
+  }
+  if (remaining.length > 0) {
+    chunks.push(remaining);
+  }
+  return chunks;
+}
+
+function buildDetailReplies(envelope: DecisionRelayEnvelope): string[] {
+  const reasonChunks = splitForThread(envelope.decision.reason, 230);
+  const reasonReplies = reasonChunks.map((chunk, index) =>
+    truncateText(index === 0 ? `Why this claim won:\n${chunk}` : `More detail:\n${chunk}`, 280)
+  );
+
+  const checks = envelope.followUpAnswers.find((item) =>
+    item.question.toLowerCase().includes("evidence")
+  )?.answer;
+  const autonomy = envelope.followUpAnswers.find((item) =>
+    item.question.toLowerCase().includes("automatically")
+  )?.answer;
+  const summary = truncateText(["Validation:", checks, autonomy].filter(Boolean).join("\n"), 280);
+
+  return [...reasonReplies, summary].filter((entry) => entry.trim().length > 0);
+}
+
+async function buildCastTexts(
+  envelope: DecisionRelayEnvelope
+): Promise<{ main: string; reply: string; detailReplies: string[] }> {
   const deterministic = {
     main: truncateText(buildDecisionMessage(envelope.decision, envelope.castDraft.author), 280),
     reply: truncateText(
@@ -83,7 +127,8 @@ async function buildCastTexts(envelope: DecisionRelayEnvelope): Promise<{ main: 
         envelope.followUpAnswers
       ),
       280
-    )
+    ),
+    detailReplies: buildDetailReplies(envelope)
   };
 
   const polished = await polishDecisionCopy(
@@ -98,7 +143,8 @@ async function buildCastTexts(envelope: DecisionRelayEnvelope): Promise<{ main: 
 
   return {
     main: truncateText(polished.main, 280),
-    reply: truncateText(polished.reply, 280)
+    reply: truncateText(polished.reply, 280),
+    detailReplies: deterministic.detailReplies
   };
 }
 
@@ -111,9 +157,10 @@ export async function handleDecision(request: IncomingMessage, response: ServerR
     }
 
     const body = json;
-    const { reply } = await buildCastTexts(body);
+    const { reply, detailReplies } = await buildCastTexts(body);
     let mainCastHash: string | undefined;
     let replyCastHash: string | undefined;
+    const detailCastHashes: string[] = [];
     let farcasterError: string | undefined;
 
     try {
@@ -127,6 +174,25 @@ export async function handleDecision(request: IncomingMessage, response: ServerR
             { parentCastHash: mainCastHash }
           )
         : undefined;
+
+      let parentCastHash = replyCastHash ?? mainCastHash;
+      for (const detailReply of detailReplies) {
+        if (!parentCastHash) {
+          break;
+        }
+        const detailCastHash = await postCastViaNeynar(
+          {
+            text: detailReply,
+            embeds: []
+          },
+          { parentCastHash }
+        );
+        if (!detailCastHash) {
+          break;
+        }
+        detailCastHashes.push(detailCastHash);
+        parentCastHash = detailCastHash;
+      }
     } catch (error) {
       farcasterError = error instanceof Error ? error.message : "Unknown Farcaster posting error";
       console.error(farcasterError);
@@ -137,7 +203,7 @@ export async function handleDecision(request: IncomingMessage, response: ServerR
       sourceIp: request.socket.remoteAddress ?? undefined,
       envelope: body,
       publishedToFarcaster: Boolean(mainCastHash),
-      farcasterCastIds: [mainCastHash, replyCastHash].filter(Boolean) as string[],
+      farcasterCastIds: [mainCastHash, replyCastHash, ...detailCastHashes].filter(Boolean) as string[],
       farcasterError,
       followUpReplies: []
     };
@@ -147,8 +213,11 @@ export async function handleDecision(request: IncomingMessage, response: ServerR
       console.log(
         `[relay] posted decision for bounty ${body.decision.bountyId.toString()} thread ${mainCastHash}${
           replyCastHash ? ` with reply ${replyCastHash}` : ""
-        }`
+        }${detailCastHashes.length > 0 ? ` and ${detailCastHashes.length} detail replies` : ""}`
       );
+      if (detailCastHashes.length > 0) {
+        console.log(`[relay] detail thread hashes: ${detailCastHashes.join(", ")}`);
+      }
     } else {
       console.log(
         `[relay] saved decision draft for bounty ${body.decision.bountyId.toString()} thread draft ${body.castDraft.parentUrl || "unknown"}`
@@ -159,6 +228,7 @@ export async function handleDecision(request: IncomingMessage, response: ServerR
       publishedToFarcaster: Boolean(mainCastHash),
       farcasterCastIds: state.farcasterCastIds,
       targetCount: body.targets.length,
+      detailReplyCount: detailCastHashes.length,
       farcasterError
     });
   } catch (error) {

@@ -13,7 +13,7 @@ export type FarcasterCastDraft = {
   parentUrl?: string;
 };
 
-export type SocialTarget = "x" | "farcaster";
+export type SocialTarget = "farcaster";
 
 export type DecisionRelayEnvelope = {
   targets: SocialTarget[];
@@ -26,17 +26,8 @@ export type DecisionRelayEnvelope = {
   }>;
 };
 
-function parseSocialTargets(rawTargets?: string): SocialTarget[] {
-  const targets = rawTargets
-    ?.split(",")
-    .map((target) => target.trim().toLowerCase())
-    .filter((target): target is SocialTarget => target === "x" || target === "farcaster");
-
-  if (!targets || targets.length === 0) {
-    return ["farcaster"];
-  }
-
-  return [...new Set(targets)];
+function parseSocialTargets(): SocialTarget[] {
+  return ["farcaster"];
 }
 
 export function buildDecisionMessage(post: DecisionPost, author?: string): string {
@@ -273,7 +264,7 @@ export function buildFarcasterCastDraft(
 
 export function buildDecisionRelayEnvelope(post: DecisionPost): DecisionRelayEnvelope {
   const author = process.env.SOCIAL_POST_AUTHOR?.trim();
-  const targets = parseSocialTargets(process.env.SOCIAL_POST_TARGETS);
+  const targets = parseSocialTargets();
   const message = buildDecisionMessage(post, author);
   const castDraft = buildFarcasterCastDraft(post, author);
   const followUpAnswers = buildFollowUpAnswers(post.reason);

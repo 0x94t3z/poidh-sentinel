@@ -129,13 +129,13 @@ npm run relay
 
 ## Social posting
 
-Set `SOCIAL_POST_WEBHOOK_URL` if you want the bot to forward its decision summary to another service, such as a Farcaster relay you control.
+Set `SOCIAL_POST_WEBHOOK_URL` if you want the bot to forward its decision summary to the local Farcaster relay.
 
 If the webhook is unset, the bot prints the decision locally instead.
 
-That free path is enough for local testing: the bot still creates the bounty, monitors claims, scores them, and writes the decision artifacts. Only the public post handoff is skipped, so you can keep the whole workflow free until you decide to connect a posting service.
+That free path is enough for local testing: the bot still creates the bounty, monitors claims, scores them, and writes the decision artifacts. Only the public post handoff is skipped.
 
-For this setup, Farcaster is the public channel we actually use. X posting is not part of the free path here, and live auto-replies to other people’s questions only work when Neynar webhook access is available. Without that, the bot can still keep the decision draft, and you can forward questions through `POST /follow-up` if you want a manual fallback.
+This repo is intentionally Farcaster-first. The relay posts one concise decision cast, then publishes thread replies with full winner reasoning and validation details. Live auto-replies to other people’s questions work when Neynar webhook access is available. Without webhook access, you can still use `POST /follow-up` as a manual fallback.
 
 Artifacts written to `artifacts/production/`:
 - `poidh-production-<bountyId>.json|md`
