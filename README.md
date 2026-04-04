@@ -14,7 +14,7 @@ It can:
 
 ## Why this repo exists
 
-The bounty at `poidh.xyz/arbitrum/bounty/216` asks for a bot that can run poidh end-to-end without human intervention. This repo gives you a reproducible starting point for that automation.
+The bounty at [poidh bounty 216](https://poidh.xyz/arbitrum/bounty/216) asks for a bot that can run Poidh end-to-end without human intervention. This repo gives you a reproducible implementation and a claim pack for that exact challenge.
 
 ## Setup
 
@@ -107,6 +107,10 @@ If the webhook is unset, the bot prints the decision locally instead.
 - If you want to use the bot for open bounties with external contributors, keep it running so it can submit the winning claim for vote and resolve the vote after the window closes.
 - If you create a bounty with the bot's issuer wallet, use a separate claimant wallet for demos. Poidh prevents the issuer from claiming its own bounty.
 - Demo runs write JSON and markdown artifacts to `artifacts/` by default. You can override that with `ARTIFACT_DIR`.
+
+## Claim pack
+
+See [CLAIM.md](./CLAIM.md) for a short submission-ready summary tied directly to bounty 216.
 
 ## Next step for the bounty
 
