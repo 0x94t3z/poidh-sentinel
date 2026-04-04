@@ -8,7 +8,7 @@ import {
   writeFarcasterProofArtifact,
   writeSocialProofArtifact
 } from "./artifacts.js";
-import { buildFarcasterCastDraft, postDecision } from "./social.js";
+import { buildFarcasterCastDraft, buildFollowUpAnswers, postDecision } from "./social.js";
 import { PoidhClient } from "./poidh.js";
 import type { BountyTuple, ClaimEvaluation } from "./types.js";
 
@@ -320,14 +320,7 @@ export class PoidhBot {
         `url: ${bountyUrl}`
       ].join("\n"),
       followUpAnswers: [
-        {
-          question: "Why did this claim win?",
-          answer: reason
-        },
-        {
-          question: "What evidence did the bot check?",
-          answer: "It checked the claim tokenURI, claim metadata, resolved content type, and the submission text."
-        },
+        ...buildFollowUpAnswers(reason),
         {
           question: "Was the payout handled on-chain?",
           answer: this.lastFinalActionTxHash

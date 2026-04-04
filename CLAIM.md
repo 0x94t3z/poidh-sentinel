@@ -32,8 +32,8 @@ This repo provides a production-style autonomous Poidh bot that:
 
 ## Assumptions and limitations
 
-- Social publishing is automated through `SOCIAL_POST_WEBHOOK_URL` (relay/poster service).
-- If webhook is unset, output is still generated locally in artifacts and stdout.
+- Social publishing is automated through either `SOCIAL_POST_WEBHOOK_URL` (relay) or direct Farcaster posting (`NEYNAR_API_KEY` + `FARCASTER_SIGNER_UUID`).
+- If both are unset, output is still generated locally in artifacts and stdout.
 - Open bounty finalization depends on Poidh voting window timing.
 
 ## Runtime outputs for proof
