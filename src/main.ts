@@ -1,9 +1,7 @@
 import "dotenv/config";
 import { readFile } from "node:fs/promises";
 import { PoidhBot } from "./bot.js";
-import type { DemoClaimConfig } from "./bot.js";
 import { resolveFrontendBountyUrl } from "./chains.js";
-import { PoidhClient } from "./poidh.js";
 
 function getEnv(name: string, fallback = ""): string {
   const value = process.env[name]?.trim();
@@ -88,9 +86,6 @@ function getBountyStatePath(): string {
 }
 
 function getDefaultArtifactDir(command: string): string {
-  if (command === "demo-cycle") {
-    return "artifacts/demo";
-  }
   if (command === "run" || command === "watch-bounty") {
     return "artifacts/production";
   }
@@ -112,102 +107,6 @@ async function readBountyState(chainName: "arbitrum" | "base" | "degen"): Promis
 
 function normalizeFlagName(name: string): string {
   return name.replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase());
-}
-
-function getDemoClaimPrivateKey(): string {
-  return getEnv("DEMO_CLAIM_PRIVATE_KEY", getEnv("CLAIM_PRIVATE_KEY"));
-}
-
-function parseDemoClaimSlot(index: 1 | 2): DemoClaimConfig | undefined {
-  const prefix = `DEMO_CLAIM_${index}_`;
-  const privateKey = getEnv(`${prefix}PRIVATE_KEY`);
-  const name = getEnv(`${prefix}NAME`);
-  const description = getEnv(`${prefix}DESCRIPTION`);
-  const proofUri = getEnv(`${prefix}PROOF_URI`);
-  const proofFile = getEnv(`${prefix}PROOF_FILE`);
-  const expectedClaimantAddress = getAddressEnv(`${prefix}EXPECTED_CLAIMANT_ADDRESS`);
-
-  const hasAnyValue =
-    privateKey.length > 0 ||
-    name.length > 0 ||
-    description.length > 0 ||
-    proofUri.length > 0 ||
-    proofFile.length > 0 ||
-    expectedClaimantAddress !== undefined;
-
-  if (!hasAnyValue) {
-    return undefined;
-  }
-
-  if (!privateKey) {
-    throw new Error(`Missing required environment variable: ${prefix}PRIVATE_KEY`);
-  }
-  if (!name) {
-    throw new Error(`Missing required environment variable: ${prefix}NAME`);
-  }
-  if (!description) {
-    throw new Error(`Missing required environment variable: ${prefix}DESCRIPTION`);
-  }
-
-  return {
-    privateKey,
-    name,
-    description,
-    proofUri: proofUri || undefined,
-    proofFile: proofFile || undefined,
-    expectedClaimantAddress
-  };
-}
-
-function parseLegacyDemoClaim(): DemoClaimConfig | undefined {
-  const privateKey = getDemoClaimPrivateKey();
-  const name = getEnv("CLAIM_NAME");
-  const description = getEnv("CLAIM_DESCRIPTION");
-  const proofUri = getEnv("CLAIM_PROOF_URI");
-  const proofFile = getEnv("CLAIM_PROOF_FILE");
-  const expectedClaimantAddress = getAddressEnv("EXPECTED_CLAIMANT_ADDRESS", getEnv("DEMO_CLAIMANT_ADDRESS"));
-
-  const hasAnyValue =
-    privateKey.length > 0 ||
-    name.length > 0 ||
-    description.length > 0 ||
-    proofUri.length > 0 ||
-    proofFile.length > 0 ||
-    expectedClaimantAddress !== undefined;
-
-  if (!hasAnyValue) {
-    return undefined;
-  }
-
-  if (!privateKey) {
-    throw new Error("Missing required environment variable: DEMO_CLAIM_PRIVATE_KEY");
-  }
-  if (!name) {
-    throw new Error("Missing required environment variable: CLAIM_NAME");
-  }
-  if (!description) {
-    throw new Error("Missing required environment variable: CLAIM_DESCRIPTION");
-  }
-
-  return {
-    privateKey,
-    name,
-    description,
-    proofUri: proofUri || undefined,
-    proofFile: proofFile || undefined,
-    expectedClaimantAddress
-  };
-}
-
-function getAddressEnv(name: string, fallback = ""): `0x${string}` | undefined {
-  const value = getEnv(name, fallback);
-  if (!value) {
-    return undefined;
-  }
-  if (!value.startsWith("0x")) {
-    throw new Error(`Environment variable ${name} must be a 0x-prefixed address.`);
-  }
-  return value as `0x${string}`;
 }
 
 function parseFlagMap(argv: string[]) {
@@ -257,16 +156,8 @@ async function run() {
     "Upload a clear outdoor photo of something blue."
   );
   const bountyAmountEth = getEnv("BOUNTY_AMOUNT_ETH", "0.001");
-  const autoSubmitClaim = getBool("AUTO_SUBMIT_CLAIM", false);
   const artifactDir = getEnv("ARTIFACT_DIR", getDefaultArtifactDir(command));
-  const pinataJwt = getEnv("PINATA_JWT");
-  const pinataGatewayUrl = getEnv("PINATA_GATEWAY_URL", "https://gateway.pinata.cloud/ipfs");
   const bountyStatePath = getBountyStatePath();
-  const demoClaims = [parseDemoClaimSlot(1), parseDemoClaimSlot(2)].filter(
-    (claim): claim is DemoClaimConfig => claim !== undefined
-  );
-  const legacyDemoClaim = parseLegacyDemoClaim();
-  const configuredDemoClaims = demoClaims.length > 0 ? demoClaims : legacyDemoClaim ? [legacyDemoClaim] : [];
   const flagBountyId =
     typeof flags.bountyId === "string"
       ? flags.bountyId
@@ -288,20 +179,12 @@ async function run() {
     bountyName,
     bountyDescription,
     bountyAmountEth,
-    autoSubmitClaim,
     artifactDir: artifactDir || undefined,
-    artifactPrefix: command === "demo-cycle" ? "demo" : "production",
     bountyId,
-    bountyStatePath,
-    demoClaims: configuredDemoClaims,
-    pinataJwt: pinataJwt || undefined,
-    pinataGatewayUrl: pinataGatewayUrl || undefined
+    bountyStatePath
   });
 
-  if (
-    bountyId !== undefined &&
-    (command === "run" || command === "watch-bounty" || command === "demo-cycle")
-  ) {
+  if (bountyId !== undefined && (command === "run" || command === "watch-bounty")) {
     await bot.persistBountyState();
   }
 
@@ -312,17 +195,6 @@ async function run() {
       console.log(`Bounty ID: ${id.toString()}`);
       console.log(`Frontend URL: ${resolveFrontendBountyUrl(chainName, id)}`);
       console.log(`Issuer: ${issuerClient.account.address}`);
-      for (const claim of configuredDemoClaims) {
-        const claimClient = new PoidhClient(chainName, rpcUrl, claim.privateKey);
-        console.log(`Demo claim wallet: ${claimClient.account.address}`);
-      }
-      break;
-    }
-    case "submit-claim": {
-      if (bountyId === undefined) {
-        throw new Error("submit-claim requires --bounty-id or BOUNTY_ID");
-      }
-      await bot.submitConfiguredClaims(bountyId);
       break;
     }
     case "evaluate-bounty": {
@@ -400,13 +272,9 @@ async function run() {
       await bot.runWatcher();
       break;
     }
-    case "demo-cycle": {
-      await bot.runDemoCycle();
-      break;
-    }
     default:
       throw new Error(
-        `Unknown command "${command}". Use create-bounty, submit-claim, evaluate-bounty, explain-bounty, resolve-vote, watch-bounty, demo-cycle, or run.`
+        `Unknown command "${command}". Use create-bounty, evaluate-bounty, explain-bounty, resolve-vote, watch-bounty, or run.`
       );
   }
 }

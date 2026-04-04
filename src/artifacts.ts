@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { ClaimEvaluation } from "./types.js";
 import type { FarcasterCastDraft } from "./social.js";
 
-export type DemoArtifact = {
+export type DecisionArtifact = {
   generatedAt: string;
   chainName: string;
   issuerAddress: string;
@@ -60,9 +60,9 @@ export type FarcasterProofArtifact = {
   cast: FarcasterCastDraft;
 };
 
-function markdownLines(artifact: DemoArtifact): string[] {
+function markdownLines(artifact: DecisionArtifact): string[] {
   const lines = [
-    `# poidh demo report`,
+    `# poidh bounty report`,
     ``,
     `- Generated at: ${artifact.generatedAt}`,
     `- Chain: ${artifact.chainName}`,
@@ -116,10 +116,10 @@ function markdownLines(artifact: DemoArtifact): string[] {
   return lines;
 }
 
-export async function writeDemoArtifact(
+export async function writeDecisionArtifact(
   artifactDir: string,
-  artifact: DemoArtifact,
-  baseNamePrefix = "poidh-demo"
+  artifact: DecisionArtifact,
+  baseNamePrefix = "poidh-production"
 ): Promise<{ jsonPath: string; markdownPath: string }> {
   await mkdir(artifactDir, { recursive: true });
   const baseName = `${baseNamePrefix}-${artifact.bountyId}`;

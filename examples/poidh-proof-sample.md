@@ -1,7 +1,7 @@
 # Poidh Proof Sample
 
 This is a sanitized example of the proof artifacts the bot produces after a bounty run.
-It is intended for repository review and client-facing demos only.
+It is intended for repository review and submission packaging.
 The same decision package can be published through an X/Farcaster relay or posted manually.
 
 ## Summary
@@ -39,6 +39,6 @@ The same decision package can be published through an X/Farcaster relay or poste
 
 ## Notes
 
-- The real runtime reports are written to `artifacts/demo/` and `artifacts/production/`.
+- The real runtime reports are written to `artifacts/production/`.
 - Those generated folders stay out of git on purpose.
 - The sample above is redacted enough to show the workflow without exposing live runtime files.
