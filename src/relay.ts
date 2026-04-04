@@ -11,6 +11,7 @@ type RelayState = {
   envelope: DecisionRelayEnvelope;
   publishedToX: boolean;
   xPostIds: string[];
+  xError?: string;
 };
 
 function getEnv(name: string, fallback = ""): string {
@@ -221,10 +222,11 @@ function renderRelayMarkdown(state: RelayState): string {
     `- Generated at: ${state.generatedAt}`,
     `- Published to X: ${state.publishedToX}`,
     `- X post IDs: ${state.xPostIds.join(", ") || "none"}`,
+    state.xError ? `- X error: ${state.xError}` : undefined,
     `- Targets: ${state.envelope.targets.join(", ")}`,
     `- Message:`,
     `  ${state.envelope.message}`
-  ];
+  ].filter(Boolean) as string[];
 
   if (state.sourceIp) {
     lines.push(`- Source IP: ${state.sourceIp}`);
@@ -273,14 +275,25 @@ async function handleDecision(request: IncomingMessage, response: ServerResponse
     }
 
     const { main, reply } = buildXPostTexts(body);
-    const mainTweetId = await postTweet(main);
-    const replyTweetId = mainTweetId ? await postTweet(reply, mainTweetId) : undefined;
+    let mainTweetId: string | undefined;
+    let replyTweetId: string | undefined;
+    let xError: string | undefined;
+
+    try {
+      mainTweetId = await postTweet(main);
+      replyTweetId = mainTweetId ? await postTweet(reply, mainTweetId) : undefined;
+    } catch (error) {
+      xError = error instanceof Error ? error.message : "Unknown X posting error";
+      console.error(xError);
+    }
+
     const state: RelayState = {
       generatedAt: new Date().toISOString(),
       sourceIp: request.socket.remoteAddress ?? undefined,
       envelope: body,
       publishedToX: Boolean(mainTweetId),
-      xPostIds: [mainTweetId, replyTweetId].filter(Boolean) as string[]
+      xPostIds: [mainTweetId, replyTweetId].filter(Boolean) as string[],
+      xError
     };
 
     await writeRelayArtifacts(state);
@@ -288,7 +301,8 @@ async function handleDecision(request: IncomingMessage, response: ServerResponse
       ok: true,
       publishedToX: Boolean(mainTweetId),
       xPostIds: state.xPostIds,
-      targetCount: body.targets.length
+      targetCount: body.targets.length,
+      xError
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown relay error";
