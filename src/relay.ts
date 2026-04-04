@@ -8,6 +8,7 @@ import {
   buildDecisionMessage,
   buildDecisionReply,
   postCastViaNeynar,
+  polishDecisionCopy,
   type DecisionRelayEnvelope
 } from "./social.js";
 
@@ -92,19 +93,34 @@ function truncateText(text: string, maxLength: number): string {
   return `${text.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
 }
 
-function buildCastTexts(envelope: DecisionRelayEnvelope): { main: string; reply: string } {
-  const main = truncateText(buildDecisionMessage(envelope.decision, envelope.castDraft.author), 280);
-  const reply = truncateText(
-    buildDecisionReply(
-      envelope.decision,
-      envelope.decision.reason,
-      envelope.castDraft.author,
-      envelope.followUpAnswers
-    ),
-    280
+async function buildCastTexts(envelope: DecisionRelayEnvelope): Promise<{ main: string; reply: string }> {
+  const deterministic = {
+    main: truncateText(buildDecisionMessage(envelope.decision, envelope.castDraft.author), 280),
+    reply: truncateText(
+      buildDecisionReply(
+        envelope.decision,
+        envelope.decision.reason,
+        envelope.castDraft.author,
+        envelope.followUpAnswers
+      ),
+      280
+    )
+  };
+
+  const polished = await polishDecisionCopy(
+    envelope.decision,
+    envelope.followUpAnswers,
+    envelope.castDraft.author
   );
 
-  return { main, reply };
+  if (!polished) {
+    return deterministic;
+  }
+
+  return {
+    main: truncateText(polished.main, 280),
+    reply: truncateText(polished.reply, 280)
+  };
 }
 
 function relayArtifactBaseName(bountyId: string): string {
@@ -297,7 +313,7 @@ async function handleDecision(request: IncomingMessage, response: ServerResponse
     }
 
     const body = json;
-    const { reply } = buildCastTexts(body);
+    const { reply } = await buildCastTexts(body);
     let mainCastHash: string | undefined;
     let replyCastHash: string | undefined;
     let farcasterError: string | undefined;

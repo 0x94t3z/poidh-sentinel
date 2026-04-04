@@ -36,6 +36,7 @@ This repo provides a production-style autonomous Poidh bot that:
 - Social publishing is automated through `SOCIAL_POST_WEBHOOK_URL` (relay).
 - The relay uses a Neynar signer UUID to publish the decision thread when the connected Farcaster account has posting access/credits.
 - If posting is unavailable, the relay records the failure and the bot still generates local artifacts and a complete post draft.
+- If `OPENROUTER_API_KEY` is set, Farcaster copy is optionally polished with `OPENROUTER_MODEL` (default `openrouter/free`).
 - Native follow-up reply listening via `POST /webhooks/neynar` requires Neynar webhook access and verifies `X-Neynar-Signature` with `NEYNAR_WEBHOOK_SECRET` when enabled.
 - On the free plan, the relay still exposes `POST /follow-up` as a manual fallback for forwarding question events.
 - Open bounty finalization depends on Poidh voting window timing.

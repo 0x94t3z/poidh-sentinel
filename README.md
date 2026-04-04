@@ -44,6 +44,7 @@ cp .env.example .env
 - For relay posting, set `SOCIAL_POST_WEBHOOK_URL=http://127.0.0.1:8787/decision`
 - For Farcaster posting, set `NEYNAR_API_KEY`, `FARCASTER_SIGNER_UUID`, and optionally `FARCASTER_CHANNEL_ID=poidh`
 - For Farcaster webhook verification, set `NEYNAR_WEBHOOK_SECRET` only if your Neynar plan includes webhook access
+- For optional LLM polish on Farcaster copy, set `OPENROUTER_API_KEY` and optionally `OPENROUTER_MODEL=openrouter/free`
 
 Recommended defaults in this repo:
 - `BOUNTY_KIND=solo`

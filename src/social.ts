@@ -77,6 +77,96 @@ export function buildDecisionReply(
     .join("\n");
 }
 
+function stripJsonEnvelope(rawText: string): string {
+  const trimmed = rawText.trim();
+  const start = trimmed.indexOf("{");
+  const end = trimmed.lastIndexOf("}");
+  if (start < 0 || end < 0 || end <= start) {
+    return trimmed;
+  }
+  return trimmed.slice(start, end + 1);
+}
+
+export async function polishDecisionCopy(
+  post: DecisionPost,
+  followUpAnswers: Array<{
+    question: string;
+    answer: string;
+  }> = buildFollowUpAnswers(post.reason),
+  author?: string
+): Promise<{ main: string; reply: string } | undefined> {
+  const apiKey = process.env.OPENROUTER_API_KEY?.trim();
+  const model = process.env.OPENROUTER_MODEL?.trim() || "openrouter/free";
+  if (!apiKey) {
+    return undefined;
+  }
+
+  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${apiKey}`,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      model,
+      temperature: 0.2,
+      max_tokens: 300,
+      messages: [
+        {
+          role: "system",
+          content:
+            "You write concise, friendly Farcaster casts. Return only strict JSON with keys main and reply. Keep main under 240 characters and reply under 280 characters. Do not add markdown fences."
+        },
+        {
+          role: "user",
+          content: JSON.stringify(
+            {
+              author,
+              bountyTitle: post.bountyTitle,
+              winningClaimId: post.winningClaimId.toString(),
+              bountyUrl: post.url,
+              reason: post.reason,
+              followUpAnswers
+            },
+            null,
+            2
+          )
+        }
+      ]
+    })
+  });
+
+  if (!response.ok) {
+    return undefined;
+  }
+
+  const payload = (await response.json()) as {
+    choices?: Array<{
+      message?: {
+        content?: string;
+      };
+    }>;
+  };
+  const rawText = payload.choices?.[0]?.message?.content?.trim() ?? "";
+  if (!rawText) {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(stripJsonEnvelope(rawText)) as Partial<{ main: string; reply: string }>;
+    if (typeof parsed.main === "string" && typeof parsed.reply === "string") {
+      return {
+        main: parsed.main.trim(),
+        reply: parsed.reply.trim()
+      };
+    }
+  } catch {
+    return undefined;
+  }
+
+  return undefined;
+}
+
 export function buildFollowUpAnswers(reason: string) {
   return [
     {
