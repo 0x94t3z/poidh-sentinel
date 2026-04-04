@@ -149,6 +149,8 @@ async function run() {
   const privateKey = requireEnv("PRIVATE_KEY");
   const pollIntervalMs = getInt("POLL_INTERVAL_MS", 60_000);
   const autoAccept = getBool("AUTO_ACCEPT", true);
+  const minClaimsBeforeAccept = Math.max(1, getInt("MIN_CLAIMS_BEFORE_ACCEPT", 1));
+  const minDecisionAgeSeconds = Math.max(0, getInt("MIN_DECISION_AGE_SECONDS", 0));
   const bountyKind = (getEnv("BOUNTY_KIND", "solo") === "open" ? "open" : "solo") as "solo" | "open";
   const bountyName = getEnv("BOUNTY_NAME", "Take a photo of something blue outdoors");
   const bountyDescription = getEnv(
@@ -175,6 +177,8 @@ async function run() {
     privateKey,
     pollIntervalMs,
     autoAccept,
+    minClaimsBeforeAccept,
+    minDecisionAgeSeconds,
     bountyKind,
     bountyName,
     bountyDescription,

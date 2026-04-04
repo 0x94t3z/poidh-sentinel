@@ -80,6 +80,8 @@ export type BotConfig = {
   privateKey: string;
   pollIntervalMs: number;
   autoAccept: boolean;
+  minClaimsBeforeAccept: number;
+  minDecisionAgeSeconds: number;
   bountyKind: "solo" | "open";
   bountyName: string;
   bountyDescription: string;
@@ -93,6 +95,8 @@ export class PoidhBot {
   readonly issuerClient: PoidhClient;
   readonly pollIntervalMs: number;
   readonly autoAccept: boolean;
+  readonly minClaimsBeforeAccept: number;
+  readonly minDecisionAgeSeconds: number;
   readonly bountyKind: "solo" | "open";
   readonly bountyName: string;
   readonly bountyDescription: string;
@@ -119,6 +123,8 @@ export class PoidhBot {
     this.issuerClient = new PoidhClient(config.chainName, config.rpcUrl, config.privateKey);
     this.pollIntervalMs = config.pollIntervalMs;
     this.autoAccept = config.autoAccept;
+    this.minClaimsBeforeAccept = Math.max(1, Math.floor(config.minClaimsBeforeAccept));
+    this.minDecisionAgeSeconds = Math.max(0, Math.floor(config.minDecisionAgeSeconds));
     this.bountyKind = config.bountyKind;
     this.bountyName = config.bountyName;
     this.bountyDescription = config.bountyDescription;
@@ -243,6 +249,30 @@ export class PoidhBot {
     if (!this.autoAccept) {
       return { bounty, evaluations };
     }
+
+    if (claims.length < this.minClaimsBeforeAccept) {
+      console.log(
+        `Auto-accept is waiting: ${claims.length} claim(s) found, requires at least ${this.minClaimsBeforeAccept}.`
+      );
+      return { bounty, evaluations };
+    }
+
+    if (this.minDecisionAgeSeconds > 0) {
+      const earliestClaimCreatedAt = claims.reduce(
+        (earliest, claim) => (claim.createdAt < earliest ? claim.createdAt : earliest),
+        claims[0]!.createdAt
+      );
+      const now = BigInt(Math.floor(Date.now() / 1000));
+      const minReadyTime = earliestClaimCreatedAt + BigInt(this.minDecisionAgeSeconds);
+      if (now < minReadyTime) {
+        const waitSeconds = Number(minReadyTime - now);
+        console.log(
+          `Auto-accept is waiting: decision window is still open for ${waitSeconds} more second(s).`
+        );
+        return { bounty, evaluations };
+      }
+    }
+
     const currentVotingClaim = await this.issuerClient.getCurrentVotingClaim(bountyId);
     const hasExternalContributor = await this.issuerClient.hasExternalContributor(bountyId);
 

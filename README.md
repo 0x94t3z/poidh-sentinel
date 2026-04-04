@@ -11,6 +11,9 @@ It creates a bounty from an EOA wallet, monitors claims, scores submissions with
 - Submission monitoring: polling loop in `run` / `watch-bounty`
 - Evaluation logic: deterministic scoring in `src/evaluate.ts`
 - Winner selection: highest-score claim in `src/bot.ts`
+- Auto-accept safeguards:
+  - `MIN_CLAIMS_BEFORE_ACCEPT` can require multiple claims before final action
+  - `MIN_DECISION_AGE_SECONDS` can hold acceptance window open to avoid first-claim instant resolution
 - On-chain payout flow:
   - Solo bounty: `acceptClaim`
   - Open bounty: `submitClaimForVote` then `resolveVote`
@@ -48,6 +51,7 @@ cp .env.example .env
 - For Farcaster posting, set `NEYNAR_API_KEY`, `FARCASTER_SIGNER_UUID`, and optionally `FARCASTER_CHANNEL_ID=poidh`
 - For Farcaster webhook verification, set `NEYNAR_WEBHOOK_SECRET` only if your Neynar plan includes webhook access
 - For optional LLM polish on Farcaster copy, set `OPENROUTER_API_KEY` and optionally `OPENROUTER_MODEL=openrouter/free`
+- To prevent first-claim instant resolution, set `MIN_CLAIMS_BEFORE_ACCEPT` (e.g. `2`) and/or `MIN_DECISION_AGE_SECONDS` (e.g. `300`)
 
 Recommended defaults in this repo:
 - `BOUNTY_KIND=solo`
@@ -118,6 +122,7 @@ These include winner, reasons, and follow-up Q/A text.
 - Poidh requires EOA wallets for issuer actions.
 - If you stop and restart without `BOUNTY_ID`, bot resumes from `BOUNTY_STATE_FILE` (`.poidh-state.json` by default).
 - Keep `AUTO_ACCEPT=true` for autonomous payout behavior.
+- Use `MIN_CLAIMS_BEFORE_ACCEPT` and `MIN_DECISION_AGE_SECONDS` to keep the bounty open long enough for organic competition.
 
 ## Claim pack
 
