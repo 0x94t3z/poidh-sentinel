@@ -51,6 +51,15 @@ export function normalizeRelayState(state: RelayState): RelayState {
   };
 }
 
+export function relayStateCastHashes(state: RelayState): string[] {
+  return [
+    ...state.farcasterCastIds,
+    ...state.followUpReplies
+      .map((item) => item.farcasterCastHash)
+      .filter((hash): hash is string => typeof hash === "string" && hash.length > 0)
+  ];
+}
+
 function toBigInt(value: string | number | bigint): bigint {
   if (typeof value === "bigint") {
     return value;

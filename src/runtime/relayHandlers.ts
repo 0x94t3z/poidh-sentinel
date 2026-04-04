@@ -14,6 +14,7 @@ import {
   loadRelayState,
   recordRelayStateUpdate,
   relayOutputDir,
+  relayStateCastHashes,
   writeRelayArtifacts,
   type FollowUpRequest,
   type NeynarWebhookEvent,
@@ -300,6 +301,15 @@ export async function handleNeynarWebhook(request: IncomingMessage, response: Se
     console.log(
       `[relay] matched webhook reply to bounty ${relayState.envelope.decision.bountyId.toString()} thread ${parentCastHash}`
     );
+
+    if (event.data.hash && relayStateCastHashes(relayState).includes(event.data.hash)) {
+      jsonResponse(response, 200, {
+        ok: true,
+        ignored: true,
+        reason: "Webhook cast was already posted by this relay."
+      });
+      return;
+    }
 
     const productionArtifact = await loadProductionArtifact(relayState.envelope.decision.bountyId.toString());
     const answer = answerFollowUpQuestion(event.data.text, {

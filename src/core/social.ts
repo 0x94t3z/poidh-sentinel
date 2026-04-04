@@ -61,16 +61,13 @@ export function buildDecisionReply(
     answer: string;
   }> = buildFollowUpAnswers(reason)
 ): string {
-  const reasoning = followUpAnswers[0]?.answer ?? reason;
-  const evidence = followUpAnswers[1]?.answer ?? "It checked the claim tokenURI, claim metadata, resolved content type, and the submission text.";
-  const autonomy = followUpAnswers[2]?.answer ?? "Yes. The winner is selected by deterministic scoring logic from all submitted claims.";
+  const evidence = "tokenURI, metadata, and content type";
+  const autonomy = followUpAnswers[2]?.answer ?? "The winner was selected automatically.";
 
   return [
     author ? `by ${author}` : undefined,
-    `Why it won:`,
-    `• ${reasoning}`,
-    `• ${evidence}`,
-    `• ${autonomy}`,
+    `Claim ${post.winningClaimId.toString()} won because it best matched the prompt and had image proof.`,
+    `I checked ${evidence}. ${autonomy}`,
     post.url ? `• Bounty: ${post.url}` : undefined
   ]
     .filter(Boolean)
