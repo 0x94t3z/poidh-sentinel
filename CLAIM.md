@@ -4,14 +4,7 @@ Target bounty: [Build An AI That Pays Humans To Do Things IRL](https://poidh.xyz
 
 ## What this repo does
 
-This repo provides a production-style autonomous Poidh bot that:
-
-- Creates a bounty from an issuer EOA
-- Watches public claims
-- Evaluates claims with deterministic, auditable logic
-- Selects a winner automatically
-- Executes `acceptClaim` (solo) or open-bounty vote flow on-chain
-- Produces a public decision explanation payload for Farcaster publishing or manual handoff when posting access is unavailable
+Poidh Sentinel is a production-style autonomous Poidh bot that creates a bounty from an issuer EOA, watches public claims, evaluates them with deterministic and auditable logic, selects a winner automatically, executes `acceptClaim` for solo bounties or the open-bounty vote flow on-chain, and publishes a Farcaster decision thread or a local handoff draft when posting access is unavailable.
 
 ## Why this matches the requirement
 
