@@ -25,7 +25,7 @@ The bounty asks for an autonomous bot that can run a Poidh bounty end-to-end wit
 - `src/evaluate.ts` ranks claims using proof content and description overlap.
 - `src/bot.ts` orchestrates create, watch, evaluate, and accept actions.
 - `src/artifacts.ts` writes demo and production proof artifacts for submission.
-- `src/social.ts` prepares a public decision summary and X/Farcaster-ready cast draft.
+- `src/social.ts` prepares a public decision summary, publish-target list, and X/Farcaster-ready cast draft.
 - `src/main.ts` exposes both `demo-cycle` and production-style `run` modes, plus `explain-bounty` for follow-up reasoning.
 - The shipped production preset is requirement-aligned: `Take a photo of something blue outdoors`.
 
@@ -35,7 +35,7 @@ The bounty asks for an autonomous bot that can run a Poidh bounty end-to-end wit
 - Demo submission slots use separate claimant wallets and never reuse the issuer wallet.
 - Production `run` mode does not self-submit claims.
 - The bot evaluates claims from on-chain `tokenURI` data and resolves payout actions without manual signing.
-- The bot prepares an X/Farcaster-ready cast draft and social proof artifact so the decision can be published cleanly.
+- The bot prepares an X/Farcaster-ready cast draft, a relay target list, and a social proof artifact so the decision can be published cleanly.
 
 ## Assumptions and limitations
 

@@ -13,6 +13,28 @@ export type FarcasterCastDraft = {
   parentUrl?: string;
 };
 
+export type SocialTarget = "x" | "farcaster";
+
+export type DecisionRelayEnvelope = {
+  targets: SocialTarget[];
+  message: string;
+  castDraft: FarcasterCastDraft;
+  decision: DecisionPost;
+};
+
+function parseSocialTargets(rawTargets?: string): SocialTarget[] {
+  const targets = rawTargets
+    ?.split(",")
+    .map((target) => target.trim().toLowerCase())
+    .filter((target): target is SocialTarget => target === "x" || target === "farcaster");
+
+  if (!targets || targets.length === 0) {
+    return ["x", "farcaster"];
+  }
+
+  return [...new Set(targets)];
+}
+
 export function buildDecisionMessage(post: DecisionPost, author?: string): string {
   return [
     author ? `by ${author}` : undefined,
@@ -37,25 +59,33 @@ export function buildFarcasterCastDraft(
   };
 }
 
-export async function postDecision(post: DecisionPost): Promise<boolean> {
-  const webhookUrl = process.env.SOCIAL_POST_WEBHOOK_URL?.trim();
+export function buildDecisionRelayEnvelope(post: DecisionPost): DecisionRelayEnvelope {
   const author = process.env.SOCIAL_POST_AUTHOR?.trim();
+  const targets = parseSocialTargets(process.env.SOCIAL_POST_TARGETS);
   const message = buildDecisionMessage(post, author);
   const castDraft = buildFarcasterCastDraft(post, author);
 
+  return {
+    targets,
+    message,
+    castDraft,
+    decision: post
+  };
+}
+
+export async function postDecision(post: DecisionPost): Promise<boolean> {
+  const webhookUrl = process.env.SOCIAL_POST_WEBHOOK_URL?.trim();
+  const envelope = buildDecisionRelayEnvelope(post);
+
   if (!webhookUrl) {
-    console.log(message);
+    console.log(envelope.message);
     return false;
   }
 
   const response = await fetch(webhookUrl, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      message,
-      castDraft,
-      ...post
-    })
+    body: JSON.stringify(envelope)
   });
 
   if (!response.ok) {

@@ -148,10 +148,12 @@ Set `SOCIAL_POST_WEBHOOK_URL` to a relay endpoint that publishes the bot's decis
 The bot sends one structured package with:
 
 - a plain-text decision summary
+- a `targets` list for the relay, such as `x` and `farcaster`
 - a Farcaster-ready cast draft
 - the bounty metadata and winner claim
 
 If you want the post to carry an attribution line, set `SOCIAL_POST_AUTHOR=0x94t3z.eth` or another handle you want displayed.
+If you want to constrain where the relay publishes, set `SOCIAL_POST_TARGETS=x,farcaster` or a comma-separated subset.
 
 If the webhook is unset, the bot prints the decision locally instead.
 
