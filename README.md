@@ -31,7 +31,7 @@ npm install
 2. Copy env template.
 
 ```bash
-cp .env.production.example .env
+cp .env.example .env
 ```
 
 3. Fill required values.
