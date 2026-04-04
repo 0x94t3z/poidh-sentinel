@@ -42,6 +42,7 @@ cp .env.example .env
 - `POIDH_CHAIN` one of `arbitrum`, `base`, `degen`
 - For relay posting, set `SOCIAL_POST_WEBHOOK_URL=http://127.0.0.1:8787/decision`
 - For Farcaster posting, set `NEYNAR_API_KEY`, `FARCASTER_SIGNER_UUID`, and optionally `FARCASTER_CHANNEL_ID=poidh`
+- For Farcaster webhook verification, set `NEYNAR_WEBHOOK_SECRET`
 
 Recommended defaults in this repo:
 - `BOUNTY_KIND=solo`
@@ -96,7 +97,8 @@ Social post order of execution:
 - If `SOCIAL_POST_WEBHOOK_URL` is set, bot sends full decision payload to your relay/poster service.
 - The relay can publish the decision to Farcaster using your Neynar signer when that account has posting access/credits.
 - If posting is unavailable, the relay records the reason and the bot still writes proof artifacts and a complete Farcaster draft locally.
-- The relay also exposes `POST /follow-up` so webhook-driven question events can be answered from the stored decision context.
+- The relay exposes `POST /webhooks/neynar` for native Farcaster follow-up replies and verifies `X-Neynar-Signature` with `NEYNAR_WEBHOOK_SECRET`.
+- The relay also exposes `POST /follow-up` as a manual fallback for forwarding question events.
 
 Relay payload includes a deterministic `followUpAnswers` array so your poster can auto-reply with reasoning context.
 

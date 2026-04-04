@@ -1,5 +1,6 @@
 import "dotenv/config";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { createHmac } from "node:crypto";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { join } from "node:path";
 import { answerFollowUpQuestion, postCastViaNeynar, type DecisionRelayEnvelope } from "./social.js";
@@ -30,6 +31,19 @@ type FollowUpRequest = {
   replyToCastHash?: string;
   parentCastHash?: string;
   source?: string;
+};
+
+type NeynarWebhookEvent = {
+  type?: string;
+  data?: {
+    hash?: string;
+    parent_hash?: string | null;
+    thread_hash?: string | null;
+    text?: string;
+    author?: {
+      fid?: number;
+    };
+  };
 };
 
 function normalizeRelayState(state: RelayState): RelayState {
@@ -111,9 +125,57 @@ async function readJsonFile<T>(path: string): Promise<T | undefined> {
   }
 }
 
+function verifyNeynarWebhookSignature(rawBody: string, signature?: string | null): boolean {
+  const secret = process.env.NEYNAR_WEBHOOK_SECRET?.trim();
+  if (!secret) {
+    return true;
+  }
+  if (!signature) {
+    return false;
+  }
+
+  const hmac = createHmac("sha512", secret);
+  hmac.update(rawBody);
+  return hmac.digest("hex") === signature;
+}
+
+async function readRequestBody(request: IncomingMessage): Promise<{ raw: string; json?: unknown }> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of request) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  const raw = Buffer.concat(chunks).toString("utf8").trim();
+  if (!raw) {
+    return { raw };
+  }
+  return { raw, json: JSON.parse(raw) as unknown };
+}
+
 async function loadRelayState(bountyId: string): Promise<RelayState | undefined> {
   const state = await readJsonFile<RelayState>(join(relayOutputDir(), `${relayArtifactBaseName(bountyId)}.json`));
   return state ? normalizeRelayState(state) : undefined;
+}
+
+async function findRelayStateByCastHash(castHash: string): Promise<RelayState | undefined> {
+  const outputDir = relayOutputDir();
+  const entries = await readdir(outputDir, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".json") || !entry.name.startsWith("poidh-relay-")) {
+      continue;
+    }
+
+    const state = await readJsonFile<RelayState>(join(outputDir, entry.name));
+    if (!state) {
+      continue;
+    }
+
+    const normalized = normalizeRelayState(state);
+    if (normalized.farcasterCastIds.includes(castHash)) {
+      return normalized;
+    }
+  }
+
+  return undefined;
 }
 
 async function loadProductionArtifact(
@@ -131,18 +193,6 @@ function jsonResponse(
 ) {
   response.writeHead(statusCode, { "content-type": "application/json" });
   response.end(`${JSON.stringify(payload, null, 2)}\n`);
-}
-
-async function readJsonBody(request: IncomingMessage): Promise<unknown> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of request) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  }
-  const raw = Buffer.concat(chunks).toString("utf8").trim();
-  if (!raw) {
-    return undefined;
-  }
-  return JSON.parse(raw) as unknown;
 }
 
 function isRelayEnvelope(value: unknown): value is DecisionRelayEnvelope {
@@ -245,12 +295,13 @@ async function recordRelayStateUpdate(
 
 async function handleDecision(request: IncomingMessage, response: ServerResponse) {
   try {
-    const body = await readJsonBody(request);
-    if (!isRelayEnvelope(body)) {
+    const { json } = await readRequestBody(request);
+    if (!isRelayEnvelope(json)) {
       jsonResponse(response, 400, { ok: false, error: "Invalid decision payload." });
       return;
     }
 
+    const body = json;
     const { reply } = buildCastTexts(body);
     let mainCastHash: string | undefined;
     let replyCastHash: string | undefined;
@@ -298,7 +349,13 @@ async function handleDecision(request: IncomingMessage, response: ServerResponse
 
 async function handleFollowUp(request: IncomingMessage, response: ServerResponse) {
   try {
-    const body = (await readJsonBody(request)) as FollowUpRequest;
+    const { json } = await readRequestBody(request);
+    if (!json || typeof json !== "object") {
+      jsonResponse(response, 400, { ok: false, error: "Invalid follow-up payload." });
+      return;
+    }
+
+    const body = json as FollowUpRequest;
     const bountyId = body.bountyId?.toString().trim();
     const question = body.question?.trim() || body.text?.trim() || body.message?.trim();
 
@@ -378,6 +435,98 @@ async function handleFollowUp(request: IncomingMessage, response: ServerResponse
   }
 }
 
+async function handleNeynarWebhook(request: IncomingMessage, response: ServerResponse) {
+  try {
+    const signature = request.headers["x-neynar-signature"];
+    const { raw, json } = await readRequestBody(request);
+
+    if (!verifyNeynarWebhookSignature(raw, Array.isArray(signature) ? signature[0] : signature)) {
+      jsonResponse(response, 401, { ok: false, error: "Invalid Neynar webhook signature." });
+      return;
+    }
+
+    if (!json || typeof json !== "object") {
+      jsonResponse(response, 400, { ok: false, error: "Invalid Neynar webhook payload." });
+      return;
+    }
+
+    const event = json as NeynarWebhookEvent;
+    if (event.type !== "cast.created" || !event.data?.text) {
+      jsonResponse(response, 200, { ok: true, ignored: true });
+      return;
+    }
+
+    const parentCastHash = event.data.parent_hash ?? event.data.thread_hash ?? undefined;
+    if (!parentCastHash) {
+      jsonResponse(response, 200, { ok: true, ignored: true });
+      return;
+    }
+
+    const relayState = await findRelayStateByCastHash(parentCastHash);
+    if (!relayState) {
+      jsonResponse(response, 200, { ok: true, ignored: true, reason: "No matching bounty thread." });
+      return;
+    }
+
+    const productionArtifact = await loadProductionArtifact(relayState.envelope.decision.bountyId.toString());
+    const answer = answerFollowUpQuestion(event.data.text, {
+      reason: relayState.envelope.decision.reason,
+      finalActionTxHash: productionArtifact?.finalActionTxHash
+    });
+
+    let farcasterCastHash: string | undefined;
+    let farcasterError: string | undefined;
+
+    try {
+      farcasterCastHash = await postCastViaNeynar(
+        {
+          text: answer,
+          embeds: [],
+          author: relayState.envelope.castDraft.author,
+          parentUrl: relayState.envelope.castDraft.parentUrl
+        },
+        { parentCastHash }
+      );
+    } catch (error) {
+      farcasterError = error instanceof Error ? error.message : "Unknown Farcaster reply error";
+      console.error(farcasterError);
+    }
+
+    const bountyId = relayState.envelope.decision.bountyId.toString();
+    const generatedAt = new Date().toISOString();
+    const nextState = await recordRelayStateUpdate(bountyId, (current) => ({
+      ...current,
+      farcasterError: farcasterError ?? current.farcasterError,
+      followUpReplies: [
+        ...current.followUpReplies,
+        {
+          generatedAt,
+          question: event.data?.text ?? "",
+          answer,
+          postedToFarcaster: Boolean(farcasterCastHash),
+          farcasterCastHash,
+          parentCastHash,
+          source: `neynar-webhook:${event.data?.author?.fid ?? "unknown"}`
+        }
+      ]
+    }));
+
+    jsonResponse(response, 200, {
+      ok: true,
+      bountyId,
+      question: event.data.text,
+      answer,
+      postedToFarcaster: Boolean(farcasterCastHash),
+      farcasterCastHash,
+      farcasterError,
+      followUpReplies: nextState.followUpReplies.length
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown Neynar webhook error";
+    jsonResponse(response, 500, { ok: false, error: message });
+  }
+}
+
 async function handleExplain(response: ServerResponse) {
   const outputDir = relayOutputDir();
   jsonResponse(response, 200, {
@@ -402,6 +551,11 @@ function startRelay() {
 
     if (request.method === "POST" && request.url === "/follow-up") {
       void handleFollowUp(request, response);
+      return;
+    }
+
+    if (request.method === "POST" && request.url === "/webhooks/neynar") {
+      void handleNeynarWebhook(request, response);
       return;
     }
 
