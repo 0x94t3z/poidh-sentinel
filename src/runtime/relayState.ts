@@ -51,6 +51,27 @@ export function normalizeRelayState(state: RelayState): RelayState {
   };
 }
 
+function toBigInt(value: string | number | bigint): bigint {
+  if (typeof value === "bigint") {
+    return value;
+  }
+  return BigInt(value);
+}
+
+function rehydrateRelayState(state: RelayState): RelayState {
+  return {
+    ...state,
+    envelope: {
+      ...state.envelope,
+      decision: {
+        ...state.envelope.decision,
+        bountyId: toBigInt(state.envelope.decision.bountyId),
+        winningClaimId: toBigInt(state.envelope.decision.winningClaimId)
+      }
+    }
+  };
+}
+
 export function relayOutputDir(): string {
   return getEnv("RELAY_OUTPUT_DIR", "artifacts/relay");
 }
@@ -81,7 +102,7 @@ export async function readJsonFile<T>(path: string): Promise<T | undefined> {
 
 export async function loadRelayState(bountyId: string): Promise<RelayState | undefined> {
   const state = await readJsonFile<RelayState>(join(relayOutputDir(), `${relayArtifactBaseName(bountyId)}.json`));
-  return state ? normalizeRelayState(state) : undefined;
+  return state ? normalizeRelayState(rehydrateRelayState(state)) : undefined;
 }
 
 export async function findRelayStateByCastHash(castHash: string): Promise<RelayState | undefined> {
@@ -97,7 +118,7 @@ export async function findRelayStateByCastHash(castHash: string): Promise<RelayS
       continue;
     }
 
-    const normalized = normalizeRelayState(state);
+    const normalized = normalizeRelayState(rehydrateRelayState(state));
     if (normalized.farcasterCastIds.includes(castHash)) {
       return normalized;
     }
@@ -120,7 +141,11 @@ export async function writeRelayArtifacts(state: RelayState) {
   const baseName = relayArtifactBaseName(state.envelope.decision.bountyId.toString());
   const jsonPath = join(outputDir, `${baseName}.json`);
   const markdownPath = join(outputDir, `${baseName}.md`);
-  await writeFile(jsonPath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+  await writeFile(
+    jsonPath,
+    `${JSON.stringify(state, (_, current) => (typeof current === "bigint" ? current.toString() : current), 2)}\n`,
+    "utf8"
+  );
   await writeFile(markdownPath, `${renderRelayMarkdown(state)}\n`, "utf8");
 }
 
