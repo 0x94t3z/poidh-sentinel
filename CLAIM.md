@@ -6,6 +6,8 @@ Target bounty: [Build An AI That Pays Humans To Do Things IRL](https://poidh.xyz
 
 Poidh Sentinel is an open-source TypeScript bot for Poidh bounty workflows. It creates a bounty from an issuer EOA, watches public claims, evaluates them with deterministic scoring, picks a winner, resolves the bounty on-chain, and publishes a public decision update through a relay.
 
+It supports Poidh on Arbitrum, Base, and Degen Chain by selecting the chain through `POIDH_CHAIN` and using the matching contract and frontend offsets.
+
 ## Why it matches
 
 - EOA control: `src/main.ts` and `src/core/poidh.ts`

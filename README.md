@@ -2,6 +2,8 @@
 
 Open-source TypeScript bot for Poidh bounty workflows on Arbitrum, Base, and Degen Chain.
 
+The chain is selected with `POIDH_CHAIN`, and the repo includes the matching contract addresses and frontend offsets for each supported network.
+
 It can:
 
 - Create a bounty from an EOA wallet
