@@ -1,7 +1,7 @@
-import { arbitrum, base, defineChain } from "viem/chains";
+import { arbitrum, base, type Chain } from "viem/chains";
 import type { ChainName } from "./types.js";
 
-export const degen = defineChain({
+export const degen: Chain = {
   id: 666666666,
   name: "Degen Chain",
   nativeCurrency: { name: "DEGEN", symbol: "DEGEN", decimals: 18 },
@@ -12,9 +12,9 @@ export const degen = defineChain({
   blockExplorers: {
     default: { name: "Degen Explorer", url: "https://explorer.degen.tips" }
   }
-});
+};
 
-export const chainMap: Record<ChainName, typeof arbitrum> = {
+export const chainMap: Record<ChainName, Chain> = {
   arbitrum,
   base,
   degen

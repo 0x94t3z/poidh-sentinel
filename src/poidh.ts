@@ -4,10 +4,10 @@ import {
   formatEther,
   http,
   parseAbi,
-  privateKeyToAccount,
   type Hex
 } from "viem";
 import type { Account } from "viem";
+import { privateKeyToAccount as privateKeyToAccountFromAccounts } from "viem/accounts";
 import { chainMap, contractAddresses, resolveFrontendBountyUrl } from "./chains.js";
 import type { BountyTuple, ChainName, ClaimTuple, VotingTracker } from "./types.js";
 
@@ -50,7 +50,7 @@ export class PoidhClient {
   ) {
     this.chainName = chainName;
     this.contractAddress = contractAddresses[chainName];
-    this.account = privateKeyToAccount(normalizePrivateKey(privateKey));
+    this.account = privateKeyToAccountFromAccounts(normalizePrivateKey(privateKey));
     const chain = chainMap[chainName];
 
     this.publicClient = createPublicClient({
