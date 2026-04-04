@@ -15,6 +15,7 @@ export type DecisionArtifactsInput = {
   issuerPendingWithdrawalsWei?: string;
   bountyId: bigint;
   bounty: BountyTuple;
+  declaredBountyAmountWei?: bigint;
   bountyUrl?: string;
   bountyTxHash?: `0x${string}`;
   claimId?: string;
@@ -35,6 +36,8 @@ export type DecisionArtifactsInput = {
 
 export async function writeDecisionArtifacts(input: DecisionArtifactsInput) {
   const bountyUrl = input.bountyUrl ?? resolveFrontendBountyUrl(input.chainName, input.bountyId);
+  const currentChainBountyAmountWei = input.bounty.amount.toString();
+  const declaredBountyAmountWei = input.declaredBountyAmountWei?.toString();
   const artifact = {
     generatedAt: new Date().toISOString(),
     chainName: input.chainName,
@@ -44,7 +47,8 @@ export async function writeDecisionArtifacts(input: DecisionArtifactsInput) {
     bountyUrl,
     bountyName: input.bounty.name,
     bountyDescription: input.bounty.description,
-    bountyAmountWei: input.bounty.amount.toString(),
+    bountyAmountWei: declaredBountyAmountWei ?? currentChainBountyAmountWei,
+    currentChainBountyAmountWei,
     bountyTxHash: input.bountyTxHash,
     claimId: input.claimId,
     claimTxHash: input.claimTxHash,
@@ -63,6 +67,8 @@ export async function writeDecisionArtifacts(input: DecisionArtifactsInput) {
     bountyTitle: input.bounty.name,
     winnerClaimId: input.winnerClaimId.toString(),
     reason: input.reason,
+    bountyAmountWei: declaredBountyAmountWei ?? currentChainBountyAmountWei,
+    currentChainBountyAmountWei,
     author: input.author,
     post: [
       `poidh decision for bounty ${input.bountyId.toString()}: ${input.bounty.name}`,
@@ -87,6 +93,8 @@ export async function writeDecisionArtifacts(input: DecisionArtifactsInput) {
     bountyUrl,
     bountyTitle: input.bounty.name,
     winnerClaimId: input.winnerClaimId.toString(),
+    bountyAmountWei: declaredBountyAmountWei ?? currentChainBountyAmountWei,
+    currentChainBountyAmountWei,
     cast: buildFarcasterCastDraft(
       {
         bountyId: input.bountyId,

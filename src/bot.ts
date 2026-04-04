@@ -35,6 +35,7 @@ export class PoidhBot {
   readonly bountyName: string;
   readonly bountyDescription: string;
   readonly bountyAmountEth: string;
+  readonly declaredBountyAmountWei: bigint;
   readonly artifactDir?: string;
   readonly bountyStatePath?: string;
   bountyId?: bigint;
@@ -63,6 +64,7 @@ export class PoidhBot {
     this.bountyName = config.bountyName;
     this.bountyDescription = config.bountyDescription;
     this.bountyAmountEth = config.bountyAmountEth;
+    this.declaredBountyAmountWei = parseEther(config.bountyAmountEth);
     this.artifactDir = config.artifactDir;
     this.bountyStatePath = config.bountyStatePath;
     this.bountyId = config.bountyId;
@@ -284,6 +286,7 @@ export class PoidhBot {
       issuerPendingWithdrawalsWei: issuerPendingWithdrawals.toString(),
       bountyId,
       bounty,
+      declaredBountyAmountWei: this.declaredBountyAmountWei,
       bountyUrl,
       bountyTxHash: this.lastBountyTxHash,
       claimId: this.lastClaimId?.toString(),

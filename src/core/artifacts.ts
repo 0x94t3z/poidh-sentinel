@@ -13,6 +13,7 @@ export type DecisionArtifact = {
   bountyName: string;
   bountyDescription: string;
   bountyAmountWei: string;
+  currentChainBountyAmountWei?: string;
   bountyTxHash?: string;
   claimId?: string;
   claimTxHash?: string;
@@ -41,6 +42,8 @@ export type SocialProofArtifact = {
   bountyUrl: string;
   bountyTitle: string;
   winnerClaimId: string;
+  bountyAmountWei?: string;
+  currentChainBountyAmountWei?: string;
   reason: string;
   author?: string;
   post: string;
@@ -57,6 +60,8 @@ export type FarcasterProofArtifact = {
   bountyUrl: string;
   bountyTitle: string;
   winnerClaimId: string;
+  bountyAmountWei?: string;
+  currentChainBountyAmountWei?: string;
   cast: FarcasterCastDraft;
 };
 
@@ -73,6 +78,10 @@ function markdownLines(artifact: DecisionArtifact): string[] {
     `- Bounty amount wei: ${artifact.bountyAmountWei}`,
     `- Issuer address: ${artifact.issuerAddress}`
   ];
+
+  if (artifact.currentChainBountyAmountWei && artifact.currentChainBountyAmountWei !== artifact.bountyAmountWei) {
+    lines.push(`- Current chain bounty amount wei: ${artifact.currentChainBountyAmountWei}`);
+  }
 
   if (artifact.issuerPendingWithdrawalsWei) {
     lines.push(`- Issuer pending withdrawals wei: ${artifact.issuerPendingWithdrawalsWei}`);
@@ -142,10 +151,14 @@ function socialLines(artifact: SocialProofArtifact): string[] {
     `- Bounty URL: ${artifact.bountyUrl}`,
     `- Bounty title: ${artifact.bountyTitle}`,
     `- Winner claim: ${artifact.winnerClaimId}`,
+    artifact.bountyAmountWei ? `- Bounty amount wei: ${artifact.bountyAmountWei}` : undefined,
+    artifact.currentChainBountyAmountWei && artifact.currentChainBountyAmountWei !== artifact.bountyAmountWei
+      ? `- Current chain bounty amount wei: ${artifact.currentChainBountyAmountWei}`
+      : undefined,
     `- Reason: ${artifact.reason}`,
     `- Post:`,
     `  ${artifact.post}`
-  ];
+  ].filter((line): line is string => typeof line === "string");
 
   if (artifact.author) {
     lines.push(`- Author: ${artifact.author}`);
@@ -193,11 +206,15 @@ export async function writeFarcasterProofArtifact(
     `- Bounty URL: ${artifact.bountyUrl}`,
     `- Bounty title: ${artifact.bountyTitle}`,
     `- Winner claim: ${artifact.winnerClaimId}`,
+    artifact.bountyAmountWei ? `- Bounty amount wei: ${artifact.bountyAmountWei}` : undefined,
+    artifact.currentChainBountyAmountWei && artifact.currentChainBountyAmountWei !== artifact.bountyAmountWei
+      ? `- Current chain bounty amount wei: ${artifact.currentChainBountyAmountWei}`
+      : undefined,
     `- Cast text:`,
     `  ${artifact.cast.text}`,
     artifact.cast.author ? `- Author: ${artifact.cast.author}` : undefined,
     artifact.cast.parentUrl ? `- Parent URL: ${artifact.cast.parentUrl}` : undefined
-  ].filter(Boolean) as string[];
+  ].filter((line): line is string => typeof line === "string");
 
   if (artifact.cast.embeds.length > 0) {
     lines.push(``, `## Embeds`, ``);
