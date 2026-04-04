@@ -123,3 +123,26 @@ export async function resolveClaimEvidence(tokenUri: string): Promise<ClaimEvide
     rawMetadata
   };
 }
+
+export function buildClaimTokenUri(params: {
+  name: string;
+  description: string;
+  imageUrl: string;
+  animationUrl?: string;
+}): string {
+  const metadata: Record<string, string> = {
+    name: params.name,
+    description: params.description,
+    image: params.imageUrl
+  };
+
+  if (params.animationUrl) {
+    metadata.animation_url = params.animationUrl;
+  }
+
+  return `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(metadata))}`;
+}
+
+export function isJsonMetadataTokenUri(tokenUri: string): boolean {
+  return tokenUri.startsWith("data:application/json") || tokenUri.endsWith(".json");
+}

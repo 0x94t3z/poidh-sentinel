@@ -34,6 +34,7 @@ cp .env.example .env
 
 - `PRIVATE_KEY` must be an EOA private key, not a smart wallet.
 - `DEMO_CLAIM_PRIVATE_KEY` is optional, but it should be a different EOA if you want the bot to submit a proof claim on a bounty it created. `CLAIM_PRIVATE_KEY` still works as a backward-compatible alias.
+- `CLAIM_PROOF_URI` can be a direct image, video, IPFS, or metadata URL. If you give the bot a direct image URL, it wraps it in JSON metadata so Poidh can render a preview image instead of `no image`.
 - `RPC_URL` should point at the chain you want to use.
 - `POIDH_CHAIN` must be `arbitrum`, `base`, or `degen`.
 - The app loads `.env` automatically, so you can keep secrets in the local file instead of exporting them in your shell.

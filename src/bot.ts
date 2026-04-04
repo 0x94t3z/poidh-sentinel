@@ -4,6 +4,7 @@ import { resolveFrontendBountyUrl } from "./chains.js";
 import { summarizeEvaluations, writeDemoArtifact } from "./artifacts.js";
 import { postDecision } from "./social.js";
 import { PoidhClient } from "./poidh.js";
+import { buildClaimTokenUri, isJsonMetadataTokenUri } from "./uri.js";
 import type { ClaimEvaluation } from "./types.js";
 
 export type BotConfig = {
@@ -99,11 +100,19 @@ export class PoidhBot {
       return undefined;
     }
 
+    const tokenUri = isJsonMetadataTokenUri(this.claimProofUri)
+      ? this.claimProofUri
+      : buildClaimTokenUri({
+          name: this.claimName,
+          description: this.claimDescription,
+          imageUrl: this.claimProofUri
+        });
+
     const hash = await submitter.createClaim(
       bountyId,
       this.claimName,
       this.claimDescription,
-      this.claimProofUri
+      tokenUri
     );
     const receipt = await submitter.waitForReceipt(hash);
     const claimId = await submitter.extractClaimIdFromReceipt(hash);
