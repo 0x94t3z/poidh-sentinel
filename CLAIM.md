@@ -23,6 +23,7 @@ This repo provides a production-style autonomous Poidh bot that:
 - Automation entrypoint: `src/main.ts` (`run`, `watch-bounty`)
 - Public reasoning + social payload: `src/social.ts` and `src/artifacts.ts`
 - Farcaster relay: `src/relay.ts`
+- Real-world guard: `src/bot.ts` rejects obvious digital-only bounty prompts before creation
 
 ## Autonomy model
 

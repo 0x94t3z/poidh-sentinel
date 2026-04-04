@@ -14,6 +14,9 @@ It creates a bounty from an EOA wallet, monitors claims, scores submissions with
 - On-chain payout flow:
   - Solo bounty: `acceptClaim`
   - Open bounty: `submitClaimForVote` then `resolveVote`
+- Real-world guard:
+  - bounty creation refuses obvious digital-only prompts
+  - default bounty text targets a real-world photo task
 - Public reasoning:
   - decision text is generated automatically
   - JSON/markdown artifacts are written to `artifacts/production/`
