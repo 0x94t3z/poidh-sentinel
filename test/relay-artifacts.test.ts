@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import type { BountyTuple, ClaimEvaluation, ClaimTuple } from "../src/core/types.js";
+import type { SocialTarget } from "../src/core/social.js";
 import { writeDecisionArtifacts } from "../src/runtime/decisionArtifacts.js";
 import {
   findRelayStateByCastHash,
@@ -128,7 +129,7 @@ test("persists relay state and can find replies by cast hash", async () => {
       generatedAt: "2026-04-05T00:00:00.000Z",
       sourceIp: "127.0.0.1",
       envelope: {
-        targets: ["farcaster"],
+        targets: ["farcaster"] as SocialTarget[],
         message: "decision ready",
         castDraft: {
           text: "decision thread",
