@@ -1,4 +1,4 @@
-# poidh bounty bot
+# Poidh Sentinel
 
 Open-source TypeScript bot for autonomous Poidh bounty execution.
 
@@ -107,7 +107,7 @@ npm run relay
 Artifacts written to `artifacts/production/`:
 - `poidh-production-<bountyId>.json|md`
 - `poidh-social-<bountyId>.json|md`
-- `poidh-farcaster-<bountyId>.json|md` (social draft only)
+- `poidh-x-<bountyId>.json|md` (social draft only)
 
 These include winner, reasons, and follow-up Q/A text.
 

@@ -1,6 +1,6 @@
 import type { ClaimEvidence } from "./types.js";
 
-const USER_AGENT = "poidh-bounty-bot/1.0";
+const USER_AGENT = "poidh-sentinel/1.0";
 
 function normalizeUri(uri: string): string {
   if (uri.startsWith("ipfs://")) {

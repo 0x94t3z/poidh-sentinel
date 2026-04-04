@@ -1,4 +1,4 @@
-# Bounty 216 claim pack
+# Poidh Sentinel claim pack
 
 Target bounty: [Build An AI That Pays Humans To Do Things IRL](https://poidh.xyz/arbitrum/bounty/216)
 
@@ -44,7 +44,7 @@ This repo provides a production-style autonomous Poidh bot that:
 
 - `poidh-production-<bountyId>.json|md`
 - `poidh-social-<bountyId>.json|md`
-- `poidh-farcaster-<bountyId>.json|md` (social draft only)
+- `poidh-x-<bountyId>.json|md` (social draft only)
 
 ## Submission checklist
 

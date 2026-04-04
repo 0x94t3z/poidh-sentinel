@@ -5,7 +5,7 @@ import { resolveFrontendBountyUrl } from "./chains.js";
 import {
   summarizeEvaluations,
   writeDecisionArtifact,
-  writeFarcasterProofArtifact,
+  writeXProofArtifact,
   writeSocialProofArtifact
 } from "./artifacts.js";
 import { buildFarcasterCastDraft, buildFollowUpAnswers, postDecision } from "./social.js";
@@ -265,7 +265,7 @@ export class PoidhBot {
             };
             reportPaths: { jsonPath: string; markdownPath: string };
             socialPaths: { jsonPath: string; markdownPath: string };
-            farcasterPaths: { jsonPath: string; markdownPath: string };
+            xPaths: { jsonPath: string; markdownPath: string };
           }
         | undefined
       >
@@ -329,7 +329,7 @@ export class PoidhBot {
         }
       ]
     });
-    const farcasterPaths = await writeFarcasterProofArtifact(artifactDir, {
+    const xPaths = await writeXProofArtifact(artifactDir, {
       generatedAt: new Date().toISOString(),
       chainName: this.issuerClient.chainName,
       bountyId: bountyId.toString(),
@@ -353,7 +353,7 @@ export class PoidhBot {
       artifact,
       reportPaths,
       socialPaths,
-      farcasterPaths
+      xPaths
     };
   }
 }
