@@ -11,7 +11,7 @@ It supports Poidh on Arbitrum, Base, and Degen Chain by selecting the chain thro
 ## Why it matches
 
 - EOA control: `src/main.ts` and `src/core/poidh.ts`
-- Bounty creation: `src/main.ts` (`create-bounty`, `run`)
+- Bounty creation: `src/main.ts` (`requirements-flow`)
 - Submission monitoring: `src/bot.ts` watcher loop
 - Evaluation logic: `src/core/evaluate.ts`
 - Winner selection logic: `src/bot.ts` (highest score)
@@ -22,8 +22,7 @@ It supports Poidh on Arbitrum, Base, and Degen Chain by selecting the chain thro
 ## Autonomy model
 
 - The bot signs transactions from `PRIVATE_KEY` directly.
-- `run` creates the bounty if missing, then keeps monitoring automatically.
-- `requirements-flow` (alias of `run`) is the recommended command for the end-to-end autonomous path.
+- `requirements-flow` creates the bounty if missing, then keeps monitoring automatically.
 - `AUTO_ACCEPT=true` lets the bot finalize the winning claim without a manual step.
 - `MIN_CLAIMS_BEFORE_ACCEPT` and `MIN_DECISION_AGE_SECONDS` keep the bounty open long enough for organic competition. `MIN_DECISION_AGE_SECONDS` is a bot-side delay after the first claim is observed; it is not Poidh's own end timer.
 - Decision summaries and follow-up Q/A text are written to artifacts.

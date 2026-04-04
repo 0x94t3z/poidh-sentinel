@@ -59,7 +59,7 @@ function getBountyStatePath(): string {
 }
 
 function getDefaultArtifactDir(command: string): string {
-  if (command === "run" || command === "watch-bounty") {
+  if (command === "requirements-flow" || command === "watch-bounty") {
     return "artifacts/production";
   }
   return "artifacts";
@@ -121,12 +121,10 @@ function parseFlagMap(argv: string[]) {
 }
 
 async function run() {
-  const [rawCommand = "run", ...rest] = process.argv.slice(2);
+  const [rawCommand = "requirements-flow", ...rest] = process.argv.slice(2);
   const commandAliases: Record<string, string> = {
-    "autonomous-run": "run",
-    "requirements-flow": "run",
-    "resume-bounty": "watch-bounty",
-    "create-only": "create-bounty-only"
+    run: "requirements-flow",
+    "create-bounty": "requirements-flow"
   };
   const command = commandAliases[rawCommand] ?? rawCommand;
   const { flags } = parseFlagMap(rest);
@@ -154,7 +152,7 @@ async function run() {
         ? (flags["bounty-id"] as string)
         : undefined;
   const explicitBountyId = parseBountyId(flagBountyId ?? getEnv("BOUNTY_ID"));
-  const shouldReuseState = command !== "create-bounty" && command !== "create-bounty-only";
+  const shouldReuseState = command !== "create-bounty-only";
   const state = shouldReuseState && !explicitBountyId ? await readBountyState(chainName) : undefined;
   const bountyId = explicitBountyId ?? (state ? BigInt(state.bountyId) : undefined);
 
@@ -177,23 +175,17 @@ async function run() {
     persistedArtifactKey: state?.lastArtifactKey
   });
 
-  if (bountyId !== undefined && (command === "run" || command === "watch-bounty")) {
+  if (bountyId !== undefined && (command === "requirements-flow" || command === "watch-bounty")) {
     await bot.persistBountyState();
   }
 
   switch (command) {
-    case "create-bounty":
     case "create-bounty-only": {
       const id = await bot.createBountyIfNeeded();
       const issuerClient = bot.issuerClient;
       console.log(`Bounty ID: ${id.toString()}`);
       console.log(`Frontend URL: ${resolveFrontendBountyUrl(chainName, id)}`);
       console.log(`Issuer: ${issuerClient.account.address}`);
-
-      if (command === "create-bounty") {
-        console.log("Created bounty. Continuing with autonomous watcher flow...");
-        await bot.runWatcher();
-      }
       break;
     }
     case "evaluate-bounty": {
@@ -267,13 +259,13 @@ async function run() {
       break;
     }
     case "watch-bounty":
-    case "run": {
+    case "requirements-flow": {
       await bot.runWatcher();
       break;
     }
     default:
       throw new Error(
-        `Unknown command "${rawCommand}". Use create-bounty, create-bounty-only, evaluate-bounty, explain-bounty, resolve-vote, watch-bounty, run, requirements-flow, or autonomous-run.`
+        `Unknown command "${rawCommand}". Use requirements-flow, create-bounty-only, watch-bounty, evaluate-bounty, explain-bounty, or resolve-vote.`
       );
   }
 }

@@ -70,27 +70,23 @@ npm run relay
 npm run dev -- requirements-flow
 ```
 
-`requirements-flow` (alias of `run`) follows the target flow:
+`requirements-flow` follows the target flow:
 - Create a real-world bounty
 - Wait for public submissions
 - Evaluate and pick a winner
 - Execute on-chain final action (`acceptClaim` or open-bounty vote path)
 - Post public reasoning in the Farcaster thread
 
+Compatibility alias: `npm run dev -- run`
+
 Advanced commands:
-
-Create and continue autonomous flow from that bounty:
-
-```bash
-npm run dev -- create-bounty
-```
 
 Create bounty and stop (no watcher loop):
 
 ```bash
 npm run dev -- create-bounty-only
 ```
-Alias: `npm run dev -- create-only`
+Compatibility alias: `npm run dev -- create-bounty`
 
 Evaluate a bounty without sending a transaction:
 
@@ -103,7 +99,6 @@ Watch an existing bounty:
 ```bash
 npm run dev -- watch-bounty --bounty-id 123
 ```
-Alias: `npm run dev -- resume-bounty --bounty-id 123`
 
 Explain winner and reasoning:
 
