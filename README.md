@@ -88,6 +88,12 @@ Resolve open-bounty vote manually if needed:
 npm run dev -- resolve-vote --bounty-id 123
 ```
 
+Run the test suite:
+
+```bash
+npm test
+```
+
 ## How it works
 
 - `createSoloBounty` and `createOpenBounty` fund a bounty from an EOA

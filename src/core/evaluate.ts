@@ -66,13 +66,12 @@ function looksLikeRealWorldProof(evidence: ClaimEvidence): boolean {
   );
 }
 
-export async function evaluateClaim(
+export function scoreClaimWithEvidence(
   bountyName: string,
   bountyDescription: string,
   claim: ClaimTuple,
-  tokenUri: string
-): Promise<ClaimEvaluation> {
-  const evidence = await resolveClaimEvidence(tokenUri);
+  evidence: ClaimEvidence
+): ClaimEvaluation {
   const reasons: string[] = [];
   let score = 0;
 
@@ -133,6 +132,16 @@ export async function evaluateClaim(
     reasons,
     evidence
   };
+}
+
+export async function evaluateClaim(
+  bountyName: string,
+  bountyDescription: string,
+  claim: ClaimTuple,
+  tokenUri: string
+): Promise<ClaimEvaluation> {
+  const evidence = await resolveClaimEvidence(tokenUri);
+  return scoreClaimWithEvidence(bountyName, bountyDescription, claim, evidence);
 }
 
 export async function evaluateClaims(
