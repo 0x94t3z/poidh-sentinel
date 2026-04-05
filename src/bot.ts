@@ -185,6 +185,24 @@ export class PoidhBot {
     });
   }
 
+  private logEvaluations(bountyId: bigint, evaluations: ClaimEvaluation[]) {
+    console.log(`Evaluated ${evaluations.length} claim(s) for bounty ${bountyId.toString()}.`);
+    for (const evaluation of evaluations) {
+      const proof =
+        evaluation.evidence.imageUrl ??
+        evaluation.evidence.animationUrl ??
+        evaluation.evidence.contentUri ??
+        evaluation.evidence.tokenUri;
+      const status = evaluation.score >= 0 ? "eligible" : "ineligible";
+      const reason = evaluation.reasons[0] ?? "No evaluation reason available.";
+      console.log(
+        `- claim ${evaluation.claim.id.toString()}: ${status}, score ${evaluation.score.toFixed(2)}, accepted ${evaluation.claim.accepted ? "true" : "false"}`
+      );
+      console.log(`  proof: ${proof}`);
+      console.log(`  reason: ${reason}`);
+    }
+  }
+
   async actOnBounty(bountyId: bigint): Promise<{ bounty: BountyTuple; evaluations: ClaimEvaluation[] } | undefined> {
     const bounty = await this.issuerClient.getBounty(bountyId);
     const claims = await this.issuerClient.getAllClaims(bountyId);
@@ -195,6 +213,7 @@ export class PoidhBot {
     }
 
     const evaluations = await this.evaluateBounty(bountyId);
+    this.logEvaluations(bountyId, evaluations);
     const winner = evaluations.find((evaluation) => evaluation.score >= 0);
 
     if (!winner) {
