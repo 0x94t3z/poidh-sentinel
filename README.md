@@ -143,12 +143,6 @@ These include winner, reasons, follow-up Q/A text, and both the declared bounty 
 - Use `MIN_PARTICIPANTS_BEFORE_FINALIZE` and `FIRST_CLAIM_COOLDOWN_SECONDS` to keep the bounty open long enough for organic competition.
 - `MIN_PARTICIPANTS_BEFORE_FINALIZE=2` is a good default for demos where you want more than one claim before payout.
 - When that setting is `2`, `Auto-finalize is waiting...` is expected after the first claim.
-- Legacy names still supported for compatibility:
-  - `PRIVATE_KEY`, `RPC_URL`, `POIDH_CHAIN`
-  - `SOCIAL_POST_WEBHOOK_URL`, `SOCIAL_POST_AUTHOR`, `RELAY_PORT`, `RELAY_OUTPUT_DIR`
-  - `NEYNAR_WEBHOOK_SECRET`, `BOUNTY_STATE_FILE`, `OPENROUTER_MODEL`
-  - `POLL_INTERVAL_MS`, `AUTO_ACCEPT`, `MIN_CLAIMS_BEFORE_ACCEPT`, `MIN_DECISION_AGE_SECONDS`
-  - `BOUNTY_KIND`, `BOUNTY_NAME`, `BOUNTY_DESCRIPTION`, `BOUNTY_AMOUNT_ETH`, `ARTIFACT_DIR`
 - In autonomous mode, final public decision posts are sent after the on-chain final action path is reached.
 
 ## Claim pack
