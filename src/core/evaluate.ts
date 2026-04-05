@@ -191,6 +191,57 @@ export function getStrictTaskEvidenceFailures(
   return validateEvidenceAgainstTask(requirements, claim, evidence);
 }
 
+function aiObservationText(aiEvaluation: AiClaimEvaluation): string {
+  const noise = /(bounty title|bounty prompt|prompt says|the user wants me|let'?s tackle|first,?\s*i need to|i need to check|requirements?:)/i;
+  const chunks = [
+    aiEvaluation.visionSummary,
+    ...(aiEvaluation.visionSignals ?? []),
+    ...aiEvaluation.reasons
+  ]
+    .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    .map((item) => item.trim())
+    .filter((item) => !noise.test(item));
+  return chunks.join(" ").toLowerCase();
+}
+
+function aiHasSignalForFailure(failure: string, observed: string): boolean {
+  if (failure.includes("date signal")) {
+    return /\bdate\b|\btoday\b|\b\d{4}\b|\b\d{1,2}(st|nd|rd|th)?\b|\bjan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec\b/i.test(
+      observed
+    );
+  }
+  if (failure.includes("username signal")) {
+    return /@\w+|\busername\b|\buser\s*name\b/i.test(observed);
+  }
+  if (failure.includes("outdoor signal")) {
+    return /\boutdoor|outside|grass|sky|park|street|sunlight|field|road\b/i.test(observed);
+  }
+  if (failure.includes("handwritten note evidence")) {
+    return /\bhandwritten|hand written|note|paper\b/i.test(observed);
+  }
+  if (failure.includes("poidh signal")) {
+    return /\bpoidh\b/i.test(observed);
+  }
+  if (failure.includes("image or video proof")) {
+    return /\bimage|photo|picture|video|frame|screenshot\b/i.test(observed);
+  }
+  return false;
+}
+
+function aiProvidesConcreteEvidenceForStrictFailures(
+  aiEvaluation: AiClaimEvaluation,
+  strictFailures: string[]
+): boolean {
+  if (strictFailures.length === 0) {
+    return true;
+  }
+  const observed = aiObservationText(aiEvaluation);
+  if (!observed) {
+    return false;
+  }
+  return strictFailures.every((failure) => aiHasSignalForFailure(failure, observed));
+}
+
 function evidenceFingerprint(evidence: ClaimEvidence): string | undefined {
   const mediaRef = (
     evidence.imageUrl ||
@@ -510,6 +561,27 @@ export async function evaluateClaims(
         }
         if (aiEvaluation.reasons.length > 0) {
           evaluation.reasons.push(...aiEvaluation.reasons.map((reason) => `AI: ${reason}`));
+        }
+
+        if (hasStrictSignalMismatch) {
+          const strictFailures = strictFailuresByClaimId.get(evaluation.claim.id) ?? [];
+          const aiHasConcreteEvidence = aiProvidesConcreteEvidenceForStrictFailures(
+            aiEvaluation,
+            strictFailures
+          );
+          if (!aiHasConcreteEvidence) {
+            if (aiRequired) {
+              evaluation.score = -1;
+              evaluation.reasons.push(
+                "Claim rejected because AI response did not provide concrete observed evidence for strict missing signals."
+              );
+              return;
+            }
+            evaluation.reasons.push(
+              "AI verdict ignored because it lacked concrete observed evidence for strict missing signals; used deterministic scoring."
+            );
+            return;
+          }
         }
 
         if (aiEvaluation.verdict === "reject" || aiEvaluation.confidence < aiMinConfidence) {

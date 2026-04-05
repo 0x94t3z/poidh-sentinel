@@ -201,11 +201,14 @@ function parseAiResponseContent(rawText: string): {
   visionSummary?: string;
   visionSignals?: string[];
 } | undefined {
+  const chainOfThoughtScaffold =
+    /^(okay, let'?s|let'?s tackle|first,?\s+i need to|the user wants me to|i need to check|i will evaluate)/i;
+
   const normalizeString = (value: unknown): string | undefined => {
     if (typeof value !== "string") {
       return undefined;
     }
-    const trimmed = value.trim();
+    const trimmed = value.trim().replace(/^["'`]+|["'`]+$/g, "");
     return trimmed.length > 0 ? trimmed : undefined;
   };
 
@@ -264,7 +267,19 @@ function parseAiResponseContent(rawText: string): {
     }
   }
 
-  const verdictMatch = rawText.match(/\b(accept|reject|needs_review)\b/i);
+  const explicitVerdictMatch =
+    rawText.match(/\b(?:verdict|decision|result)\b[^a-z]*(accept|reject|needs[_\s-]?review)\b/i) ??
+    rawText.match(/^\s*(accept|reject|needs[_\s-]?review)\s*$/im) ??
+    rawText.match(/\b(?:claim|submission)\s+(?:is|should be)\s+(accepted|rejected|needs review)\b/i);
+
+  const verdictToken = explicitVerdictMatch?.[1]
+    ?.toLowerCase()
+    .replace(/\s+/g, "_")
+    .replace("accepted", "accept")
+    .replace("rejected", "reject")
+    .replace("needs-review", "needs_review")
+    .replace("needsreview", "needs_review");
+
   const confidenceMatch = rawText.match(/\bconfidence\b[^0-9]*([01](?:\.\d+)?)/i);
   const reasons = rawText
     .split(/\r?\n/)
@@ -274,48 +289,25 @@ function parseAiResponseContent(rawText: string): {
     .filter((line) => line.length > 0)
     .slice(0, 5);
 
-  if (!verdictMatch && !confidenceMatch && reasons.length === 0) {
-    const sentenceReasons = rawText
-      .split(/(?<=[.!?])\s+/)
-      .map((sentence) => sentence.replace(/\s+/g, " ").trim())
-      .filter((sentence) => sentence.length > 0 && !/^since\b/i.test(sentence))
-      .slice(0, 4);
-
-    const inferReject = /(\bdoes not\b|\bdoesn't\b|\bfails?\b|\bmissing\b|\binsufficient\b|\breject\b|\brejected\b|\bshould be rejected\b|\bnot enough\b)/i.test(
-      rawText
-    );
-    const inferAccept = /(\bmeets?\b|\bsatisfies?\b|\bvalid\b|\bacceptable\b|\bshould be accepted\b|\bpasses?\b|\bvalid submission\b|\bvalid claim\b)/i.test(
-      rawText
-    );
-
-    if (!inferReject && !inferAccept && sentenceReasons.length === 0) {
-      return undefined;
-    }
-
-    return {
-      verdict: inferReject ? "reject" : inferAccept ? "accept" : "needs_review",
-      confidence: normalizeConfidence(
-        inferReject || inferAccept ? 0.75 : 0.5
-      ),
-      reasons: sentenceReasons,
-      visionSummary: sentenceReasons[0],
-      visionSignals: sentenceReasons.slice(0, 3)
-    };
+  if (!verdictToken) {
+    return undefined;
   }
 
   const visionSummary =
     rawText
       .split(/\r?\n/)
       .map((line) => line.replace(/^[\s>*-]+/, "").trim())
+      .filter((line) => !chainOfThoughtScaffold.test(line))
       .find((line) =>
         /\b(image|photo|picture|note|handwritten|hand written|reads|says|shows|visible|contains|outdoor|username|date|poidh)\b/i.test(
           line
         )
-      ) ?? rawText;
+      );
 
   const visionSignals = rawText
     .split(/\r?\n/)
     .map((line) => line.replace(/^[\s>*-]+/, "").trim())
+    .filter((line) => !chainOfThoughtScaffold.test(line))
     .filter(
       (line) =>
         /\b(image|photo|picture|note|handwritten|hand written|reads|says|shows|visible|contains|outdoor|username|date|poidh)\b/i.test(
@@ -325,12 +317,12 @@ function parseAiResponseContent(rawText: string): {
     .slice(0, 4);
 
   return {
-    verdict: parseVerdict(verdictMatch?.[1].toLowerCase()),
+    verdict: parseVerdict(verdictToken),
     confidence: normalizeConfidence(
       confidenceMatch?.[1] ? Number.parseFloat(confidenceMatch[1]) : undefined
     ),
     reasons,
-    visionSummary,
+    visionSummary: normalizeString(visionSummary),
     visionSignals: visionSignals.length > 0 ? visionSignals : undefined
   };
 }
