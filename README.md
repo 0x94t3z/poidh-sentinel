@@ -166,6 +166,7 @@ These include winner, reasons, follow-up Q/A text, and both the declared bounty 
 - `MIN_PARTICIPANTS_BEFORE_FINALIZE=2` is a good default for demos where you want more than one claim before payout.
 - The shared example template defaults to `MIN_PARTICIPANTS_BEFORE_FINALIZE=2` and `FIRST_CLAIM_COOLDOWN_SECONDS=86400`, so a fresh client will not auto-finalize right away.
 - When that setting is `2`, `Auto-finalize is waiting...` is expected after the first claim.
+- If you see `No valid claims found`, the cooldown/finalization clock will not proceed until at least one claim passes eligibility checks.
 - In autonomous mode, final public decision posts are sent after the on-chain final action path is reached.
 
 ## Proof Sample

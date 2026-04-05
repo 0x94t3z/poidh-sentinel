@@ -199,6 +199,14 @@ export class PoidhBot {
 
     if (!winner) {
       console.log(`No valid claims found for bounty ${bountyId.toString()}.`);
+      console.log(
+        `Observed ${claims.length} claim(s). Cooldown/finalization only proceeds after at least one claim passes eligibility checks.`
+      );
+      for (const evaluation of evaluations.slice(0, 3)) {
+        const lastReason =
+          evaluation.reasons[evaluation.reasons.length - 1] ?? "No evaluation reason available.";
+        console.log(`Invalid claim ${evaluation.claim.id.toString()}: ${lastReason}`);
+      }
       return undefined;
     }
 

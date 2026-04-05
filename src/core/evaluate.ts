@@ -34,6 +34,7 @@ const STOP_WORDS = new Set([
   "your"
 ]);
 const DUPLICATE_EVIDENCE_PENALTY = 20;
+const STRICT_SIGNAL_PENALTY = 20;
 
 type BountyEvidenceRequirements = {
   requiresVisualProof: boolean;
@@ -161,6 +162,16 @@ function validateEvidenceAgainstTask(
   return failures;
 }
 
+export function getStrictTaskEvidenceFailures(
+  bountyName: string,
+  bountyDescription: string,
+  claim: ClaimTuple,
+  evidence: ClaimEvidence
+): string[] {
+  const requirements = deriveBountyEvidenceRequirements(bountyName, bountyDescription);
+  return validateEvidenceAgainstTask(requirements, claim, evidence);
+}
+
 function evidenceFingerprint(evidence: ClaimEvidence): string | undefined {
   const mediaRef = (
     evidence.imageUrl ||
@@ -242,7 +253,6 @@ export function scoreClaimWithEvidence(
 ): ClaimEvaluation {
   const reasons: string[] = [];
   let score = 0;
-  const requirements = deriveBountyEvidenceRequirements(bountyName, bountyDescription);
 
   const nameOverlap = overlapScore(bountyName, claim.name);
   const descriptionOverlap = overlapScore(
@@ -295,17 +305,12 @@ export function scoreClaimWithEvidence(
     reasons.push("Claim is already accepted on-chain.");
   }
 
-  const strictFailures = validateEvidenceAgainstTask(requirements, claim, evidence);
+  const strictFailures = getStrictTaskEvidenceFailures(bountyName, bountyDescription, claim, evidence);
   if (strictFailures.length > 0) {
-    return {
-      claim,
-      score: -1,
-      reasons: [
-        ...reasons,
-        `Claim rejected by strict task evidence checks: ${strictFailures.join(", ")}.`
-      ],
-      evidence
-    };
+    score -= STRICT_SIGNAL_PENALTY;
+    reasons.push(
+      `Strict deterministic signal check flagged: ${strictFailures.join(", ")}.`
+    );
   }
 
   return {
@@ -378,6 +383,44 @@ export async function evaluateClaims(
   const aiInspectLinkedUrls = options.aiInspectLinkedUrls ?? true;
   const aiMaxLinkedUrls = Math.max(0, Math.floor(options.aiMaxLinkedUrls ?? 2));
   const aiRequired = mode === "ai_required";
+  const strictFailuresByClaimId = new Map<bigint, string[]>();
+
+  for (const evaluation of evaluations) {
+    if (evaluation.score < 0) {
+      continue;
+    }
+    const strictFailures = getStrictTaskEvidenceFailures(
+      bountyName,
+      bountyDescription,
+      evaluation.claim,
+      evaluation.evidence
+    );
+    if (strictFailures.length > 0) {
+      strictFailuresByClaimId.set(evaluation.claim.id, strictFailures);
+      if (
+        !evaluation.reasons.some((reason) =>
+          reason.startsWith("Strict deterministic signal check flagged:")
+        )
+      ) {
+        evaluation.reasons.push(
+          `Strict deterministic signal check flagged: ${strictFailures.join(", ")}.`
+        );
+      }
+    }
+  }
+
+  if (mode === "deterministic") {
+    for (const evaluation of evaluations) {
+      if (evaluation.score < 0) {
+        continue;
+      }
+      if (strictFailuresByClaimId.has(evaluation.claim.id)) {
+        evaluation.score = -1;
+        evaluation.reasons.push("Claim rejected by deterministic strict evidence gate.");
+      }
+    }
+    return rankEvaluations(evaluations);
+  }
 
   if (aiEnabled) {
     await Promise.all(
@@ -385,12 +428,13 @@ export async function evaluateClaims(
         if (evaluation.score < 0) {
           return;
         }
+        const hasStrictSignalMismatch = strictFailuresByClaimId.has(evaluation.claim.id);
 
         if (!aiApiKey) {
-          if (aiRequired) {
+          if (aiRequired || hasStrictSignalMismatch) {
             evaluation.score = -1;
             evaluation.reasons.push(
-              "Claim rejected because AI evaluation is required but OPENROUTER_API_KEY is not configured."
+              "Claim rejected because AI evidence verification is required but OPENROUTER_API_KEY is not configured."
             );
             return;
           }
@@ -413,10 +457,10 @@ export async function evaluateClaims(
         });
 
         if (!aiEvaluation) {
-          if (aiRequired) {
+          if (aiRequired || hasStrictSignalMismatch) {
             evaluation.score = -1;
             evaluation.reasons.push(
-              "Claim rejected because AI evaluation is required but the AI evaluator was unavailable."
+              "Claim rejected because AI evidence verification is required but the AI evaluator was unavailable."
             );
             return;
           }
@@ -445,6 +489,11 @@ export async function evaluateClaims(
 
         evaluation.score += 8;
         evaluation.reasons.push("AI evaluation confirmed this claim as valid for the task.");
+        if (hasStrictSignalMismatch) {
+          evaluation.reasons.push(
+            "AI accepted this claim despite strict deterministic signal mismatch."
+          );
+        }
       })
     );
   }

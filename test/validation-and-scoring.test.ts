@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { validateRealWorldBounty } from "../src/runtime/bountyValidation.js";
-import { rankEvaluations, scoreClaimWithEvidence } from "../src/core/evaluate.js";
+import {
+  evaluateClaims,
+  getStrictTaskEvidenceFailures,
+  rankEvaluations,
+  scoreClaimWithEvidence
+} from "../src/core/evaluate.js";
 import type { ClaimEvaluation, ClaimEvidence, ClaimTuple } from "../src/core/types.js";
 
 test("rejects obviously digital-only bounty prompts", () => {
@@ -201,8 +206,16 @@ test("rejects claims that fail strict clock/time/outdoor evidence checks", () =>
     evidence
   );
 
-  assert.equal(result.score, -1);
-  assert.match(result.reasons.join(" "), /strict task evidence checks/i);
+  const strictFailures = getStrictTaskEvidenceFailures(
+    "Take a photo of a clock showing the current time outdoors",
+    "Upload a clear outdoor photo of a clock or watch showing the current time.",
+    claim,
+    evidence
+  );
+
+  assert.ok(strictFailures.length > 0);
+  assert.notEqual(result.score, -1);
+  assert.match(result.reasons.join(" "), /strict deterministic signal check flagged/i);
   assert.match(result.reasons.join(" "), /clock\/watch evidence/i);
 });
 
@@ -235,5 +248,34 @@ test("accepts claims that provide clock, time, and outdoor evidence signals", ()
   );
 
   assert.ok(result.score >= 0);
-  assert.doesNotMatch(result.reasons.join(" "), /strict task evidence checks/i);
+  assert.doesNotMatch(result.reasons.join(" "), /strict deterministic signal check flagged/i);
+});
+
+test("deterministic mode rejects claims that fail strict eligibility checks", async () => {
+  const claim: ClaimTuple = {
+    id: 500n,
+    issuer: "0x1111111111111111111111111111111111111111",
+    bountyId: 91n,
+    bountyIssuer: "0x2222222222222222222222222222222222222222",
+    name: "Submission",
+    description: "A random proof.",
+    createdAt: 123500n,
+    accepted: false
+  };
+
+  const tokenUris = new Map<bigint, string>([
+    [claim.id, "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII="]
+  ]);
+
+  const evaluations = await evaluateClaims(
+    "Take a photo of a clock showing the current time outdoors",
+    "Upload a clear outdoor photo of a clock or watch showing the current time.",
+    [claim],
+    tokenUris,
+    { mode: "deterministic" }
+  );
+
+  assert.equal(evaluations.length, 1);
+  assert.equal(evaluations[0]?.score, -1);
+  assert.match(evaluations[0]?.reasons.join(" ") ?? "", /deterministic strict evidence gate/i);
 });
