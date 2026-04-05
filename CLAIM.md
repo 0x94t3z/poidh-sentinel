@@ -50,3 +50,17 @@ The production report keeps both the declared bounty amount and the current on-c
 - Proof of one real end-to-end bounty run on Poidh
 - Public Farcaster decision post link
 - Matching artifact files from `artifacts/production/<bountyId>/` and `artifacts/relay/<bountyId>/`
+
+## Submission draft
+
+Title:
+
+`Poidh Sentinel`
+
+Description:
+
+`This is my open-source bot for Poidh. It makes the bounty, watches claims, chooses the winner, and posts the result on Farcaster.`
+
+`Repo: https://github.com/0x94t3z/poidh-sentinel.git`
+
+`I also saved the run proof and artifacts in the repo.`
