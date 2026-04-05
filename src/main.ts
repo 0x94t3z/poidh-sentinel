@@ -197,9 +197,9 @@ async function run() {
   const bountyAmountEth = getEnv("BOUNTY_REWARD_ETH", "0.001");
   const evaluationMode = getEvaluationMode();
   const aiApiKey = getEnv("OPENROUTER_API_KEY", "");
-  const aiModel = getEnv("OPENROUTER_MODEL", "nvidia/nemotron-nano-12b-v2-vl:free");
+  const aiModel = getEnv("OPENROUTER_MODEL", "openai/gpt-oss-120b:free");
   const aiMinConfidence = Math.max(0, Math.min(1, Number(getEnv("AI_EVALUATION_MIN_CONFIDENCE", "0.55")) || 0.55));
-  const aiEnableVision = getBool("AI_EVALUATION_ENABLE_VISION", true);
+  const aiEnableVision = getBool("AI_EVALUATION_ENABLE_VISION", false);
   const aiInspectLinkedUrls = getBool("AI_EVALUATION_INSPECT_LINKS", true);
   const aiMaxLinkedUrls = Math.max(0, getInt("AI_EVALUATION_MAX_LINKS", 2));
   const artifactDir = getEnv("PRODUCTION_ARTIFACT_DIR", getDefaultArtifactDir(command));
