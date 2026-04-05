@@ -145,6 +145,6 @@ These include winner, reasons, follow-up Q/A text, and both the declared bounty 
 - When that setting is `2`, `Auto-finalize is waiting...` is expected after the first claim.
 - In autonomous mode, final public decision posts are sent after the on-chain final action path is reached.
 
-## Claim pack
+## Proof Sample
 
-See [CLAIM.md](./CLAIM.md) and [examples/poidh-proof-sample.md](./examples/poidh-proof-sample.md).
+See [examples/poidh-proof-sample.md](./examples/poidh-proof-sample.md) for a sanitized example of the proof bundle the bot writes after a bounty run.
