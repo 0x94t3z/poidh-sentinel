@@ -168,7 +168,7 @@ async function run() {
         ? (flags["bounty-id"] as string)
         : undefined;
   const explicitBountyId = parseBountyId(flagBountyId ?? getEnv("BOUNTY_ID"));
-  const shouldReuseState = command !== "create-bounty-only";
+  const shouldReuseState = command !== "create-new-bounty";
   const state = shouldReuseState && !explicitBountyId ? await readBountyState(chainName) : undefined;
   const bountyId = explicitBountyId ?? (state ? BigInt(state.bountyId) : undefined);
 
@@ -196,7 +196,7 @@ async function run() {
   }
 
   switch (command) {
-    case "create-bounty-only": {
+    case "create-new-bounty": {
       const id = await bot.createBountyIfNeeded();
       const issuerClient = bot.issuerClient;
       console.log(`Bounty ID: ${id.toString()}`);
@@ -286,7 +286,7 @@ async function run() {
     }
     default:
       throw new Error(
-        `Unknown command "${rawCommand}". Use requirements-flow, create-bounty-only, watch-bounty, evaluate-bounty, explain-bounty, or resolve-vote.`
+        `Unknown command "${rawCommand}". Use requirements-flow, create-new-bounty, watch-bounty, evaluate-bounty, explain-bounty, or resolve-vote.`
       );
   }
 }

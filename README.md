@@ -84,7 +84,7 @@ Advanced commands:
 Create bounty and stop (no watcher loop):
 
 ```bash
-npm run dev -- create-bounty-only
+npm run dev -- create-new-bounty
 ```
 
 Evaluate a bounty without sending a transaction:
