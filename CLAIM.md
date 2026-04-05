@@ -35,11 +35,11 @@ Social publishing runs through `SOCIAL_POST_WEBHOOK_URL` and a Farcaster relay t
 
 `ARTIFACT_DIR=artifacts/production` (default for `requirements-flow` / `watch-bounty`) writes:
 
-- `<bountyId>/poidh-production-<bountyId>.json|md`
-- `<bountyId>/poidh-social-<bountyId>.json|md`
-- `<bountyId>/poidh-farcaster-<bountyId>.json|md` (social draft only)
+- `<bountyId>/production.json|md`
+- `<bountyId>/social.json|md`
+- `<bountyId>/farcaster.json|md` (social draft only)
 
-Relay payloads are written to `artifacts/relay/<bountyId>/poidh-relay-<bountyId>.json|md`.
+Relay payloads are written to `artifacts/relay/<bountyId>/relay.json|md`.
 
 The production report keeps both the declared bounty amount and the current on-chain amount when they differ, so the proof trail stays honest if a bounty is resumed or inspected later.
 

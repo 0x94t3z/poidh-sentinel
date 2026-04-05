@@ -131,14 +131,12 @@ function bountyScopedDir(rootDir: string, bountyId: string): string {
 
 export async function writeDecisionArtifact(
   artifactDir: string,
-  artifact: DecisionArtifact,
-  baseNamePrefix = "poidh-production"
+  artifact: DecisionArtifact
 ): Promise<{ jsonPath: string; markdownPath: string }> {
   const scopedDir = bountyScopedDir(artifactDir, artifact.bountyId);
   await mkdir(scopedDir, { recursive: true });
-  const baseName = `${baseNamePrefix}-${artifact.bountyId}`;
-  const jsonPath = join(scopedDir, `${baseName}.json`);
-  const markdownPath = join(scopedDir, `${baseName}.md`);
+  const jsonPath = join(scopedDir, "production.json");
+  const markdownPath = join(scopedDir, "production.md");
 
   await writeFile(jsonPath, `${JSON.stringify(artifact, null, 2)}\n`, "utf8");
   await writeFile(markdownPath, `${markdownLines(artifact).join("\n")}\n`, "utf8");
@@ -184,9 +182,8 @@ export async function writeSocialProofArtifact(
 ): Promise<{ jsonPath: string; markdownPath: string }> {
   const scopedDir = bountyScopedDir(artifactDir, artifact.bountyId);
   await mkdir(scopedDir, { recursive: true });
-  const baseName = `poidh-social-${artifact.bountyId}`;
-  const jsonPath = join(scopedDir, `${baseName}.json`);
-  const markdownPath = join(scopedDir, `${baseName}.md`);
+  const jsonPath = join(scopedDir, "social.json");
+  const markdownPath = join(scopedDir, "social.md");
 
   await writeFile(jsonPath, `${JSON.stringify(artifact, null, 2)}\n`, "utf8");
   await writeFile(markdownPath, `${socialLines(artifact).join("\n")}\n`, "utf8");
@@ -200,9 +197,8 @@ export async function writeFarcasterProofArtifact(
 ): Promise<{ jsonPath: string; markdownPath: string }> {
   const scopedDir = bountyScopedDir(artifactDir, artifact.bountyId);
   await mkdir(scopedDir, { recursive: true });
-  const baseName = `poidh-farcaster-${artifact.bountyId}`;
-  const jsonPath = join(scopedDir, `${baseName}.json`);
-  const markdownPath = join(scopedDir, `${baseName}.md`);
+  const jsonPath = join(scopedDir, "farcaster.json");
+  const markdownPath = join(scopedDir, "farcaster.md");
 
   const lines = [
     `# poidh farcaster proof`,

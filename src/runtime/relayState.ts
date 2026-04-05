@@ -111,6 +111,7 @@ export async function readJsonFile<T>(path: string): Promise<T | undefined> {
 
 export async function loadRelayState(bountyId: string): Promise<RelayState | undefined> {
   const state =
+    (await readJsonFile<RelayState>(join(relayOutputDir(), bountyId, "relay.json"))) ??
     (await readJsonFile<RelayState>(join(relayOutputDir(), bountyId, `${relayArtifactBaseName(bountyId)}.json`))) ??
     (await readJsonFile<RelayState>(join(relayOutputDir(), `${relayArtifactBaseName(bountyId)}.json`)));
   return state ? normalizeRelayState(rehydrateRelayState(state)) : undefined;
@@ -129,7 +130,7 @@ async function collectRelayStateFiles(rootDir: string): Promise<string[]> {
     if (!entry.isFile()) {
       continue;
     }
-    if (entry.name.endsWith(".json") && entry.name.startsWith("poidh-relay-")) {
+    if (entry.name === "relay.json" || (entry.name.endsWith(".json") && entry.name.startsWith("poidh-relay-"))) {
       files.push(path);
     }
   }
@@ -160,6 +161,9 @@ export async function loadProductionArtifact(
 ): Promise<{ finalActionTxHash?: string } | undefined> {
   return (
     (await readJsonFile<{ finalActionTxHash?: string }>(
+      join(productionArtifactDir(), bountyId, "production.json")
+    )) ??
+    (await readJsonFile<{ finalActionTxHash?: string }>(
       join(productionArtifactDir(), bountyId, `poidh-production-${bountyId}.json`)
     )) ??
     (await readJsonFile<{ finalActionTxHash?: string }>(
@@ -172,9 +176,8 @@ export async function writeRelayArtifacts(state: RelayState) {
   const bountyId = state.envelope.decision.bountyId.toString();
   const outputDir = join(relayOutputDir(), bountyId);
   await mkdir(outputDir, { recursive: true });
-  const baseName = relayArtifactBaseName(bountyId);
-  const jsonPath = join(outputDir, `${baseName}.json`);
-  const markdownPath = join(outputDir, `${baseName}.md`);
+  const jsonPath = join(outputDir, "relay.json");
+  const markdownPath = join(outputDir, "relay.md");
   await writeFile(
     jsonPath,
     `${JSON.stringify(state, (_, current) => (typeof current === "bigint" ? current.toString() : current), 2)}\n`,
