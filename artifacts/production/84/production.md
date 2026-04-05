@@ -1,6 +1,6 @@
 # poidh bounty report
 
-- Generated at: 2026-04-05T15:25:47.717Z
+- Generated at: 2026-04-05T16:37:35.053Z
 - Chain: arbitrum
 - Bounty ID: 84
 - Bounty URL: https://poidh.xyz/arbitrum/bounty/264
@@ -22,13 +22,13 @@
   - Strict deterministic signal check flagged: missing clear date signal, missing clear username signal.
   - AI evaluator unavailable; used deterministic scoring.
 - Claim 344: score 20, accepted false, proof https://beige-impossible-dragon-883.mypinata.cloud/ipfs/QmeZqQ4CdNfTNQvGjn4ZSqxvyH2gtpTeqzYUsLUcBvDqd1
-  - AI summary: OCR output is garbled and does not contain any readable date, username, or the word 'poidh'.",
-  - AI signals: "OCR output is garbled and does not contain any readable date, username, or the word 'poidh'.",, "The image appears to be a close‑up of a handwritten note with illegible scribb b
+  - AI summary: The OCR text provided for the image is garbled and does not contain the required elements: the full date 2026-04-05, the username \"Poidh
+  - AI signals: "The OCR text provided for the image is garbled and does not contain the required elements: the full date 2026-04-05, the username \"Poidh
   - Description/evidence overlap matched note, poidh.
   - Proof resolves to an image, which is strong evidence for a real-world task.
   - Metadata includes an image URL.
   - The evidence text looks like a real-world proof artifact.
   - Local OCR extracted readable text from the image proof.
   - Strict deterministic signal check flagged: missing clear date signal, missing clear username signal, missing clear outdoor signal.
-  - AI verdict (openrouter/free): reject (0.92 confidence).
-  - AI verdict ignored because it lacked concrete observed evidence for strict missing signals; used deterministic scoring.
+  - AI verdict (openrouter/free): reject (0.95 confidence).
+  - AI verdict ignored because vision is off and OCR-only evidence did not provide a concrete confirmation for the missing strict signals; used deterministic scoring.

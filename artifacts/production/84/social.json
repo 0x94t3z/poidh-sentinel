@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-05T15:25:47.734Z",
+  "generatedAt": "2026-04-05T16:37:35.056Z",
   "chainName": "arbitrum",
   "bountyId": "84",
   "bountyUrl": "https://poidh.xyz/arbitrum/bounty/264",
@@ -8,7 +8,7 @@
   "reason": "Description/evidence overlap matched handwritten, note, poidh. Proof resolves to an image, which is strong evidence for a real-world task. Metadata includes an image URL. The evidence text looks like a real-world proof artifact. Local OCR extracted readable text from the image proof. Strict deterministic signal check flagged: missing clear date signal, missing clear username signal. AI evaluator unavailable; used deterministic scoring.",
   "bountyAmountWei": "1000000000000000",
   "currentChainBountyAmountWei": "1000000000000000",
-  "author": "0x94t3z.eth",
+  "author": "@0x94t3z.eth",
   "post": "poidh decision for bounty 84: Photo of a handwritten note with today’s date\nwinner claim: 346\nreason: Description/evidence overlap matched handwritten, note, poidh. Proof resolves to an image, which is strong evidence for a real-world task. Metadata includes an image URL. The evidence text looks like a real-world proof artifact. Local OCR extracted readable text from the image proof. Strict deterministic signal check flagged: missing clear date signal, missing clear username signal. AI evaluator unavailable; used deterministic scoring.\nurl: https://poidh.xyz/arbitrum/bounty/264",
   "followUpAnswers": [
     {

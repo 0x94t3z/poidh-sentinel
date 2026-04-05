@@ -579,15 +579,21 @@ export async function evaluateClaims(
 
         if (hasStrictSignalMismatch) {
           const strictFailures = strictFailuresByClaimId.get(evaluation.claim.id) ?? [];
-          const aiHasConcreteEvidence = aiProvidesConcreteEvidenceForStrictFailures(
-            aiEvaluation,
-            strictFailures
-          );
+          const aiHasConcreteEvidence = aiEnableVision
+            ? aiProvidesConcreteEvidenceForStrictFailures(aiEvaluation, strictFailures)
+            : aiEvaluation.verdict === "accept" &&
+              aiProvidesConcreteEvidenceForStrictFailures(aiEvaluation, strictFailures);
           if (!aiHasConcreteEvidence) {
             if (aiRequired) {
               evaluation.score = -1;
               evaluation.reasons.push(
                 "Claim rejected because AI response did not provide concrete observed evidence for strict missing signals."
+              );
+              return;
+            }
+            if (!aiEnableVision) {
+              evaluation.reasons.push(
+                "AI verdict ignored because vision is off and OCR-only evidence did not provide a concrete confirmation for the missing strict signals; used deterministic scoring."
               );
               return;
             }

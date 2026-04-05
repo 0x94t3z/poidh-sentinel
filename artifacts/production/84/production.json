@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-05T15:25:47.717Z",
+  "generatedAt": "2026-04-05T16:37:35.053Z",
   "chainName": "arbitrum",
   "issuerAddress": "0xc698865c38eC12b475AA55764d447566dd54c758",
   "issuerPendingWithdrawalsWei": "0",
@@ -39,13 +39,12 @@
         "The evidence text looks like a real-world proof artifact.",
         "Local OCR extracted readable text from the image proof.",
         "Strict deterministic signal check flagged: missing clear date signal, missing clear username signal, missing clear outdoor signal.",
-        "AI verdict (openrouter/free): reject (0.92 confidence).",
-        "AI verdict ignored because it lacked concrete observed evidence for strict missing signals; used deterministic scoring."
+        "AI verdict (openrouter/free): reject (0.95 confidence).",
+        "AI verdict ignored because vision is off and OCR-only evidence did not provide a concrete confirmation for the missing strict signals; used deterministic scoring."
       ],
-      "visionSummary": "OCR output is garbled and does not contain any readable date, username, or the word 'poidh'.\",",
+      "visionSummary": "The OCR text provided for the image is garbled and does not contain the required elements: the full date 2026-04-05, the username \\\"Poidh",
       "visionSignals": [
-        "\"OCR output is garbled and does not contain any readable date, username, or the word 'poidh'.\",",
-        "\"The image appears to be a close‑up of a handwritten note with illegible scribb b"
+        "\"The OCR text provided for the image is garbled and does not contain the required elements: the full date 2026-04-05, the username \\\"Poidh"
       ]
     }
   ]

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-05T15:25:47.735Z",
+  "generatedAt": "2026-04-05T16:37:35.056Z",
   "chainName": "arbitrum",
   "bountyId": "84",
   "bountyUrl": "https://poidh.xyz/arbitrum/bounty/264",
@@ -8,13 +8,13 @@
   "bountyAmountWei": "1000000000000000",
   "currentChainBountyAmountWei": "1000000000000000",
   "cast": {
-    "text": "by 0x94t3z.eth\n🏁 Poidh decision\nBounty: Photo of a handwritten note with today’s date\nWinner: claim 346\nView bounty: https://poidh.xyz/arbitrum/bounty/264\nDetails in thread ↓",
+    "text": "by @0x94t3z.eth\n🏁 Poidh decision\nBounty: Photo of a handwritten note with today’s date\nWinner: claim 346\nView bounty: https://poidh.xyz/arbitrum/bounty/264\nDetails in thread ↓",
     "embeds": [
       {
         "url": "https://poidh.xyz/arbitrum/bounty/264"
       }
     ],
-    "author": "0x94t3z.eth",
+    "author": "@0x94t3z.eth",
     "parentUrl": "https://poidh.xyz/arbitrum/bounty/264"
   }
 }

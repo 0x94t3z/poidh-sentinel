@@ -1,6 +1,6 @@
 # poidh social proof
 
-- Generated at: 2026-04-05T15:25:47.734Z
+- Generated at: 2026-04-05T16:37:35.056Z
 - Chain: arbitrum
 - Bounty ID: 84
 - Bounty URL: https://poidh.xyz/arbitrum/bounty/264
@@ -13,7 +13,7 @@
 winner claim: 346
 reason: Description/evidence overlap matched handwritten, note, poidh. Proof resolves to an image, which is strong evidence for a real-world task. Metadata includes an image URL. The evidence text looks like a real-world proof artifact. Local OCR extracted readable text from the image proof. Strict deterministic signal check flagged: missing clear date signal, missing clear username signal. AI evaluator unavailable; used deterministic scoring.
 url: https://poidh.xyz/arbitrum/bounty/264
-- Author: 0x94t3z.eth
+- Author: @0x94t3z.eth
 
 ## Follow-up Answers
 

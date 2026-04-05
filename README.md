@@ -131,6 +131,7 @@ npm run dev -- watch-bounty --bounty-id 123
   - tie-breaker that favors earlier submissions over later ones
 - In AI modes, claims are also checked by OpenRouter and only AI-approved claims remain eligible.
 - When enabled, AI evaluation can inspect proof image URLs directly and can fetch a limited number of links found in claim text for extra context.
+- When `AI_EVALUATION_ENABLE_VISION=false`, AI behaves as OCR/text-only support and will not veto a claim unless it can make a concrete confirmation from the text evidence.
 - Real-world bounty prompts are guarded so obvious digital-only tasks are rejected before creation
 - Auto-finalize safeguards can keep the bounty open long enough for organic competition
 
