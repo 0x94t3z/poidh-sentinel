@@ -97,6 +97,10 @@ function splitForThread(text: string, maxLength = 260): string[] {
   return chunks;
 }
 
+function previewLogText(text: string, maxLength = 140): string {
+  return truncateText(text.trim().replace(/\s+/g, " "), maxLength);
+}
+
 function buildDetailReplies(envelope: DecisionRelayEnvelope): string[] {
   const reasonChunks = splitForThread(envelope.decision.reason, 230);
   const reasonReplies = reasonChunks.map((chunk, index) =>
@@ -210,16 +214,21 @@ export async function handleDecision(request: IncomingMessage, response: ServerR
     await writeRelayArtifacts(state);
     if (mainCastHash) {
       console.log(
-        `[relay] posted decision for bounty ${body.decision.bountyId.toString()} thread ${mainCastHash}${
-          replyCastHash ? ` with reply ${replyCastHash}` : ""
-        }${detailCastHashes.length > 0 ? ` and ${detailCastHashes.length} detail replies` : ""}`
+        `[relay] posted decision for bounty ${body.decision.bountyId.toString()}: ${previewLogText(body.castDraft.text)}`
       );
+      if (replyCastHash) {
+        console.log(`[relay] main reply: ${previewLogText(reply)}`);
+      }
       if (detailCastHashes.length > 0) {
-        console.log(`[relay] detail thread hashes: ${detailCastHashes.join(", ")}`);
+        const postedDetailReplies = detailReplies.slice(0, detailCastHashes.length);
+        console.log(`[relay] posted ${detailCastHashes.length} detail replies:`);
+        for (const [index, detailReply] of postedDetailReplies.entries()) {
+          console.log(`  ${index + 1}. ${previewLogText(detailReply)}`);
+        }
       }
     } else {
       console.log(
-        `[relay] saved decision draft for bounty ${body.decision.bountyId.toString()} thread draft ${body.castDraft.parentUrl || "unknown"}`
+        `[relay] saved decision draft for bounty ${body.decision.bountyId.toString()}: ${previewLogText(body.castDraft.text)}`
       );
     }
     jsonResponse(response, 200, {
@@ -310,11 +319,11 @@ export async function handleFollowUp(request: IncomingMessage, response: ServerR
 
     if (farcasterCastHash) {
       console.log(
-        `[relay] posted webhook reply for bounty ${bountyId} thread ${parentCastHash} as ${farcasterCastHash}`
+        `[relay] posted follow-up for bounty ${bountyId}: Q="${previewLogText(question, 100)}" A="${previewLogText(answer, 120)}"`
       );
     } else {
       console.log(
-        `[relay] stored webhook reply for bounty ${bountyId} thread ${parentCastHash} (not posted to Farcaster)`
+        `[relay] stored follow-up for bounty ${bountyId} (not posted to Farcaster): Q="${previewLogText(question, 100)}"`
       );
     }
 
@@ -382,7 +391,7 @@ export async function handleNeynarWebhook(request: IncomingMessage, response: Se
     }
 
     console.log(
-      `[relay] matched webhook reply to bounty ${relayState.envelope.decision.bountyId.toString()} thread ${matchedThreadHash ?? threadCastHash ?? parentCastHash}`
+      `[relay] matched webhook reply to bounty ${relayState.envelope.decision.bountyId.toString()}: ${previewLogText(event.data.text, 120)}`
     );
 
     if (event.data.hash && relayStateCastHashes(relayState).includes(event.data.hash)) {
