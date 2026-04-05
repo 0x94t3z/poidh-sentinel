@@ -1,6 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import { parseEther } from "viem";
-import { evaluateClaims } from "./core/evaluate.js";
+import { evaluateClaims, type EvaluationMode } from "./core/evaluate.js";
 import { resolveFrontendBountyUrl } from "./core/chains.js";
 import { postDecision } from "./core/social.js";
 import { PoidhClient } from "./core/poidh.js";
@@ -21,6 +21,10 @@ export type BotConfig = {
   bountyName: string;
   bountyDescription: string;
   bountyAmountEth: string;
+  evaluationMode: EvaluationMode;
+  aiApiKey?: string;
+  aiModel?: string;
+  aiMinConfidence?: number;
   artifactDir?: string;
   bountyId?: bigint;
   bountyStatePath?: string;
@@ -38,6 +42,10 @@ export class PoidhBot {
   readonly bountyName: string;
   readonly bountyDescription: string;
   readonly bountyAmountEth: string;
+  readonly evaluationMode: EvaluationMode;
+  readonly aiApiKey: string;
+  readonly aiModel: string;
+  readonly aiMinConfidence: number;
   readonly declaredBountyAmountWei: bigint;
   readonly artifactDir?: string;
   readonly bountyStatePath?: string;
@@ -69,6 +77,10 @@ export class PoidhBot {
     this.bountyName = config.bountyName;
     this.bountyDescription = config.bountyDescription;
     this.bountyAmountEth = config.bountyAmountEth;
+    this.evaluationMode = config.evaluationMode;
+    this.aiApiKey = config.aiApiKey ?? "";
+    this.aiModel = config.aiModel ?? "openrouter/free";
+    this.aiMinConfidence = config.aiMinConfidence ?? 0.55;
     this.declaredBountyAmountWei = parseEther(config.bountyAmountEth);
     this.artifactDir = config.artifactDir;
     this.bountyStatePath = config.bountyStatePath;
@@ -153,7 +165,12 @@ export class PoidhBot {
     const bounty = await this.issuerClient.getBounty(bountyId);
     const claims = await this.issuerClient.getAllClaims(bountyId);
     const tokenUris = await this.issuerClient.getTokenUris(claims.map((claim) => claim.id));
-    return evaluateClaims(bounty.name, bounty.description, claims, tokenUris);
+    return evaluateClaims(bounty.name, bounty.description, claims, tokenUris, {
+      mode: this.evaluationMode,
+      aiApiKey: this.aiApiKey,
+      aiModel: this.aiModel,
+      aiMinConfidence: this.aiMinConfidence
+    });
   }
 
   async actOnBounty(bountyId: bigint): Promise<{ bounty: BountyTuple; evaluations: ClaimEvaluation[] } | undefined> {

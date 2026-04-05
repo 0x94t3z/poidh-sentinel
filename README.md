@@ -41,6 +41,11 @@ cp .env.example .env
 - For Farcaster posting, set `NEYNAR_API_KEY`, `FARCASTER_SIGNER_UUID`, and optionally `FARCASTER_CHANNEL_ID=poidh`
 - For Farcaster webhook verification, set `WEBHOOK_SIGNATURE_SECRET` only if your Neynar plan includes webhook access
 - For optional LLM polish on Farcaster copy, set `OPENROUTER_API_KEY` and optionally `COPY_POLISH_MODEL=openrouter/free`
+- Winner evaluation mode is controlled by `WINNER_EVALUATION_MODE`:
+  - `deterministic`: deterministic scoring only
+  - `ai_hybrid`: deterministic scoring plus AI evidence gate when OpenRouter is available (fallbacks to deterministic if AI is unavailable)
+  - `ai_required`: claims must pass AI evidence evaluation to be eligible
+- Optionally set `AI_EVALUATION_MODEL` and `AI_EVALUATION_MIN_CONFIDENCE`
 - To prevent first-claim instant resolution, set `MIN_PARTICIPANTS_BEFORE_FINALIZE` and/or `FIRST_CLAIM_COOLDOWN_SECONDS`
 
 Poidh itself does not end solo bounties on a timer; the creator accepts a claim when they decide it is good enough. Open bounties can move into the contract’s vote flow, which has its own on-chain deadline. `FIRST_CLAIM_COOLDOWN_SECONDS` is only a bot-side safety delay after the first claim is observed, so the bot does not jump on the first valid submission too early.
@@ -99,6 +104,8 @@ npm run dev -- watch-bounty --bounty-id 123
 - `acceptClaim` finalizes solo bounties
 - `submitClaimForVote` and `resolveVote` handle open bounties with contributors
 - Claim evaluation is deterministic by default and uses:
+- Claim evaluation uses deterministic scoring and can add an AI evidence gate for real-world proof validation.
+- Deterministic scoring uses:
   - token and description overlap
   - the claim proof URL and metadata
   - whether the claim resolves to image, video, or web evidence
@@ -106,6 +113,7 @@ npm run dev -- watch-bounty --bounty-id 123
   - strict task evidence checks derived from the bounty prompt (for example, clock/watch + time + outdoor signals for the time-photo bounty)
   - duplicate-evidence penalty for later copy submissions
   - tie-breaker that favors earlier submissions over later ones
+- In AI modes, claims are also checked by OpenRouter and only AI-approved claims remain eligible.
 - Real-world bounty prompts are guarded so obvious digital-only tasks are rejected before creation
 - Auto-finalize safeguards can keep the bounty open long enough for organic competition
 

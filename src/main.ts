@@ -2,6 +2,7 @@ import "dotenv/config";
 import { readFile } from "node:fs/promises";
 import { PoidhBot } from "./bot.js";
 import { resolveFrontendBountyUrl } from "./core/chains.js";
+import type { EvaluationMode } from "./core/evaluate.js";
 import { getBool, getEnv, getInt, requireEnv } from "./config.js";
 
 function getChainName(): "arbitrum" | "base" | "degen" {
@@ -10,6 +11,16 @@ function getChainName(): "arbitrum" | "base" | "degen" {
     return value;
   }
   throw new Error(`Unsupported TARGET_CHAIN value: ${value}`);
+}
+
+function getEvaluationMode(): EvaluationMode {
+  const value = getEnv("WINNER_EVALUATION_MODE", "ai_hybrid").toLowerCase();
+  if (value === "deterministic" || value === "ai_hybrid" || value === "ai_required") {
+    return value;
+  }
+  throw new Error(
+    `Unsupported WINNER_EVALUATION_MODE value: ${value}. Use deterministic, ai_hybrid, or ai_required.`
+  );
 }
 
 function parseBountyId(flagValue?: string): bigint | undefined {
@@ -130,7 +141,10 @@ function printRequirementsFlowBanner(minParticipantsBeforeFinalize: number, firs
   }
 }
 
-function printWatchBountyBanner(minParticipantsBeforeFinalize: number, firstClaimCooldownSeconds: number) {
+function printWatchBountyBanner(
+  minParticipantsBeforeFinalize: number,
+  firstClaimCooldownSeconds: number
+) {
   console.log("watch-bounty: resume monitoring an existing bounty, evaluate claims, resolve, then post the decision thread.");
   console.log(
     `Auto-finalize wait: requires at least ${minParticipantsBeforeFinalize} claim(s) before final action${firstClaimCooldownSeconds > 0 ? ` and waits ${firstClaimCooldownSeconds} second(s) after the first claim` : ""}.`
@@ -169,6 +183,10 @@ async function run() {
     "Upload a clear outdoor photo of a clock or watch showing the current time."
   );
   const bountyAmountEth = getEnv("BOUNTY_REWARD_ETH", "0.001");
+  const evaluationMode = getEvaluationMode();
+  const aiApiKey = getEnv("OPENROUTER_API_KEY", "");
+  const aiModel = getEnv("AI_EVALUATION_MODEL", getEnv("COPY_POLISH_MODEL", "openrouter/free"));
+  const aiMinConfidence = Math.max(0, Math.min(1, Number(getEnv("AI_EVALUATION_MIN_CONFIDENCE", "0.55")) || 0.55));
   const artifactDir = getEnv("PRODUCTION_ARTIFACT_DIR", getDefaultArtifactDir(command));
   const bountyStatePath = getBountyStatePath();
   const flagBountyId =
@@ -194,12 +212,23 @@ async function run() {
     bountyName,
     bountyDescription,
     bountyAmountEth,
+    evaluationMode,
+    aiApiKey,
+    aiModel,
+    aiMinConfidence,
     artifactDir: artifactDir || undefined,
     bountyId,
     bountyStatePath,
     persistedDecisionKey: state?.lastDecisionKey,
     persistedArtifactKey: state?.lastArtifactKey
   });
+
+  if (command === "requirements-flow" || command === "watch-bounty" || command === "evaluate-bounty" || command === "explain-bounty") {
+    console.log(`Winner evaluation mode: ${evaluationMode}`);
+    if (evaluationMode !== "deterministic" && !aiApiKey) {
+      console.log("AI evaluator key is missing, so winner selection falls back to deterministic-only behavior.");
+    }
+  }
 
   if (bountyId !== undefined && (command === "requirements-flow" || command === "watch-bounty")) {
     await bot.persistBountyState();

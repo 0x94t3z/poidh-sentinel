@@ -1,4 +1,5 @@
 import type { ClaimEvaluation, ClaimEvidence, ClaimTuple } from "./types.js";
+import { evaluateClaimWithAi, type AiClaimEvaluation } from "./aiEvaluation.js";
 import { resolveClaimEvidence } from "./uri.js";
 
 const STOP_WORDS = new Set([
@@ -39,6 +40,15 @@ type BountyEvidenceRequirements = {
   requiresClockOrWatch: boolean;
   requiresTimeSignal: boolean;
   requiresOutdoorSignal: boolean;
+};
+
+export type EvaluationMode = "deterministic" | "ai_hybrid" | "ai_required";
+
+export type EvaluateClaimsOptions = {
+  mode?: EvaluationMode;
+  aiApiKey?: string;
+  aiModel?: string;
+  aiMinConfidence?: number;
 };
 
 function tokenize(input: string): string[] {
@@ -317,7 +327,8 @@ export async function evaluateClaims(
   bountyName: string,
   bountyDescription: string,
   claims: ClaimTuple[],
-  tokenUris: Map<bigint, string>
+  tokenUris: Map<bigint, string>,
+  options: EvaluateClaimsOptions = {}
 ): Promise<ClaimEvaluation[]> {
   const evaluations = await Promise.all(
     claims.map(async (claim) => {
@@ -354,6 +365,80 @@ export async function evaluateClaims(
       }
     })
   );
+
+  const mode = options.mode ?? "deterministic";
+  const aiEnabled = mode === "ai_hybrid" || mode === "ai_required";
+  const aiApiKey = options.aiApiKey?.trim() ?? "";
+  const aiModel = options.aiModel?.trim() || "openrouter/free";
+  const aiMinConfidence = Math.max(0, Math.min(1, options.aiMinConfidence ?? 0.55));
+  const aiRequired = mode === "ai_required";
+
+  if (aiEnabled) {
+    await Promise.all(
+      evaluations.map(async (evaluation) => {
+        if (evaluation.score < 0) {
+          return;
+        }
+
+        if (!aiApiKey) {
+          if (aiRequired) {
+            evaluation.score = -1;
+            evaluation.reasons.push(
+              "Claim rejected because AI evaluation is required but OPENROUTER_API_KEY is not configured."
+            );
+            return;
+          }
+          evaluation.reasons.push(
+            "AI evaluation skipped because OPENROUTER_API_KEY is not configured; used deterministic scoring."
+          );
+          return;
+        }
+
+        const aiEvaluation: AiClaimEvaluation | undefined = await evaluateClaimWithAi({
+          bountyTitle: bountyName,
+          bountyPrompt: bountyDescription,
+          claim: evaluation.claim,
+          evidence: evaluation.evidence,
+          model: aiModel,
+          apiKey: aiApiKey
+        });
+
+        if (!aiEvaluation) {
+          if (aiRequired) {
+            evaluation.score = -1;
+            evaluation.reasons.push(
+              "Claim rejected because AI evaluation is required but the AI evaluator was unavailable."
+            );
+            return;
+          }
+          evaluation.reasons.push("AI evaluator unavailable; used deterministic scoring.");
+          return;
+        }
+
+        evaluation.reasons.push(
+          `AI verdict (${aiEvaluation.model}): ${aiEvaluation.verdict} (${aiEvaluation.confidence.toFixed(2)} confidence).`
+        );
+        if (aiEvaluation.reasons.length > 0) {
+          evaluation.reasons.push(...aiEvaluation.reasons.map((reason) => `AI: ${reason}`));
+        }
+
+        if (aiEvaluation.verdict === "reject" || aiEvaluation.confidence < aiMinConfidence) {
+          evaluation.score = -1;
+          evaluation.reasons.push("Claim rejected by AI evaluation gate.");
+          return;
+        }
+
+        if (aiEvaluation.verdict === "needs_review") {
+          evaluation.score = -1;
+          evaluation.reasons.push("Claim rejected because AI marked it as needs_review.");
+          return;
+        }
+
+        evaluation.score += 8;
+        evaluation.reasons.push("AI evaluation confirmed this claim as valid for the task.");
+      })
+    );
+  }
 
   return rankEvaluations(evaluations);
 }

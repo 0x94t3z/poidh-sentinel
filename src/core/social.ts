@@ -174,7 +174,8 @@ export function buildFollowUpAnswers(reason: string) {
     },
     {
       question: "Was the winner chosen automatically?",
-      answer: "Yes. The winner is selected by deterministic scoring logic from all submitted claims."
+      answer:
+        "Yes. The winner is selected automatically using deterministic scoring with optional AI evidence checks."
     }
   ];
 }
@@ -233,7 +234,7 @@ export function answerFollowUpQuestion(
     normalizedQuestion.includes("ai") ||
     normalizedQuestion.includes("decision")
   ) {
-    return "Yes. The winner is selected by deterministic scoring logic from all submitted claims.";
+    return "Yes. The winner is selected automatically using deterministic scoring with optional AI evidence checks.";
   }
 
   if (
@@ -249,7 +250,7 @@ export function answerFollowUpQuestion(
     return "The bot resolves the bounty on-chain with acceptClaim for solo bounties or the vote flow for open bounties, and the final transaction is recorded once it completes.";
   }
 
-  return `The bot selected the highest-scoring valid claim using deterministic scoring. ${context.reason}`;
+  return `The bot selected the highest-scoring valid claim using deterministic scoring with optional AI evidence checks. ${context.reason}`;
 }
 
 export function buildFarcasterCastDraft(
