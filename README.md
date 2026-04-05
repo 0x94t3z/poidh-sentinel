@@ -40,12 +40,12 @@ cp .env.example .env
 - For relay posting, set `DECISION_WEBHOOK_URL=http://127.0.0.1:8787/decision`
 - For Farcaster posting, set `NEYNAR_API_KEY`, `FARCASTER_SIGNER_UUID`, and optionally `FARCASTER_CHANNEL_ID=poidh`
 - For Farcaster webhook verification, set `WEBHOOK_SIGNATURE_SECRET` only if your Neynar plan includes webhook access
-- For optional LLM polish on Farcaster copy, set `OPENROUTER_API_KEY` and optionally `COPY_POLISH_MODEL=openrouter/free`
+- Set `OPENROUTER_API_KEY` and `COPY_POLISH_MODEL=openrouter/free` for one shared model used by both Farcaster copy polish and AI winner evaluation
 - Winner evaluation mode is controlled by `WINNER_EVALUATION_MODE`:
   - `deterministic`: deterministic scoring only
   - `ai_hybrid`: deterministic scoring plus AI evidence gate when OpenRouter is available (fallbacks to deterministic if AI is unavailable)
   - `ai_required`: claims must pass AI evidence evaluation to be eligible
-- Optionally set `AI_EVALUATION_MODEL`, `AI_EVALUATION_MIN_CONFIDENCE`, `AI_EVALUATION_ENABLE_VISION`, `AI_EVALUATION_INSPECT_LINKS`, and `AI_EVALUATION_MAX_LINKS`
+- Optionally set `AI_EVALUATION_MIN_CONFIDENCE`, `AI_EVALUATION_ENABLE_VISION`, `AI_EVALUATION_INSPECT_LINKS`, and `AI_EVALUATION_MAX_LINKS`
 - To prevent first-claim instant resolution, set `MIN_PARTICIPANTS_BEFORE_FINALIZE` and/or `FIRST_CLAIM_COOLDOWN_SECONDS`
 
 Poidh itself does not end solo bounties on a timer; the creator accepts a claim when they decide it is good enough. Open bounties can move into the contract’s vote flow, which has its own on-chain deadline. `FIRST_CLAIM_COOLDOWN_SECONDS` is only a bot-side safety delay after the first claim is observed, so the bot does not jump on the first valid submission too early.
