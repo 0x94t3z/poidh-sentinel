@@ -56,7 +56,7 @@ https://github.com/picsoritdidnthappen/poidh-app/blob/prod/SKILL.md
 
 ## Commands
 
-Requirements flow (recommended):
+Requirements flow:
 
 1. Start relay (for Farcaster decision posting).
 
@@ -79,42 +79,16 @@ npm run dev -- requirements-flow
 
 If `MIN_CLAIMS_BEFORE_ACCEPT=2`, the bot will deliberately keep waiting after the first claim and will only move to the final action once a second claim appears.
 
-Advanced commands:
-
-Create bounty and stop (no watcher loop):
+Create a new bounty and stop:
 
 ```bash
 npm run dev -- create-new-bounty
-```
-
-Evaluate a bounty without sending a transaction:
-
-```bash
-npm run dev -- evaluate-bounty --bounty-id 123
 ```
 
 Watch an existing bounty:
 
 ```bash
 npm run dev -- watch-bounty --bounty-id 123
-```
-
-Explain winner and reasoning:
-
-```bash
-npm run dev -- explain-bounty --bounty-id 123
-```
-
-Resolve open-bounty vote manually if needed:
-
-```bash
-npm run dev -- resolve-vote --bounty-id 123
-```
-
-Run the test suite:
-
-```bash
-npm test
 ```
 
 ## How it works
