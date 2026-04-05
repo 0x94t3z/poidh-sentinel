@@ -33,6 +33,7 @@ export type BotConfig = {
   bountyStatePath?: string;
   persistedDecisionKey?: string;
   persistedArtifactKey?: string;
+  persistedPublishedDecisionBountyId?: string;
 };
 
 export class PoidhBot {
@@ -57,9 +58,11 @@ export class PoidhBot {
   readonly bountyStatePath?: string;
   readonly persistedDecisionKey?: string;
   readonly persistedArtifactKey?: string;
+  readonly persistedPublishedDecisionBountyId?: string;
   bountyId?: bigint;
   lastDecisionKey?: string;
   lastArtifactKey?: string;
+  lastPublishedDecisionBountyId?: string;
   lastBountyTxHash?: `0x${string}`;
   lastClaimTxHash?: `0x${string}`;
   lastFinalActionTxHash?: `0x${string}`;
@@ -95,9 +98,11 @@ export class PoidhBot {
     this.bountyStatePath = config.bountyStatePath;
     this.persistedDecisionKey = config.persistedDecisionKey;
     this.persistedArtifactKey = config.persistedArtifactKey;
+    this.persistedPublishedDecisionBountyId = config.persistedPublishedDecisionBountyId;
     this.bountyId = config.bountyId;
     this.lastDecisionKey = config.persistedDecisionKey;
     this.lastArtifactKey = config.persistedArtifactKey;
+    this.lastPublishedDecisionBountyId = config.persistedPublishedDecisionBountyId;
     this.lastBountyTxHash = undefined;
     this.lastClaimTxHash = undefined;
     this.lastFinalActionTxHash = undefined;
@@ -124,6 +129,7 @@ export class PoidhBot {
           bountyUrl,
           lastDecisionKey: this.lastDecisionKey,
           lastArtifactKey: this.lastArtifactKey,
+          lastPublishedDecisionBountyId: this.lastPublishedDecisionBountyId,
           updatedAt: new Date().toISOString()
         },
         null,
@@ -240,7 +246,7 @@ export class PoidhBot {
     console.log(reason);
 
     const publishDecisionIfNeeded = async () => {
-      if (this.lastDecisionKey === decisionKey) {
+      if (this.lastPublishedDecisionBountyId === bountyId.toString()) {
         return;
       }
       try {
@@ -252,6 +258,7 @@ export class PoidhBot {
           url: frontendUrl
         });
         this.lastDecisionKey = decisionKey;
+        this.lastPublishedDecisionBountyId = bountyId.toString();
         await this.persistBountyState(bountyId);
       } catch (error) {
         const reasonText =

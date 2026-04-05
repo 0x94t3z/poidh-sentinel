@@ -161,7 +161,19 @@ export async function handleDecision(request: IncomingMessage, response: ServerR
     }
 
     const body = json;
+    const bountyId = body.decision.bountyId.toString();
+    const existingState = await loadRelayState(bountyId);
+    if (existingState?.publishedToFarcaster) {
+      jsonResponse(response, 200, {
+        ok: true,
+        ignored: true,
+        reason: `Decision thread already posted for bounty ${bountyId}.`
+      });
+      return;
+    }
+
     const { reply, detailReplies } = await buildCastTexts(body);
+    const detailRepliesToPost = detailReplies.slice(0, 1);
     let mainCastHash: string | undefined;
     let replyCastHash: string | undefined;
     const detailCastHashes: string[] = [];
@@ -180,7 +192,7 @@ export async function handleDecision(request: IncomingMessage, response: ServerR
         : undefined;
 
       const detailParentCastHash = replyCastHash ?? mainCastHash;
-      for (const detailReply of detailReplies) {
+      for (const detailReply of detailRepliesToPost) {
         if (!detailParentCastHash) {
           break;
         }
@@ -220,7 +232,7 @@ export async function handleDecision(request: IncomingMessage, response: ServerR
         console.log(`[relay] main reply: ${previewLogText(reply)}`);
       }
       if (detailCastHashes.length > 0) {
-        const postedDetailReplies = detailReplies.slice(0, detailCastHashes.length);
+        const postedDetailReplies = detailRepliesToPost.slice(0, detailCastHashes.length);
         console.log(`[relay] posted ${detailCastHashes.length} detail replies:`);
         for (const [index, detailReply] of postedDetailReplies.entries()) {
           console.log(`  ${index + 1}. ${previewLogText(detailReply)}`);

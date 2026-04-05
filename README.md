@@ -151,7 +151,7 @@ If the webhook is unset, the bot prints the decision locally instead.
 
 That free path is enough for local testing: the bot still creates the bounty, monitors claims, scores them, and writes the decision artifacts. Only the public post handoff is skipped.
 
-This repo is intentionally Farcaster-first. The relay posts one concise decision cast, then publishes thread replies with full winner reasoning and validation details. Live auto-replies to other people’s questions work when Neynar webhook access is available. Without webhook access, you can still use `POST /follow-up` as a manual fallback.
+This repo is intentionally Farcaster-first. The relay posts one concise decision cast, then one concise thread reply with the winner reasoning. It also skips reposting the same bounty ID once a decision thread is already published, which keeps the free-tier flow from spamming duplicates. Live auto-replies to other people’s questions work when Neynar webhook access is available. Without webhook access, you can still use `POST /follow-up` as a manual fallback.
 
 Artifacts written to `artifacts/production/`:
 - `<bountyId>/production.json|md`

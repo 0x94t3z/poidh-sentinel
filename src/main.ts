@@ -62,6 +62,7 @@ type BountyState = {
   bountyUrl?: string;
   lastDecisionKey?: string;
   lastArtifactKey?: string;
+  lastPublishedDecisionBountyId?: string;
   updatedAt: string;
 };
 
@@ -89,6 +90,10 @@ async function readBountyState(chainName: "arbitrum" | "base" | "degen"): Promis
       bountyUrl: parsed.bountyUrl,
       lastDecisionKey: parsed.lastDecisionKey,
       lastArtifactKey: parsed.lastArtifactKey,
+      lastPublishedDecisionBountyId:
+        parsed.lastPublishedDecisionBountyId ??
+        parsed.lastDecisionKey?.split(":")[0] ??
+        parsed.lastArtifactKey?.split(":")[0],
       updatedAt: parsed.updatedAt ?? new Date().toISOString()
     };
   } catch {
@@ -238,7 +243,8 @@ async function run() {
     bountyId,
     bountyStatePath,
     persistedDecisionKey: state?.lastDecisionKey,
-    persistedArtifactKey: state?.lastArtifactKey
+    persistedArtifactKey: state?.lastArtifactKey,
+    persistedPublishedDecisionBountyId: state?.lastPublishedDecisionBountyId
   });
 
   if (command === "requirements-flow" || command === "watch-bounty" || command === "evaluate-bounty" || command === "explain-bounty") {
