@@ -77,6 +77,8 @@ npm run dev -- requirements-flow
 - Execute on-chain final action (`acceptClaim` or open-bounty vote path)
 - Post public reasoning in the Farcaster thread
 
+If `MIN_CLAIMS_BEFORE_ACCEPT=2`, the bot will deliberately keep waiting after the first claim and will only move to the final action once a second claim appears.
+
 Advanced commands:
 
 Create bounty and stop (no watcher loop):
@@ -164,6 +166,7 @@ These include winner, reasons, follow-up Q/A text, and both the declared bounty 
 - Keep `AUTO_ACCEPT=true` for autonomous payout behavior.
 - Use `MIN_CLAIMS_BEFORE_ACCEPT` and `MIN_DECISION_AGE_SECONDS` to keep the bounty open long enough for organic competition.
 - `MIN_CLAIMS_BEFORE_ACCEPT=2` is a good default for demos where you want more than one claim before payout.
+- When that setting is `2`, `Auto-accept is waiting...` is expected after the first claim.
 - In autonomous mode, final public decision posts are sent after the on-chain final action path is reached.
 
 ## Claim pack
