@@ -154,8 +154,17 @@ function printWatchBountyBanner(
   }
 }
 
-function printCreateNewBountyBanner() {
+function printCreateNewBountyBanner(config: {
+  bountyKind: "solo" | "open";
+  bountyAmountEth: string;
+  bountyName: string;
+  bountyDescription: string;
+}) {
   console.log("create-new-bounty: create a fresh bounty and stop after the on-chain creation step.");
+  console.log(`Mode: ${config.bountyKind}`);
+  console.log(`Reward: ${config.bountyAmountEth} ETH`);
+  console.log(`Title: ${config.bountyName}`);
+  console.log(`Prompt: ${config.bountyDescription}`);
 }
 
 async function run() {
@@ -246,7 +255,12 @@ async function run() {
 
   switch (command) {
     case "create-new-bounty": {
-      printCreateNewBountyBanner();
+      printCreateNewBountyBanner({
+        bountyKind,
+        bountyAmountEth,
+        bountyName,
+        bountyDescription
+      });
       const id = await bot.createBountyIfNeeded();
       const issuerClient = bot.issuerClient;
       console.log(`Bounty ID: ${id.toString()}`);
