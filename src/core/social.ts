@@ -28,6 +28,45 @@ export type DecisionRelayEnvelope = {
   }>;
 };
 
+function normalizeWhitespace(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+function splitSentences(text: string): string[] {
+  const normalized = normalizeWhitespace(text);
+  if (!normalized) {
+    return [];
+  }
+  return normalized
+    .split(/(?<=[.!?])\s+/)
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+}
+
+function isLowSignalSentence(sentence: string): boolean {
+  return (
+    /^(ai:|okay, let'?s tackle|first,? i need|the user wants me|the main goal|the prompt says)/i.test(
+      sentence
+    ) ||
+    /\b(let'?s tackle|first,? i need|the user wants me|main goal|prompt says|as an ai)\b/i.test(sentence)
+  );
+}
+
+export function summarizeReasonForSocial(reason: string, maxLength = 320): string {
+  const cleaned = reason
+    .replace(/\bAI:\s*/gi, "")
+    .replace(/\bAI evaluation confirmed this claim as valid for the task\.?/gi, "")
+    .replace(/\bAI accepted this claim despite strict deterministic signal mismatch\.?/gi, "");
+  const concise = splitSentences(cleaned).filter((sentence) => !isLowSignalSentence(sentence));
+  const selected = concise.slice(0, 3).join(" ");
+  const fallback = normalizeWhitespace(cleaned);
+  const finalText = normalizeWhitespace(selected || fallback);
+  if (finalText.length <= maxLength) {
+    return finalText;
+  }
+  return `${finalText.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
 function parseSocialTargets(): SocialTarget[] {
   return ["farcaster"];
 }
@@ -163,10 +202,11 @@ export async function polishDecisionCopy(
 }
 
 export function buildFollowUpAnswers(reason: string) {
+  const conciseReason = summarizeReasonForSocial(reason, 300);
   return [
     {
       question: "Why did this claim win?",
-      answer: reason
+      answer: conciseReason
     },
     {
       question: "What evidence did the bot check?",
@@ -200,6 +240,12 @@ export function answerFollowUpQuestion(
   }> = buildFollowUpAnswers(context.reason)
 ): string {
   const normalizedQuestion = normalizeQuestion(question);
+  const conciseReason = summarizeReasonForSocial(context.reason, 280);
+  const isAcceptedOnChain =
+    Boolean(context.finalActionTxHash) ||
+    /\b(already accepted on-chain|claim is already accepted on-chain|resolved vote|accepted claim)\b/i.test(
+      context.reason
+    );
 
   for (const item of knownAnswers) {
     const normalizedKnownQuestion = normalizeQuestion(item.question);
@@ -213,11 +259,27 @@ export function answerFollowUpQuestion(
   }
 
   if (
+    normalizedQuestion.includes("finalized") ||
+    normalizedQuestion.includes("finalised") ||
+    normalizedQuestion.includes("confirm") ||
+    normalizedQuestion.includes("winner is") ||
+    normalizedQuestion.includes("accepted")
+  ) {
+    if (context.finalActionTxHash) {
+      return `Yes. It is finalized on-chain in transaction ${context.finalActionTxHash}.`;
+    }
+    if (isAcceptedOnChain) {
+      return "Yes. The winner is already accepted on-chain.";
+    }
+    return "The winner is selected; final on-chain action is tracked once the transaction completes.";
+  }
+
+  if (
     normalizedQuestion.includes("why") ||
     normalizedQuestion.includes("win") ||
     normalizedQuestion.includes("selected")
   ) {
-    return context.reason;
+    return conciseReason;
   }
 
   if (
@@ -250,7 +312,7 @@ export function answerFollowUpQuestion(
     return "The bot resolves the bounty on-chain with acceptClaim for solo bounties or the vote flow for open bounties, and the final transaction is recorded once it completes.";
   }
 
-  return `The bot selected the highest-scoring valid claim using deterministic scoring with optional AI evidence checks. ${context.reason}`;
+  return `The bot selected the highest-scoring valid claim using deterministic scoring with optional AI evidence checks. ${conciseReason}`;
 }
 
 export function buildFarcasterCastDraft(

@@ -156,17 +156,26 @@ export async function findRelayStateByCastHash(castHash: string): Promise<RelayS
   return undefined;
 }
 
+export type ProductionArtifactSnapshot = {
+  finalActionTxHash?: string;
+  winnerClaimId?: string;
+  evaluations?: Array<{
+    claimId?: string;
+    reasons?: string[];
+  }>;
+};
+
 export async function loadProductionArtifact(
   bountyId: string
-): Promise<{ finalActionTxHash?: string } | undefined> {
+): Promise<ProductionArtifactSnapshot | undefined> {
   return (
-    (await readJsonFile<{ finalActionTxHash?: string }>(
+    (await readJsonFile<ProductionArtifactSnapshot>(
       join(productionArtifactDir(), bountyId, "production.json")
     )) ??
-    (await readJsonFile<{ finalActionTxHash?: string }>(
+    (await readJsonFile<ProductionArtifactSnapshot>(
       join(productionArtifactDir(), bountyId, `poidh-production-${bountyId}.json`)
     )) ??
-    (await readJsonFile<{ finalActionTxHash?: string }>(
+    (await readJsonFile<ProductionArtifactSnapshot>(
       join(productionArtifactDir(), `poidh-production-${bountyId}.json`)
     ))
   );

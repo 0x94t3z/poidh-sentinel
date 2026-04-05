@@ -4,6 +4,7 @@ import {
   answerFollowUpQuestion,
   buildDecisionMessage,
   buildDecisionReply,
+  buildFollowUpAnswers,
   postCastViaNeynar,
   polishDecisionCopy,
   type DecisionRelayEnvelope
@@ -116,6 +117,27 @@ function buildDetailReplies(envelope: DecisionRelayEnvelope): string[] {
   const summary = truncateText(["Validation:", checks, autonomy].filter(Boolean).join("\n"), 280);
 
   return [...reasonReplies, summary].filter((entry) => entry.trim().length > 0);
+}
+
+function resolveReasonFromProductionArtifact(
+  artifact: Awaited<ReturnType<typeof loadProductionArtifact>>
+): string | undefined {
+  if (!artifact?.evaluations || artifact.evaluations.length === 0) {
+    return undefined;
+  }
+
+  const winnerId = artifact.winnerClaimId?.toString();
+  const winnerEvaluation =
+    (winnerId
+      ? artifact.evaluations.find((item) => item.claimId?.toString() === winnerId)
+      : undefined) ?? artifact.evaluations[0];
+
+  const reasons = winnerEvaluation?.reasons ?? [];
+  if (reasons.length === 0) {
+    return undefined;
+  }
+
+  return reasons.join(" ");
 }
 
 async function buildCastTexts(
@@ -287,8 +309,10 @@ export async function handleFollowUp(request: IncomingMessage, response: ServerR
     }
 
     const productionArtifact = await loadProductionArtifact(bountyId);
+    const reason =
+      resolveReasonFromProductionArtifact(productionArtifact) ?? state.envelope.decision.reason;
     const answer = answerFollowUpQuestion(question, {
-      reason: state.envelope.decision.reason,
+      reason,
       finalActionTxHash: productionArtifact?.finalActionTxHash
     });
     const parentCastHash = body.replyToCastHash?.trim() || body.parentCastHash?.trim() || state.farcasterCastIds[0];
@@ -314,7 +338,15 @@ export async function handleFollowUp(request: IncomingMessage, response: ServerR
     const generatedAt = new Date().toISOString();
     const nextState = await recordRelayStateUpdate(bountyId, (current) => ({
       ...current,
-      farcasterError: farcasterError ?? current.farcasterError,
+      farcasterError: farcasterError ?? undefined,
+      envelope: {
+        ...current.envelope,
+        decision: {
+          ...current.envelope.decision,
+          reason
+        },
+        followUpAnswers: buildFollowUpAnswers(reason)
+      },
       followUpReplies: [
         ...current.followUpReplies,
         {
@@ -416,8 +448,10 @@ export async function handleNeynarWebhook(request: IncomingMessage, response: Se
     }
 
     const productionArtifact = await loadProductionArtifact(relayState.envelope.decision.bountyId.toString());
+    const reason =
+      resolveReasonFromProductionArtifact(productionArtifact) ?? relayState.envelope.decision.reason;
     const answer = answerFollowUpQuestion(event.data.text, {
-      reason: relayState.envelope.decision.reason,
+      reason,
       finalActionTxHash: productionArtifact?.finalActionTxHash
     });
 
@@ -446,7 +480,15 @@ export async function handleNeynarWebhook(request: IncomingMessage, response: Se
     const generatedAt = new Date().toISOString();
     const nextState = await recordRelayStateUpdate(bountyId, (current) => ({
       ...current,
-      farcasterError: farcasterError ?? current.farcasterError,
+      farcasterError: farcasterError ?? undefined,
+      envelope: {
+        ...current.envelope,
+        decision: {
+          ...current.envelope.decision,
+          reason
+        },
+        followUpAnswers: buildFollowUpAnswers(reason)
+      },
       followUpReplies: [
         ...current.followUpReplies,
         {
