@@ -59,6 +59,19 @@ Recommended defaults in this repo:
 Poidh minimums are documented in the official skill docs:
 https://github.com/picsoritdidnthappen/poidh-app/blob/prod/SKILL.md
 
+## Free-first stack
+
+This project is designed to run on free-tier tools where possible:
+
+- Runtime: Node.js + TypeScript (`npm`/`tsx`)
+- AI evaluation and copy polish: OpenRouter with a free model (`openrouter/free`)
+- Social channel: Farcaster via Neynar API key + signer UUID
+
+Notes:
+- On-chain actions are never fully free because the issuer wallet still pays bounty funds and gas.
+- Native Neynar webhooks for live follow-up listening can require a paid Neynar tier.
+- Without webhook access, the free fallback is manual `POST /follow-up`.
+
 ## Commands
 
 Requirements flow:
@@ -103,7 +116,6 @@ npm run dev -- watch-bounty --bounty-id 123
 - `poidhNft().tokenURI(claimId)` resolves the claim NFT metadata
 - `acceptClaim` finalizes solo bounties
 - `submitClaimForVote` and `resolveVote` handle open bounties with contributors
-- Claim evaluation is deterministic by default and uses:
 - Claim evaluation uses deterministic scoring and can add an AI evidence gate for real-world proof validation.
 - Deterministic scoring uses:
   - token and description overlap
