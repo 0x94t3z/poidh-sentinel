@@ -264,7 +264,6 @@ export class PoidhBot {
     };
 
     if (!this.autoFinalizeWinner) {
-      await publishDecisionIfNeeded();
       return { bounty, evaluations };
     }
 
