@@ -190,7 +190,7 @@ async function run() {
     0,
     getInt("FIRST_CLAIM_COOLDOWN_SECONDS", 0)
   );
-  const bountyKind = (getEnv("BOUNTY_MODE", "solo") === "open" ? "open" : "solo") as "solo" | "open";
+  const bountyKind = (getEnv("BOUNTY_MODE", "open") === "open" ? "open" : "solo") as "solo" | "open";
   const bountyName = getEnv(
     "BOUNTY_TITLE",
     "Photo of a handwritten note with today’s date"

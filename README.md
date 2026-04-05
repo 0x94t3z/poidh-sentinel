@@ -53,11 +53,11 @@ cp .env.example .env
 Poidh itself does not end solo bounties on a timer; the creator accepts a claim when they decide it is good enough. Open bounties can move into the contract’s vote flow, which has its own on-chain deadline. `FIRST_CLAIM_COOLDOWN_SECONDS` is only a bot-side safety delay after the first claim is observed, so the bot does not jump on the first valid submission too early.
 
 Recommended defaults in this repo:
-- `BOUNTY_MODE=solo`
+- `BOUNTY_MODE=open`
 - `BOUNTY_TITLE=Photo of a handwritten note with today’s date`
 - `BOUNTY_PROMPT=Upload a clear outdoor photo of a handwritten note that says today’s full date, your username, and the word poidh.`
 - `BOUNTY_REWARD_ETH=0.001`
-- Set `BOUNTY_MODE=open` when you want the bounty to be fundable by multiple contributors instead of only the creator
+- Set `BOUNTY_MODE=solo` only when you explicitly want creator-only funding
 
 Poidh minimums are documented in the official skill docs:
 https://github.com/picsoritdidnthappen/poidh-app/blob/prod/SKILL.md
