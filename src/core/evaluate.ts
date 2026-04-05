@@ -389,6 +389,12 @@ export async function evaluateClaims(
     if (evaluation.score < 0) {
       continue;
     }
+    if (evaluation.claim.accepted) {
+      evaluation.reasons.push(
+        "Claim is already accepted on-chain, so it is treated as final-valid regardless of strict signal mismatches."
+      );
+      continue;
+    }
     const strictFailures = getStrictTaskEvidenceFailures(
       bountyName,
       bountyDescription,
@@ -414,6 +420,9 @@ export async function evaluateClaims(
       if (evaluation.score < 0) {
         continue;
       }
+      if (evaluation.claim.accepted) {
+        continue;
+      }
       if (strictFailuresByClaimId.has(evaluation.claim.id)) {
         evaluation.score = -1;
         evaluation.reasons.push("Claim rejected by deterministic strict evidence gate.");
@@ -426,6 +435,9 @@ export async function evaluateClaims(
     await Promise.all(
       evaluations.map(async (evaluation) => {
         if (evaluation.score < 0) {
+          return;
+        }
+        if (evaluation.claim.accepted) {
           return;
         }
         const hasStrictSignalMismatch = strictFailuresByClaimId.has(evaluation.claim.id);

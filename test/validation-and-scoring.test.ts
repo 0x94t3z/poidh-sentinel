@@ -279,3 +279,35 @@ test("deterministic mode rejects claims that fail strict eligibility checks", as
   assert.equal(evaluations[0]?.score, -1);
   assert.match(evaluations[0]?.reasons.join(" ") ?? "", /deterministic strict evidence gate/i);
 });
+
+test("deterministic mode keeps already accepted claims valid", async () => {
+  const acceptedClaim: ClaimTuple = {
+    id: 501n,
+    issuer: "0x1111111111111111111111111111111111111111",
+    bountyId: 91n,
+    bountyIssuer: "0x2222222222222222222222222222222222222222",
+    name: "Submission",
+    description: "A random proof.",
+    createdAt: 123501n,
+    accepted: true
+  };
+
+  const tokenUris = new Map<bigint, string>([
+    [acceptedClaim.id, "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII="]
+  ]);
+
+  const evaluations = await evaluateClaims(
+    "Take a photo of a clock showing the current time outdoors",
+    "Upload a clear outdoor photo of a clock or watch showing the current time.",
+    [acceptedClaim],
+    tokenUris,
+    { mode: "deterministic" }
+  );
+
+  assert.equal(evaluations.length, 1);
+  assert.ok((evaluations[0]?.score ?? -1) >= 0);
+  assert.match(
+    evaluations[0]?.reasons.join(" ") ?? "",
+    /treated as final-valid regardless of strict signal mismatches/i
+  );
+});
