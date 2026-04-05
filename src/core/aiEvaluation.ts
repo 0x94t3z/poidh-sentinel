@@ -184,6 +184,65 @@ function stripJsonEnvelope(rawText: string): string {
   return trimmed.slice(start, end + 1);
 }
 
+function extractCodeBlockJson(rawText: string): string | undefined {
+  const fencedMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (!fencedMatch?.[1]) {
+    return undefined;
+  }
+  return fencedMatch[1].trim();
+}
+
+function parseAiResponseContent(rawText: string): {
+  verdict?: AiEvaluationVerdict;
+  confidence?: number;
+  reasons?: string[];
+} | undefined {
+  const candidates = [
+    rawText,
+    extractCodeBlockJson(rawText),
+    stripJsonEnvelope(rawText)
+  ].filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate) as Partial<{
+        verdict: AiEvaluationVerdict;
+        confidence: number;
+        reasons: string[];
+      }>;
+      return {
+        verdict: parsed.verdict,
+        confidence: parsed.confidence,
+        reasons: parsed.reasons
+      };
+    } catch {
+      continue;
+    }
+  }
+
+  const verdictMatch = rawText.match(/\b(accept|reject|needs_review)\b/i);
+  const confidenceMatch = rawText.match(/\bconfidence\b[^0-9]*([01](?:\.\d+)?)/i);
+  const reasons = rawText
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^[\s>*-]+/, "").trim())
+    .filter((line) => /^[-*•]\s+|^reasons?\s*:/i.test(line))
+    .map((line) => line.replace(/^reasons?\s*:\s*/i, "").replace(/^[-*•]\s+/, "").trim())
+    .filter((line) => line.length > 0)
+    .slice(0, 5);
+
+  if (!verdictMatch && !confidenceMatch && reasons.length === 0) {
+    return undefined;
+  }
+
+  return {
+    verdict: parseVerdict(verdictMatch?.[1].toLowerCase()),
+    confidence: normalizeConfidence(
+      confidenceMatch?.[1] ? Number.parseFloat(confidenceMatch[1]) : undefined
+    ),
+    reasons
+  };
+}
+
 type OpenRouterMessage = {
   role: "system" | "user";
   content:
@@ -240,11 +299,10 @@ async function requestAiEvaluation(
       return undefined;
     }
 
-    const parsed = JSON.parse(stripJsonEnvelope(rawText)) as Partial<{
-      verdict: AiEvaluationVerdict;
-      confidence: number;
-      reasons: string[];
-    }>;
+    const parsed = parseAiResponseContent(rawText);
+    if (!parsed) {
+      return undefined;
+    }
 
     const reasons = Array.isArray(parsed.reasons)
       ? parsed.reasons
