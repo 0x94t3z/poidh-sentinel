@@ -142,6 +142,7 @@ These include winner, reasons, follow-up Q/A text, and both the declared bounty 
 - Keep `AUTO_FINALIZE_WINNER=true` for autonomous payout behavior.
 - Use `MIN_PARTICIPANTS_BEFORE_FINALIZE` and `FIRST_CLAIM_COOLDOWN_SECONDS` to keep the bounty open long enough for organic competition.
 - `MIN_PARTICIPANTS_BEFORE_FINALIZE=2` is a good default for demos where you want more than one claim before payout.
+- The shared example template defaults to `MIN_PARTICIPANTS_BEFORE_FINALIZE=2` and `FIRST_CLAIM_COOLDOWN_SECONDS=86400`, so a fresh client will not auto-finalize right away.
 - When that setting is `2`, `Auto-finalize is waiting...` is expected after the first claim.
 - In autonomous mode, final public decision posts are sent after the on-chain final action path is reached.
 
