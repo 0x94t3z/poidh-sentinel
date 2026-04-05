@@ -38,8 +38,10 @@ const STRICT_SIGNAL_PENALTY = 20;
 
 type BountyEvidenceRequirements = {
   requiresVisualProof: boolean;
-  requiresClockOrWatch: boolean;
-  requiresTimeSignal: boolean;
+  requiresHandwrittenNote: boolean;
+  requiresDateSignal: boolean;
+  requiresUsernameSignal: boolean;
+  requiresPoidhSignal: boolean;
   requiresOutdoorSignal: boolean;
 };
 
@@ -99,9 +101,10 @@ function deriveBountyEvidenceRequirements(
   const prompt = `${bountyName} ${bountyDescription}`.toLowerCase();
   return {
     requiresVisualProof: /photo|image|picture|video|camera|selfie/.test(prompt),
-    requiresClockOrWatch: /\bclock\b|\bwatch\b|\btimepiece\b/.test(prompt),
-    requiresTimeSignal:
-      /\bcurrent time\b|\bshowing the current time\b|\bshowing the time\b/.test(prompt),
+    requiresHandwrittenNote: /\bhandwritten\b|\bhand written\b|\bnote\b|\bpaper\b/.test(prompt),
+    requiresDateSignal: /\bdate\b|\btoday'?s date\b|\bfull date\b/.test(prompt),
+    requiresUsernameSignal: /\busername\b|\buser name\b/.test(prompt),
+    requiresPoidhSignal: /\bpoidh\b/.test(prompt),
     requiresOutdoorSignal: /\boutdoor\b|\boutdoors\b|\boutside\b|\bstreet\b|\bpark\b/.test(prompt)
   };
 }
@@ -139,15 +142,31 @@ function validateEvidenceAgainstTask(
     failures.push("missing image or video proof");
   }
 
-  if (requirements.requiresClockOrWatch && !/\bclock\b|\bwatch\b|\btimepiece\b/.test(haystack)) {
-    failures.push("missing clear clock/watch evidence");
+  if (
+    requirements.requiresHandwrittenNote &&
+    !/\bhandwritten\b|\bhand written\b|\bnote\b|\bpaper\b/.test(haystack)
+  ) {
+    failures.push("missing clear handwritten note evidence");
   }
 
   if (
-    requirements.requiresTimeSignal &&
-    !/\btime\b|\btimestamp\b|\b\d{1,2}[:.]\d{2}\b|\bam\b|\bpm\b/.test(haystack)
+    requirements.requiresDateSignal &&
+    !/\bdate\b|\btoday'?s date\b|\bfull date\b|\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/.test(
+      haystack
+    )
   ) {
-    failures.push("missing clear time signal");
+    failures.push("missing clear date signal");
+  }
+
+  if (
+    requirements.requiresUsernameSignal &&
+    !/\busername\b|\buser name\b|\b@\w+\b/.test(haystack)
+  ) {
+    failures.push("missing clear username signal");
+  }
+
+  if (requirements.requiresPoidhSignal && !/\bpoidh\b/.test(haystack)) {
+    failures.push("missing clear poidh signal");
   }
 
   if (

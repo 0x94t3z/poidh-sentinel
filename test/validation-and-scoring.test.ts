@@ -178,7 +178,7 @@ test("deprioritizes later duplicate evidence submissions", () => {
   assert.match(duplicateResult!.reasons.join(" "), /duplicate evidence/i);
 });
 
-test("rejects claims that fail strict clock/time/outdoor evidence checks", () => {
+test("rejects claims that fail strict handwritten/date/username/poidh/outdoor checks", () => {
   const claim: ClaimTuple = {
     id: 401n,
     issuer: "0x1111111111111111111111111111111111111111",
@@ -200,15 +200,15 @@ test("rejects claims that fail strict clock/time/outdoor evidence checks", () =>
   };
 
   const result = scoreClaimWithEvidence(
-    "Take a photo of a clock showing the current time outdoors",
-    "Upload a clear outdoor photo of a clock or watch showing the current time.",
+    "Photo of a handwritten note with today’s date",
+    "Upload a clear outdoor photo of a handwritten note that says today’s full date, your username, and the word poidh.",
     claim,
     evidence
   );
 
   const strictFailures = getStrictTaskEvidenceFailures(
-    "Take a photo of a clock showing the current time outdoors",
-    "Upload a clear outdoor photo of a clock or watch showing the current time.",
+    "Photo of a handwritten note with today’s date",
+    "Upload a clear outdoor photo of a handwritten note that says today’s full date, your username, and the word poidh.",
     claim,
     evidence
   );
@@ -216,33 +216,33 @@ test("rejects claims that fail strict clock/time/outdoor evidence checks", () =>
   assert.ok(strictFailures.length > 0);
   assert.notEqual(result.score, -1);
   assert.match(result.reasons.join(" "), /strict deterministic signal check flagged/i);
-  assert.match(result.reasons.join(" "), /clock\/watch evidence/i);
+  assert.match(result.reasons.join(" "), /handwritten note evidence/i);
 });
 
-test("accepts claims that provide clock, time, and outdoor evidence signals", () => {
+test("accepts claims that provide handwritten, date, username, poidh, and outdoor evidence signals", () => {
   const claim: ClaimTuple = {
     id: 402n,
     issuer: "0x1111111111111111111111111111111111111111",
     bountyId: 90n,
     bountyIssuer: "0x2222222222222222222222222222222222222222",
-    name: "Clock photo at 10:45 outdoors",
-    description: "Watch and clock visible outside.",
+    name: "Handwritten note outdoors",
+    description: "Note shows the date and username with poidh written clearly outside.",
     createdAt: 123457n,
     accepted: false
   };
 
   const evidence: ClaimEvidence = {
     tokenUri: "ipfs://claim-402",
-    contentUri: "ipfs://clock-photo",
+    contentUri: "ipfs://note-photo",
     contentType: "image/jpeg",
-    title: "Outdoor watch photo",
-    text: "Taken outside. Clock shows 10:45 AM with sky in the background.",
-    imageUrl: "ipfs://clock-photo"
+    title: "Outdoor handwritten note",
+    text: "Taken outside. Handwritten note says 2026-04-05, @0x94t3z, and poidh in the frame.",
+    imageUrl: "ipfs://note-photo"
   };
 
   const result = scoreClaimWithEvidence(
-    "Take a photo of a clock showing the current time outdoors",
-    "Upload a clear outdoor photo of a clock or watch showing the current time.",
+    "Photo of a handwritten note with today’s date",
+    "Upload a clear outdoor photo of a handwritten note that says today’s full date, your username, and the word poidh.",
     claim,
     evidence
   );
@@ -268,8 +268,8 @@ test("deterministic mode rejects claims that fail strict eligibility checks", as
   ]);
 
   const evaluations = await evaluateClaims(
-    "Take a photo of a clock showing the current time outdoors",
-    "Upload a clear outdoor photo of a clock or watch showing the current time.",
+    "Photo of a handwritten note with today’s date",
+    "Upload a clear outdoor photo of a handwritten note that says today’s full date, your username, and the word poidh.",
     [claim],
     tokenUris,
     { mode: "deterministic" }
@@ -297,8 +297,8 @@ test("deterministic mode keeps already accepted claims valid", async () => {
   ]);
 
   const evaluations = await evaluateClaims(
-    "Take a photo of a clock showing the current time outdoors",
-    "Upload a clear outdoor photo of a clock or watch showing the current time.",
+    "Photo of a handwritten note with today’s date",
+    "Upload a clear outdoor photo of a handwritten note that says today’s full date, your username, and the word poidh.",
     [acceptedClaim],
     tokenUris,
     { mode: "deterministic" }

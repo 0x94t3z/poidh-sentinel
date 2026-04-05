@@ -53,8 +53,8 @@ Poidh itself does not end solo bounties on a timer; the creator accepts a claim 
 
 Recommended defaults in this repo:
 - `BOUNTY_MODE=solo`
-- `BOUNTY_TITLE=Take a photo of a clock showing the current time outdoors`
-- `BOUNTY_PROMPT=Upload a clear outdoor photo of a clock or watch showing the current time.`
+- `BOUNTY_TITLE=Photo of a handwritten note with today’s date`
+- `BOUNTY_PROMPT=Upload a clear outdoor photo of a handwritten note that says today’s full date, your username, and the word poidh.`
 - `BOUNTY_REWARD_ETH=0.001`
 
 Poidh minimums are documented in the official skill docs:
@@ -123,7 +123,7 @@ npm run dev -- watch-bounty --bounty-id 123
   - the claim proof URL and metadata
   - whether the claim resolves to image, video, or web evidence
   - whether the evidence looks like a real-world proof artifact
-  - strict task evidence checks derived from the bounty prompt (for example, clock/watch + time + outdoor signals for the time-photo bounty)
+  - strict task evidence checks derived from the bounty prompt (for example, handwritten note + date + username + `poidh` + outdoor signals for the handwritten-date bounty)
   - duplicate-evidence penalty for later copy submissions
   - tie-breaker that favors earlier submissions over later ones
 - In AI modes, claims are also checked by OpenRouter and only AI-approved claims remain eligible.
