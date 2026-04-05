@@ -40,7 +40,7 @@ cp .env.example .env
 - For relay posting, set `DECISION_WEBHOOK_URL=http://127.0.0.1:8787/decision`
 - For Farcaster posting, set `NEYNAR_API_KEY`, `FARCASTER_SIGNER_UUID`, and optionally `FARCASTER_CHANNEL_ID=poidh`
 - For Farcaster webhook verification, set `WEBHOOK_SIGNATURE_SECRET` only if your Neynar plan includes webhook access
-- Set `OPENROUTER_API_KEY` and `COPY_POLISH_MODEL=openrouter/free` for one shared model used by both Farcaster copy polish and AI winner evaluation
+- Set `OPENROUTER_API_KEY` and `OPENROUTER_MODEL=openrouter/free` for one shared model used by both Farcaster copy polish and AI winner evaluation
 - Winner evaluation mode is controlled by `WINNER_EVALUATION_MODE`:
   - `deterministic`: deterministic scoring only
   - `ai_hybrid`: deterministic scoring plus AI evidence gate when OpenRouter is available (fallbacks to deterministic if AI is unavailable)
