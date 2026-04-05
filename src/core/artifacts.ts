@@ -120,10 +120,10 @@ function markdownLines(artifact: DecisionArtifact): string[] {
       `- Claim ${evaluation.claimId}: score ${evaluation.score}, accepted ${evaluation.accepted}, proof ${evaluation.proof}`
     );
     if (evaluation.visionSummary) {
-      lines.push(`  - Vision summary: ${evaluation.visionSummary}`);
+      lines.push(`  - AI summary: ${evaluation.visionSummary}`);
     }
     if (evaluation.visionSignals && evaluation.visionSignals.length > 0) {
-      lines.push(`  - Vision signals: ${evaluation.visionSignals.join(", ")}`);
+      lines.push(`  - AI signals: ${evaluation.visionSignals.join(", ")}`);
     }
     for (const reason of evaluation.reasons) {
       lines.push(`  - ${reason}`);

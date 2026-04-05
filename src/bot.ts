@@ -200,7 +200,7 @@ export class PoidhBot {
       );
       console.log(`  proof: ${proof}`);
       if (evaluation.visionSummary) {
-        console.log(`  vision: ${evaluation.visionSummary}`);
+        console.log(`  AI summary: ${evaluation.visionSummary}`);
       }
       console.log(`  reason: ${reason}`);
     }

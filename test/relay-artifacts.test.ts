@@ -113,7 +113,7 @@ test("writes decision and social artifacts with the expected summary fields", as
   assert.ok(
     socialJson.followUpAnswers.some((item) => item.question === "Was the payout handled on-chain?")
   );
-  assert.match(decisionMarkdown, /Vision summary/i);
+  assert.match(decisionMarkdown, /AI summary/i);
   assert.match(farcasterMarkdown, /poidh decision/i);
   assert.match(socialMarkdown, /Why did this claim win\?/);
   assert.match(socialMarkdown, /Was the payout handled on-chain\?/);
