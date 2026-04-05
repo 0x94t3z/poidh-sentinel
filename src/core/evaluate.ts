@@ -115,6 +115,7 @@ function buildEvidenceHaystack(claim: ClaimTuple, evidence: ClaimEvidence): stri
     claim.description,
     evidence.title ?? "",
     evidence.text,
+    evidence.ocrText ?? "",
     evidence.contentType,
     evidence.contentUri,
     evidence.imageUrl ?? "",
@@ -132,6 +133,13 @@ function validateEvidenceAgainstTask(
 ): string[] {
   const failures: string[] = [];
   const haystack = buildEvidenceHaystack(claim, evidence);
+  const hasNaturalFullDateSignal =
+    /\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b[\s,/-]*\d{1,2}(?:st|nd|rd|th)?[\s,/-]*\d{4}\b/i.test(
+      haystack
+    ) ||
+    /\b\d{1,2}(?:st|nd|rd|th)?[\s,/-]*(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b[\s,/-]*\d{4}\b/i.test(
+      haystack
+    );
   const hasVisualProof =
     evidence.contentType.startsWith("image/") ||
     evidence.contentType.startsWith("video/") ||
@@ -151,8 +159,10 @@ function validateEvidenceAgainstTask(
 
   if (
     requirements.requiresDateSignal &&
-    !/\bdate\b|\btoday'?s date\b|\bfull date\b|\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/.test(
-      haystack
+    !(
+      /\bdate\b|\btoday'?s date\b|\bfull date\b|\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/.test(
+        haystack
+      ) || hasNaturalFullDateSignal
     )
   ) {
     failures.push("missing clear date signal");
@@ -160,7 +170,7 @@ function validateEvidenceAgainstTask(
 
   if (
     requirements.requiresUsernameSignal &&
-    !/\busername\b|\buser name\b|\b@\w+\b/.test(haystack)
+    !/\busername\b|\buser name\b|@\w+/.test(haystack)
   ) {
     failures.push("missing clear username signal");
   }
@@ -171,7 +181,7 @@ function validateEvidenceAgainstTask(
 
   if (
     requirements.requiresOutdoorSignal &&
-    !/\boutdoor\b|\boutdoors\b|\boutside\b|\bstreet\b|\bpark\b|\broad\b|\bsky\b|\bsunlight\b/.test(
+    !/\boutdoor\b|\boutdoors\b|\boutside\b|\bstreet\b|\bpark\b|\broad\b|\bsky\b|\bsunlight\b|\bgrass\b|\bfield\b|\bgarden\b|\btrees?\b|\bplant\b/.test(
       haystack
     )
   ) {
@@ -368,6 +378,10 @@ export function scoreClaimWithEvidence(
   if (looksLikeRealWorldProof(evidence)) {
     score += 10;
     reasons.push("The evidence text looks like a real-world proof artifact.");
+  }
+  if (evidence.ocrText && evidence.ocrText.trim().length > 0) {
+    score += 6;
+    reasons.push("Local OCR extracted readable text from the image proof.");
   }
 
   if (claim.accepted) {

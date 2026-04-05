@@ -42,6 +42,7 @@ cp .env.example .env
 - For Farcaster posting, set `NEYNAR_API_KEY`, `FARCASTER_SIGNER_UUID`, and optionally `FARCASTER_CHANNEL_ID=poidh`
 - For Farcaster webhook verification, set `WEBHOOK_SIGNATURE_SECRET` only if your Neynar plan includes webhook access
 - Set `OPENROUTER_API_KEY` and `OPENROUTER_MODEL=nvidia/nemotron-nano-12b-v2-vl:free` for one shared model used by both Farcaster copy polish and AI winner evaluation
+- Install local `tesseract` CLI if you want OCR-first winner checks on image proofs
 - Winner evaluation mode is controlled by `WINNER_EVALUATION_MODE`:
   - `deterministic`: deterministic scoring only
   - `ai_hybrid`: deterministic scoring plus AI evidence gate when OpenRouter is available; if the free model is rate-limited or unavailable, the bot keeps the deterministic path instead of stalling
@@ -118,6 +119,7 @@ npm run dev -- watch-bounty --bounty-id 123
 - `acceptClaim` finalizes solo bounties
 - `submitClaimForVote` and `resolveVote` handle open bounties with contributors
 - Claim evaluation uses deterministic scoring and can add an AI evidence gate for real-world proof validation.
+- OCR-first is used for image proofs when local `tesseract` is available, and OCR text is fed into deterministic checks before AI fallback.
 - Deterministic scoring uses:
   - token and description overlap
   - the claim proof URL and metadata

@@ -485,6 +485,7 @@ export async function evaluateClaimWithAi(input: AiEvaluationInput): Promise<AiC
       contentType: input.evidence.contentType,
       title: input.evidence.title,
       text: input.evidence.text,
+      ocrText: input.evidence.ocrText,
       imageUrl: input.evidence.imageUrl,
       animationUrl: input.evidence.animationUrl,
       metadata: input.evidence.rawMetadata

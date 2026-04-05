@@ -34,6 +34,7 @@ export type ClaimEvidence = {
   contentType: string;
   title?: string;
   text: string;
+  ocrText?: string;
   imageUrl?: string;
   animationUrl?: string;
   rawMetadata?: unknown;

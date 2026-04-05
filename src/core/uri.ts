@@ -1,4 +1,5 @@
 import type { ClaimEvidence } from "./types.js";
+import { extractLocalOcrText } from "./ocr.js";
 
 const USER_AGENT = "poidh-sentinel/1.0";
 
@@ -26,6 +27,27 @@ function looksLikeJson(body: string): boolean {
   return trimmed.startsWith("{") || trimmed.startsWith("[");
 }
 
+async function withLocalOcr(evidence: ClaimEvidence): Promise<ClaimEvidence> {
+  if (!evidence.contentType.toLowerCase().startsWith("image/")) {
+    return evidence;
+  }
+
+  const imageUrl = evidence.imageUrl ?? evidence.contentUri;
+  if (!imageUrl) {
+    return evidence;
+  }
+
+  const ocrText = await extractLocalOcrText(imageUrl);
+  if (!ocrText) {
+    return evidence;
+  }
+
+  return {
+    ...evidence,
+    ocrText
+  };
+}
+
 export async function resolveClaimEvidence(tokenUri: string): Promise<ClaimEvidence> {
   const contentUri = normalizeUri(tokenUri);
   const response = await fetch(contentUri, {
@@ -38,14 +60,14 @@ export async function resolveClaimEvidence(tokenUri: string): Promise<ClaimEvide
 
   const contentType = response.headers.get("content-type") ?? "";
   if (contentType.startsWith("image/") || contentType.startsWith("video/")) {
-    return {
+    return withLocalOcr({
       tokenUri: contentUri,
       contentUri,
       contentType,
       text: "",
       imageUrl: contentType.startsWith("image/") ? contentUri : undefined,
       animationUrl: contentType.startsWith("video/") ? contentUri : undefined
-    };
+    });
   }
 
   const body = await response.text();
@@ -77,7 +99,7 @@ export async function resolveClaimEvidence(tokenUri: string): Promise<ClaimEvide
         }
         const nestedType = nested.headers.get("content-type") ?? "";
         if (nestedType.startsWith("image/") || nestedType.startsWith("video/")) {
-          return {
+          return withLocalOcr({
             tokenUri: contentUri,
             contentUri: maybeContentUri,
             contentType: nestedType || contentType,
@@ -86,7 +108,7 @@ export async function resolveClaimEvidence(tokenUri: string): Promise<ClaimEvide
             imageUrl: nestedType.startsWith("image/") ? maybeContentUri : imageUrl,
             animationUrl: nestedType.startsWith("video/") ? maybeContentUri : animationUrl,
             rawMetadata
-          };
+          });
         }
         const nestedBody = await nested.text();
         text = nestedType.includes("text/html") ? stripHtml(nestedBody) : nestedBody.trim();

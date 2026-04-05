@@ -251,6 +251,38 @@ test("accepts claims that provide handwritten, date, username, poidh, and outdoo
   assert.doesNotMatch(result.reasons.join(" "), /strict deterministic signal check flagged/i);
 });
 
+test("uses OCR text as strict evidence signals for handwritten/date/username/poidh/outdoor checks", () => {
+  const claim: ClaimTuple = {
+    id: 403n,
+    issuer: "0x1111111111111111111111111111111111111111",
+    bountyId: 90n,
+    bountyIssuer: "0x2222222222222222222222222222222222222222",
+    name: "Outdoor proof note",
+    description: "Submission image attached.",
+    createdAt: 123458n,
+    accepted: false
+  };
+
+  const evidence: ClaimEvidence = {
+    tokenUri: "ipfs://claim-403",
+    contentUri: "ipfs://note-photo-403",
+    contentType: "image/jpeg",
+    title: "Photo proof",
+    text: "",
+    ocrText: "handwritten note date Sunday 5th April 2026 @lorah24 poidh outside grass",
+    imageUrl: "ipfs://note-photo-403"
+  };
+
+  const strictFailures = getStrictTaskEvidenceFailures(
+    "Photo of a handwritten note with today’s date",
+    "Upload a clear outdoor photo of a handwritten note that says today’s full date, your username, and the word poidh.",
+    claim,
+    evidence
+  );
+
+  assert.equal(strictFailures.length, 0);
+});
+
 test("deterministic mode rejects claims that fail strict eligibility checks", async () => {
   const claim: ClaimTuple = {
     id: 500n,
