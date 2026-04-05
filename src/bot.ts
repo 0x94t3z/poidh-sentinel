@@ -166,7 +166,7 @@ export class PoidhBot {
     }
 
     const evaluations = await this.evaluateBounty(bountyId);
-    const winner = evaluations[0];
+    const winner = evaluations.find((evaluation) => evaluation.score >= 0);
 
     if (!winner) {
       console.log(`No valid claims found for bounty ${bountyId.toString()}.`);

@@ -103,6 +103,7 @@ npm run dev -- watch-bounty --bounty-id 123
   - the claim proof URL and metadata
   - whether the claim resolves to image, video, or web evidence
   - whether the evidence looks like a real-world proof artifact
+  - strict task evidence checks derived from the bounty prompt (for example, clock/watch + time + outdoor signals for the time-photo bounty)
   - duplicate-evidence penalty for later copy submissions
   - tie-breaker that favors earlier submissions over later ones
 - Real-world bounty prompts are guarded so obvious digital-only tasks are rejected before creation

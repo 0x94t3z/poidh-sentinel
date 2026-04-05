@@ -34,6 +34,13 @@ const STOP_WORDS = new Set([
 ]);
 const DUPLICATE_EVIDENCE_PENALTY = 20;
 
+type BountyEvidenceRequirements = {
+  requiresVisualProof: boolean;
+  requiresClockOrWatch: boolean;
+  requiresTimeSignal: boolean;
+  requiresOutdoorSignal: boolean;
+};
+
 function tokenize(input: string): string[] {
   return input
     .toLowerCase()
@@ -69,6 +76,76 @@ function looksLikeRealWorldProof(evidence: ClaimEvidence): boolean {
 
 function normalizeCompactText(input: string): string {
   return input.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function deriveBountyEvidenceRequirements(
+  bountyName: string,
+  bountyDescription: string
+): BountyEvidenceRequirements {
+  const prompt = `${bountyName} ${bountyDescription}`.toLowerCase();
+  return {
+    requiresVisualProof: /photo|image|picture|video|camera|selfie/.test(prompt),
+    requiresClockOrWatch: /\bclock\b|\bwatch\b|\btimepiece\b/.test(prompt),
+    requiresTimeSignal:
+      /\bcurrent time\b|\bshowing the current time\b|\bshowing the time\b/.test(prompt),
+    requiresOutdoorSignal: /\boutdoor\b|\boutdoors\b|\boutside\b|\bstreet\b|\bpark\b/.test(prompt)
+  };
+}
+
+function buildEvidenceHaystack(claim: ClaimTuple, evidence: ClaimEvidence): string {
+  return [
+    claim.name,
+    claim.description,
+    evidence.title ?? "",
+    evidence.text,
+    evidence.contentType,
+    evidence.contentUri,
+    evidence.imageUrl ?? "",
+    evidence.animationUrl ?? "",
+    JSON.stringify(evidence.rawMetadata ?? {})
+  ]
+    .join(" ")
+    .toLowerCase();
+}
+
+function validateEvidenceAgainstTask(
+  requirements: BountyEvidenceRequirements,
+  claim: ClaimTuple,
+  evidence: ClaimEvidence
+): string[] {
+  const failures: string[] = [];
+  const haystack = buildEvidenceHaystack(claim, evidence);
+  const hasVisualProof =
+    evidence.contentType.startsWith("image/") ||
+    evidence.contentType.startsWith("video/") ||
+    Boolean(evidence.imageUrl) ||
+    Boolean(evidence.animationUrl);
+
+  if (requirements.requiresVisualProof && !hasVisualProof) {
+    failures.push("missing image or video proof");
+  }
+
+  if (requirements.requiresClockOrWatch && !/\bclock\b|\bwatch\b|\btimepiece\b/.test(haystack)) {
+    failures.push("missing clear clock/watch evidence");
+  }
+
+  if (
+    requirements.requiresTimeSignal &&
+    !/\btime\b|\btimestamp\b|\b\d{1,2}[:.]\d{2}\b|\bam\b|\bpm\b/.test(haystack)
+  ) {
+    failures.push("missing clear time signal");
+  }
+
+  if (
+    requirements.requiresOutdoorSignal &&
+    !/\boutdoor\b|\boutdoors\b|\boutside\b|\bstreet\b|\bpark\b|\broad\b|\bsky\b|\bsunlight\b/.test(
+      haystack
+    )
+  ) {
+    failures.push("missing clear outdoor signal");
+  }
+
+  return failures;
 }
 
 function evidenceFingerprint(evidence: ClaimEvidence): string | undefined {
@@ -152,6 +229,7 @@ export function scoreClaimWithEvidence(
 ): ClaimEvaluation {
   const reasons: string[] = [];
   let score = 0;
+  const requirements = deriveBountyEvidenceRequirements(bountyName, bountyDescription);
 
   const nameOverlap = overlapScore(bountyName, claim.name);
   const descriptionOverlap = overlapScore(
@@ -202,6 +280,19 @@ export function scoreClaimWithEvidence(
   if (claim.accepted) {
     score += 50;
     reasons.push("Claim is already accepted on-chain.");
+  }
+
+  const strictFailures = validateEvidenceAgainstTask(requirements, claim, evidence);
+  if (strictFailures.length > 0) {
+    return {
+      claim,
+      score: -1,
+      reasons: [
+        ...reasons,
+        `Claim rejected by strict task evidence checks: ${strictFailures.join(", ")}.`
+      ],
+      evidence
+    };
   }
 
   return {

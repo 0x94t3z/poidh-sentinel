@@ -172,3 +172,68 @@ test("deprioritizes later duplicate evidence submissions", () => {
   assert.ok(duplicateResult!.score < firstEvaluation.score);
   assert.match(duplicateResult!.reasons.join(" "), /duplicate evidence/i);
 });
+
+test("rejects claims that fail strict clock/time/outdoor evidence checks", () => {
+  const claim: ClaimTuple = {
+    id: 401n,
+    issuer: "0x1111111111111111111111111111111111111111",
+    bountyId: 90n,
+    bountyIssuer: "0x2222222222222222222222222222222222222222",
+    name: "Submission",
+    description: "Here is my proof.",
+    createdAt: 123456n,
+    accepted: false
+  };
+
+  const evidence: ClaimEvidence = {
+    tokenUri: "ipfs://claim-401",
+    contentUri: "ipfs://random-photo",
+    contentType: "image/jpeg",
+    title: "Random photo",
+    text: "Outdoor proof image.",
+    imageUrl: "ipfs://random-photo"
+  };
+
+  const result = scoreClaimWithEvidence(
+    "Take a photo of a clock showing the current time outdoors",
+    "Upload a clear outdoor photo of a clock or watch showing the current time.",
+    claim,
+    evidence
+  );
+
+  assert.equal(result.score, -1);
+  assert.match(result.reasons.join(" "), /strict task evidence checks/i);
+  assert.match(result.reasons.join(" "), /clock\/watch evidence/i);
+});
+
+test("accepts claims that provide clock, time, and outdoor evidence signals", () => {
+  const claim: ClaimTuple = {
+    id: 402n,
+    issuer: "0x1111111111111111111111111111111111111111",
+    bountyId: 90n,
+    bountyIssuer: "0x2222222222222222222222222222222222222222",
+    name: "Clock photo at 10:45 outdoors",
+    description: "Watch and clock visible outside.",
+    createdAt: 123457n,
+    accepted: false
+  };
+
+  const evidence: ClaimEvidence = {
+    tokenUri: "ipfs://claim-402",
+    contentUri: "ipfs://clock-photo",
+    contentType: "image/jpeg",
+    title: "Outdoor watch photo",
+    text: "Taken outside. Clock shows 10:45 AM with sky in the background.",
+    imageUrl: "ipfs://clock-photo"
+  };
+
+  const result = scoreClaimWithEvidence(
+    "Take a photo of a clock showing the current time outdoors",
+    "Upload a clear outdoor photo of a clock or watch showing the current time.",
+    claim,
+    evidence
+  );
+
+  assert.ok(result.score >= 0);
+  assert.doesNotMatch(result.reasons.join(" "), /strict task evidence checks/i);
+});

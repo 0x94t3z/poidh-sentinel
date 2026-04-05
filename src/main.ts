@@ -242,9 +242,9 @@ async function run() {
         throw new Error("explain-bounty requires --bounty-id or BOUNTY_ID");
       }
       const evaluations = await bot.evaluateBounty(bountyId);
-      const winner = evaluations[0];
+      const winner = evaluations.find((evaluation) => evaluation.score >= 0);
       if (!winner) {
-        console.log(`No claims found for bounty ${bountyId.toString()}.`);
+        console.log(`No valid claim found for bounty ${bountyId.toString()}.`);
         break;
       }
 
