@@ -44,7 +44,7 @@ cp .env.example .env
 - Set `OPENROUTER_API_KEY` and `OPENROUTER_MODEL=openrouter/free` for one shared model used by both Farcaster copy polish and AI winner evaluation
 - Winner evaluation mode is controlled by `WINNER_EVALUATION_MODE`:
   - `deterministic`: deterministic scoring only
-  - `ai_hybrid`: deterministic scoring plus AI evidence gate when OpenRouter is available (fallbacks to deterministic if AI is unavailable)
+  - `ai_hybrid`: deterministic scoring plus AI evidence gate when OpenRouter is available; if the free model is rate-limited or unavailable, the bot keeps the deterministic path instead of stalling
   - `ai_required`: claims must pass AI evidence evaluation to be eligible
 - Optionally set `AI_EVALUATION_MIN_CONFIDENCE`, `AI_EVALUATION_ENABLE_VISION`, `AI_EVALUATION_INSPECT_LINKS`, and `AI_EVALUATION_MAX_LINKS`
 - To prevent first-claim instant resolution, set `MIN_PARTICIPANTS_BEFORE_FINALIZE` and/or `FIRST_CLAIM_COOLDOWN_SECONDS`

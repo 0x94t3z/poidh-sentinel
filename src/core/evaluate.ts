@@ -462,7 +462,7 @@ export async function evaluateClaims(
         const hasStrictSignalMismatch = strictFailuresByClaimId.has(evaluation.claim.id);
 
         if (!aiApiKey) {
-          if (aiRequired || hasStrictSignalMismatch) {
+          if (aiRequired) {
             evaluation.score = -1;
             evaluation.reasons.push(
               "Claim rejected because AI evidence verification is required but OPENROUTER_API_KEY is not configured."
@@ -488,7 +488,7 @@ export async function evaluateClaims(
         });
 
         if (!aiEvaluation) {
-          if (aiRequired || hasStrictSignalMismatch) {
+          if (aiRequired) {
             evaluation.score = -1;
             evaluation.reasons.push(
               "Claim rejected because AI evidence verification is required but the AI evaluator was unavailable."

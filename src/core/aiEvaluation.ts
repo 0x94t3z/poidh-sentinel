@@ -259,6 +259,33 @@ type OpenRouterMessage = {
       >;
 };
 
+type OpenRouterChoiceMessage = {
+  content?: string | Array<{ type?: string; text?: string }>;
+  reasoning?: string;
+  refusal?: string;
+};
+
+function readOpenRouterMessageContent(message: OpenRouterChoiceMessage | undefined): string {
+  if (!message) {
+    return "";
+  }
+  if (typeof message.content === "string") {
+    return message.content.trim();
+  }
+  if (Array.isArray(message.content)) {
+    return message.content
+      .map((part) => {
+        if (part && typeof part.text === "string") {
+          return part.text;
+        }
+        return "";
+      })
+      .join("\n")
+      .trim();
+  }
+  return (message.reasoning ?? message.refusal ?? "").trim();
+}
+
 async function requestAiEvaluation(
   apiKey: string,
   model: string,
@@ -284,23 +311,33 @@ async function requestAiEvaluation(
     });
 
     if (!response.ok) {
+      const errorText = (await response.text()).trim();
+      if (errorText) {
+        console.warn(
+          `[openrouter] HTTP ${response.status} ${response.statusText} for model ${model}: ${errorText.slice(0, 400)}`
+        );
+      } else {
+        console.warn(`[openrouter] HTTP ${response.status} ${response.statusText} for model ${model}.`);
+      }
       return undefined;
     }
 
     const payload = (await response.json()) as {
       choices?: Array<{
-        message?: {
-          content?: string;
-        };
+        message?: OpenRouterChoiceMessage;
       }>;
     };
-    const rawText = payload.choices?.[0]?.message?.content?.trim() ?? "";
+    const rawText = readOpenRouterMessageContent(payload.choices?.[0]?.message);
     if (!rawText) {
+      console.warn(`[openrouter] empty response content for model ${model}.`);
       return undefined;
     }
 
     const parsed = parseAiResponseContent(rawText);
     if (!parsed) {
+      console.warn(
+        `[openrouter] unable to parse response content for model ${model}: ${rawText.slice(0, 400)}`
+      );
       return undefined;
     }
 

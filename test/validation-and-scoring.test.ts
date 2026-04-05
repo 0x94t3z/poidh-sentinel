@@ -311,3 +311,35 @@ test("deterministic mode keeps already accepted claims valid", async () => {
     /treated as final-valid regardless of strict signal mismatches/i
   );
 });
+
+test("ai_hybrid falls back to deterministic scoring when AI is unavailable", async () => {
+  const claim: ClaimTuple = {
+    id: 502n,
+    issuer: "0x1111111111111111111111111111111111111111",
+    bountyId: 92n,
+    bountyIssuer: "0x2222222222222222222222222222222222222222",
+    name: "Handwritten note outdoors",
+    description: "A real photo with a note and a date.",
+    createdAt: 123502n,
+    accepted: false
+  };
+
+  const tokenUris = new Map<bigint, string>([
+    [claim.id, "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII="]
+  ]);
+
+  const evaluations = await evaluateClaims(
+    "Photo of a handwritten note with today’s date",
+    "Upload a clear outdoor photo of a handwritten note that says today’s full date, your username, and the word poidh.",
+    [claim],
+    tokenUris,
+    { mode: "ai_hybrid", aiApiKey: "" }
+  );
+
+  assert.equal(evaluations.length, 1);
+  assert.ok((evaluations[0]?.score ?? -1) >= 0);
+  assert.match(
+    evaluations[0]?.reasons.join(" ") ?? "",
+    /AI evaluation skipped because OPENROUTER_API_KEY is not configured; used deterministic scoring\./
+  );
+});
