@@ -49,6 +49,9 @@ export type EvaluateClaimsOptions = {
   aiApiKey?: string;
   aiModel?: string;
   aiMinConfidence?: number;
+  aiEnableVision?: boolean;
+  aiInspectLinkedUrls?: boolean;
+  aiMaxLinkedUrls?: number;
 };
 
 function tokenize(input: string): string[] {
@@ -371,6 +374,9 @@ export async function evaluateClaims(
   const aiApiKey = options.aiApiKey?.trim() ?? "";
   const aiModel = options.aiModel?.trim() || "openrouter/free";
   const aiMinConfidence = Math.max(0, Math.min(1, options.aiMinConfidence ?? 0.55));
+  const aiEnableVision = options.aiEnableVision ?? true;
+  const aiInspectLinkedUrls = options.aiInspectLinkedUrls ?? true;
+  const aiMaxLinkedUrls = Math.max(0, Math.floor(options.aiMaxLinkedUrls ?? 2));
   const aiRequired = mode === "ai_required";
 
   if (aiEnabled) {
@@ -400,7 +406,10 @@ export async function evaluateClaims(
           claim: evaluation.claim,
           evidence: evaluation.evidence,
           model: aiModel,
-          apiKey: aiApiKey
+          apiKey: aiApiKey,
+          enableVision: aiEnableVision,
+          inspectLinkedUrls: aiInspectLinkedUrls,
+          maxLinkedUrls: aiMaxLinkedUrls
         });
 
         if (!aiEvaluation) {

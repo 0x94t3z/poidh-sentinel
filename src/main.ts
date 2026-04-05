@@ -187,6 +187,9 @@ async function run() {
   const aiApiKey = getEnv("OPENROUTER_API_KEY", "");
   const aiModel = getEnv("AI_EVALUATION_MODEL", getEnv("COPY_POLISH_MODEL", "openrouter/free"));
   const aiMinConfidence = Math.max(0, Math.min(1, Number(getEnv("AI_EVALUATION_MIN_CONFIDENCE", "0.55")) || 0.55));
+  const aiEnableVision = getBool("AI_EVALUATION_ENABLE_VISION", true);
+  const aiInspectLinkedUrls = getBool("AI_EVALUATION_INSPECT_LINKS", true);
+  const aiMaxLinkedUrls = Math.max(0, getInt("AI_EVALUATION_MAX_LINKS", 2));
   const artifactDir = getEnv("PRODUCTION_ARTIFACT_DIR", getDefaultArtifactDir(command));
   const bountyStatePath = getBountyStatePath();
   const flagBountyId =
@@ -216,6 +219,9 @@ async function run() {
     aiApiKey,
     aiModel,
     aiMinConfidence,
+    aiEnableVision,
+    aiInspectLinkedUrls,
+    aiMaxLinkedUrls,
     artifactDir: artifactDir || undefined,
     bountyId,
     bountyStatePath,
@@ -227,6 +233,10 @@ async function run() {
     console.log(`Winner evaluation mode: ${evaluationMode}`);
     if (evaluationMode !== "deterministic" && !aiApiKey) {
       console.log("AI evaluator key is missing, so winner selection falls back to deterministic-only behavior.");
+    } else if (evaluationMode !== "deterministic") {
+      console.log(
+        `AI evidence checks: vision=${aiEnableVision ? "on" : "off"}, link-inspection=${aiInspectLinkedUrls ? "on" : "off"} (max ${aiMaxLinkedUrls} links).`
+      );
     }
   }
 

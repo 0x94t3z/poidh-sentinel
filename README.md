@@ -45,7 +45,7 @@ cp .env.example .env
   - `deterministic`: deterministic scoring only
   - `ai_hybrid`: deterministic scoring plus AI evidence gate when OpenRouter is available (fallbacks to deterministic if AI is unavailable)
   - `ai_required`: claims must pass AI evidence evaluation to be eligible
-- Optionally set `AI_EVALUATION_MODEL` and `AI_EVALUATION_MIN_CONFIDENCE`
+- Optionally set `AI_EVALUATION_MODEL`, `AI_EVALUATION_MIN_CONFIDENCE`, `AI_EVALUATION_ENABLE_VISION`, `AI_EVALUATION_INSPECT_LINKS`, and `AI_EVALUATION_MAX_LINKS`
 - To prevent first-claim instant resolution, set `MIN_PARTICIPANTS_BEFORE_FINALIZE` and/or `FIRST_CLAIM_COOLDOWN_SECONDS`
 
 Poidh itself does not end solo bounties on a timer; the creator accepts a claim when they decide it is good enough. Open bounties can move into the contract’s vote flow, which has its own on-chain deadline. `FIRST_CLAIM_COOLDOWN_SECONDS` is only a bot-side safety delay after the first claim is observed, so the bot does not jump on the first valid submission too early.
@@ -114,6 +114,7 @@ npm run dev -- watch-bounty --bounty-id 123
   - duplicate-evidence penalty for later copy submissions
   - tie-breaker that favors earlier submissions over later ones
 - In AI modes, claims are also checked by OpenRouter and only AI-approved claims remain eligible.
+- When enabled, AI evaluation can inspect proof image URLs directly and can fetch a limited number of links found in claim text for extra context.
 - Real-world bounty prompts are guarded so obvious digital-only tasks are rejected before creation
 - Auto-finalize safeguards can keep the bounty open long enough for organic competition
 

@@ -25,6 +25,9 @@ export type BotConfig = {
   aiApiKey?: string;
   aiModel?: string;
   aiMinConfidence?: number;
+  aiEnableVision?: boolean;
+  aiInspectLinkedUrls?: boolean;
+  aiMaxLinkedUrls?: number;
   artifactDir?: string;
   bountyId?: bigint;
   bountyStatePath?: string;
@@ -46,6 +49,9 @@ export class PoidhBot {
   readonly aiApiKey: string;
   readonly aiModel: string;
   readonly aiMinConfidence: number;
+  readonly aiEnableVision: boolean;
+  readonly aiInspectLinkedUrls: boolean;
+  readonly aiMaxLinkedUrls: number;
   readonly declaredBountyAmountWei: bigint;
   readonly artifactDir?: string;
   readonly bountyStatePath?: string;
@@ -81,6 +87,9 @@ export class PoidhBot {
     this.aiApiKey = config.aiApiKey ?? "";
     this.aiModel = config.aiModel ?? "openrouter/free";
     this.aiMinConfidence = config.aiMinConfidence ?? 0.55;
+    this.aiEnableVision = config.aiEnableVision ?? true;
+    this.aiInspectLinkedUrls = config.aiInspectLinkedUrls ?? true;
+    this.aiMaxLinkedUrls = Math.max(0, Math.floor(config.aiMaxLinkedUrls ?? 2));
     this.declaredBountyAmountWei = parseEther(config.bountyAmountEth);
     this.artifactDir = config.artifactDir;
     this.bountyStatePath = config.bountyStatePath;
@@ -169,7 +178,10 @@ export class PoidhBot {
       mode: this.evaluationMode,
       aiApiKey: this.aiApiKey,
       aiModel: this.aiModel,
-      aiMinConfidence: this.aiMinConfidence
+      aiMinConfidence: this.aiMinConfidence,
+      aiEnableVision: this.aiEnableVision,
+      aiInspectLinkedUrls: this.aiInspectLinkedUrls,
+      aiMaxLinkedUrls: this.aiMaxLinkedUrls
     });
   }
 
