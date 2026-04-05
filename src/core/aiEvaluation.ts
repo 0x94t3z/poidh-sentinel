@@ -349,6 +349,8 @@ type OpenRouterChoiceMessage = {
   refusal?: string;
 };
 
+const aiEvaluationCache = new Map<string, AiClaimEvaluation>();
+
 function readOpenRouterMessageContent(message: OpenRouterChoiceMessage | undefined): string {
   if (!message) {
     return "";
@@ -368,6 +370,66 @@ function readOpenRouterMessageContent(message: OpenRouterChoiceMessage | undefin
       .trim();
   }
   return (message.reasoning ?? message.refusal ?? "").trim();
+}
+
+function localDateIso(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = `${now.getMonth() + 1}`.padStart(2, "0");
+  const day = `${now.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+async function requestResponseRepair(
+  apiKey: string,
+  model: string,
+  rawText: string
+): Promise<{
+  verdict?: AiEvaluationVerdict;
+  confidence?: number;
+  reasons?: string[];
+  visionSummary?: string;
+  visionSignals?: string[];
+} | undefined> {
+  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${apiKey}`,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      model,
+      temperature: 0,
+      max_tokens: 220,
+      messages: [
+        {
+          role: "system",
+          content:
+            "Convert the input text into strict JSON only with keys verdict, confidence, reasons, visionSummary, visionSignals. verdict must be accept, reject, or needs_review. confidence must be 0..1. If the text lacks a clear judgment, set verdict to needs_review and confidence <= 0.5."
+        },
+        {
+          role: "user",
+          content: rawText
+        }
+      ]
+    })
+  }).catch(() => undefined);
+
+  if (!response || !response.ok) {
+    return undefined;
+  }
+
+  const payload = (await response.json()) as {
+    choices?: Array<{
+      message?: OpenRouterChoiceMessage;
+    }>;
+  };
+  const repairedText = readOpenRouterMessageContent(payload.choices?.[0]?.message);
+  if (!repairedText) {
+    return undefined;
+  }
+
+  return parseAiResponseContent(repairedText);
 }
 
 async function requestAiEvaluation(
@@ -417,7 +479,10 @@ async function requestAiEvaluation(
       return undefined;
     }
 
-    const parsed = parseAiResponseContent(rawText);
+    let parsed = parseAiResponseContent(rawText);
+    if (!parsed) {
+      parsed = await requestResponseRepair(apiKey, model, rawText);
+    }
     if (!parsed) {
       console.warn(
         `[openrouter] unable to parse response content for model ${model}: ${rawText.slice(0, 400)}`
@@ -448,6 +513,21 @@ async function requestAiEvaluation(
 }
 
 export async function evaluateClaimWithAi(input: AiEvaluationInput): Promise<AiClaimEvaluation | undefined> {
+  const cacheKey = [
+    input.model,
+    input.bountyTitle,
+    input.bountyPrompt,
+    input.claim.id.toString(),
+    input.evidence.contentUri,
+    input.evidence.imageUrl ?? "",
+    input.evidence.animationUrl ?? "",
+    input.evidence.ocrText ?? ""
+  ].join("|");
+  const cached = aiEvaluationCache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
   const enableVision = input.enableVision ?? true;
   const inspectLinkedUrls = input.inspectLinkedUrls ?? true;
   const maxLinkedUrls = Math.max(0, Math.floor(input.maxLinkedUrls ?? 2));
@@ -493,7 +573,8 @@ export async function evaluateClaimWithAi(input: AiEvaluationInput): Promise<AiC
     linkedContext: linkedContexts,
     instructions: {
       imageCount: imageUrls.length,
-      linkedUrlCount: linkedContexts.length
+      linkedUrlCount: linkedContexts.length,
+      todayReferenceDate: localDateIso()
     }
   };
 
@@ -514,6 +595,7 @@ export async function evaluateClaimWithAi(input: AiEvaluationInput): Promise<AiC
     }
   ]);
   if (multimodalResult) {
+    aiEvaluationCache.set(cacheKey, multimodalResult);
     return multimodalResult;
   }
 
@@ -523,11 +605,15 @@ export async function evaluateClaimWithAi(input: AiEvaluationInput): Promise<AiC
     imageUrls
   };
 
-  return requestAiEvaluation(input.apiKey, input.model, [
+  const fallbackResult = await requestAiEvaluation(input.apiKey, input.model, [
     sharedSystemMessage,
     {
       role: "user",
       content: JSON.stringify(textOnlyPayload, null, 2)
     }
   ]);
+  if (fallbackResult) {
+    aiEvaluationCache.set(cacheKey, fallbackResult);
+  }
+  return fallbackResult;
 }
