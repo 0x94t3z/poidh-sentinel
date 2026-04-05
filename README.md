@@ -149,9 +149,11 @@ That free path is enough for local testing: the bot still creates the bounty, mo
 This repo is intentionally Farcaster-first. The relay posts one concise decision cast, then publishes thread replies with full winner reasoning and validation details. Live auto-replies to other people’s questions work when Neynar webhook access is available. Without webhook access, you can still use `POST /follow-up` as a manual fallback.
 
 Artifacts written to `artifacts/production/`:
-- `poidh-production-<bountyId>.json|md`
-- `poidh-social-<bountyId>.json|md`
-- `poidh-farcaster-<bountyId>.json|md` (social draft only)
+- `<bountyId>/poidh-production-<bountyId>.json|md`
+- `<bountyId>/poidh-social-<bountyId>.json|md`
+- `<bountyId>/poidh-farcaster-<bountyId>.json|md` (social draft only)
+
+Relay payloads are written to `artifacts/relay/<bountyId>/poidh-relay-<bountyId>.json|md`.
 
 These include winner, reasons, follow-up Q/A text, and both the declared bounty amount and the current on-chain amount when they differ.
 

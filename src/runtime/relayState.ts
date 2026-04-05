@@ -110,19 +110,38 @@ export async function readJsonFile<T>(path: string): Promise<T | undefined> {
 }
 
 export async function loadRelayState(bountyId: string): Promise<RelayState | undefined> {
-  const state = await readJsonFile<RelayState>(join(relayOutputDir(), `${relayArtifactBaseName(bountyId)}.json`));
+  const state =
+    (await readJsonFile<RelayState>(join(relayOutputDir(), bountyId, `${relayArtifactBaseName(bountyId)}.json`))) ??
+    (await readJsonFile<RelayState>(join(relayOutputDir(), `${relayArtifactBaseName(bountyId)}.json`)));
   return state ? normalizeRelayState(rehydrateRelayState(state)) : undefined;
+}
+
+async function collectRelayStateFiles(rootDir: string): Promise<string[]> {
+  const entries = await readdir(rootDir, { withFileTypes: true }).catch(() => []);
+  const files: string[] = [];
+
+  for (const entry of entries) {
+    const path = join(rootDir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...(await collectRelayStateFiles(path)));
+      continue;
+    }
+    if (!entry.isFile()) {
+      continue;
+    }
+    if (entry.name.endsWith(".json") && entry.name.startsWith("poidh-relay-")) {
+      files.push(path);
+    }
+  }
+
+  return files;
 }
 
 export async function findRelayStateByCastHash(castHash: string): Promise<RelayState | undefined> {
   const outputDir = relayOutputDir();
-  const entries = await readdir(outputDir, { withFileTypes: true }).catch(() => []);
-  for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.endsWith(".json") || !entry.name.startsWith("poidh-relay-")) {
-      continue;
-    }
-
-    const state = await readJsonFile<RelayState>(join(outputDir, entry.name));
+  const stateFiles = await collectRelayStateFiles(outputDir);
+  for (const stateFile of stateFiles) {
+    const state = await readJsonFile<RelayState>(stateFile);
     if (!state) {
       continue;
     }
@@ -139,15 +158,21 @@ export async function findRelayStateByCastHash(castHash: string): Promise<RelayS
 export async function loadProductionArtifact(
   bountyId: string
 ): Promise<{ finalActionTxHash?: string } | undefined> {
-  return readJsonFile<{ finalActionTxHash?: string }>(
-    join(productionArtifactDir(), `poidh-production-${bountyId}.json`)
+  return (
+    (await readJsonFile<{ finalActionTxHash?: string }>(
+      join(productionArtifactDir(), bountyId, `poidh-production-${bountyId}.json`)
+    )) ??
+    (await readJsonFile<{ finalActionTxHash?: string }>(
+      join(productionArtifactDir(), `poidh-production-${bountyId}.json`)
+    ))
   );
 }
 
 export async function writeRelayArtifacts(state: RelayState) {
-  const outputDir = relayOutputDir();
+  const bountyId = state.envelope.decision.bountyId.toString();
+  const outputDir = join(relayOutputDir(), bountyId);
   await mkdir(outputDir, { recursive: true });
-  const baseName = relayArtifactBaseName(state.envelope.decision.bountyId.toString());
+  const baseName = relayArtifactBaseName(bountyId);
   const jsonPath = join(outputDir, `${baseName}.json`);
   const markdownPath = join(outputDir, `${baseName}.md`);
   await writeFile(

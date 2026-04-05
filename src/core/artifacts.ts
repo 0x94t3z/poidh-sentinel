@@ -125,15 +125,20 @@ function markdownLines(artifact: DecisionArtifact): string[] {
   return lines;
 }
 
+function bountyScopedDir(rootDir: string, bountyId: string): string {
+  return join(rootDir, bountyId);
+}
+
 export async function writeDecisionArtifact(
   artifactDir: string,
   artifact: DecisionArtifact,
   baseNamePrefix = "poidh-production"
 ): Promise<{ jsonPath: string; markdownPath: string }> {
-  await mkdir(artifactDir, { recursive: true });
+  const scopedDir = bountyScopedDir(artifactDir, artifact.bountyId);
+  await mkdir(scopedDir, { recursive: true });
   const baseName = `${baseNamePrefix}-${artifact.bountyId}`;
-  const jsonPath = join(artifactDir, `${baseName}.json`);
-  const markdownPath = join(artifactDir, `${baseName}.md`);
+  const jsonPath = join(scopedDir, `${baseName}.json`);
+  const markdownPath = join(scopedDir, `${baseName}.md`);
 
   await writeFile(jsonPath, `${JSON.stringify(artifact, null, 2)}\n`, "utf8");
   await writeFile(markdownPath, `${markdownLines(artifact).join("\n")}\n`, "utf8");
@@ -177,10 +182,11 @@ export async function writeSocialProofArtifact(
   artifactDir: string,
   artifact: SocialProofArtifact
 ): Promise<{ jsonPath: string; markdownPath: string }> {
-  await mkdir(artifactDir, { recursive: true });
+  const scopedDir = bountyScopedDir(artifactDir, artifact.bountyId);
+  await mkdir(scopedDir, { recursive: true });
   const baseName = `poidh-social-${artifact.bountyId}`;
-  const jsonPath = join(artifactDir, `${baseName}.json`);
-  const markdownPath = join(artifactDir, `${baseName}.md`);
+  const jsonPath = join(scopedDir, `${baseName}.json`);
+  const markdownPath = join(scopedDir, `${baseName}.md`);
 
   await writeFile(jsonPath, `${JSON.stringify(artifact, null, 2)}\n`, "utf8");
   await writeFile(markdownPath, `${socialLines(artifact).join("\n")}\n`, "utf8");
@@ -192,10 +198,11 @@ export async function writeFarcasterProofArtifact(
   artifactDir: string,
   artifact: FarcasterProofArtifact
 ): Promise<{ jsonPath: string; markdownPath: string }> {
-  await mkdir(artifactDir, { recursive: true });
+  const scopedDir = bountyScopedDir(artifactDir, artifact.bountyId);
+  await mkdir(scopedDir, { recursive: true });
   const baseName = `poidh-farcaster-${artifact.bountyId}`;
-  const jsonPath = join(artifactDir, `${baseName}.json`);
-  const markdownPath = join(artifactDir, `${baseName}.md`);
+  const jsonPath = join(scopedDir, `${baseName}.json`);
+  const markdownPath = join(scopedDir, `${baseName}.md`);
 
   const lines = [
     `# poidh farcaster proof`,
