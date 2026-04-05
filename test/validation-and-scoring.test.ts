@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { validateRealWorldBounty } from "../src/runtime/bountyValidation.js";
-import { scoreClaimWithEvidence } from "../src/core/evaluate.js";
-import type { ClaimEvidence, ClaimTuple } from "../src/core/types.js";
+import { rankEvaluations, scoreClaimWithEvidence } from "../src/core/evaluate.js";
+import type { ClaimEvaluation, ClaimEvidence, ClaimTuple } from "../src/core/types.js";
 
 test("rejects obviously digital-only bounty prompts", () => {
   const reasons = validateRealWorldBounty(
@@ -72,4 +72,103 @@ test("scores real-world image claims higher and rewards accepted claims", () => 
   assert.ok(acceptedResult.score > unacceptedResult.score);
   assert.match(acceptedResult.reasons.join(" "), /image/i);
   assert.match(acceptedResult.reasons.join(" "), /accepted on-chain/i);
+});
+
+test("breaks score ties by favoring earlier submissions", () => {
+  const firstClaim: ClaimTuple = {
+    id: 336n,
+    issuer: "0x1111111111111111111111111111111111111111",
+    bountyId: 82n,
+    bountyIssuer: "0x2222222222222222222222222222222222222222",
+    name: "Blue object proof",
+    description: "Outdoor image proof",
+    createdAt: 1000n,
+    accepted: false
+  };
+
+  const laterClaim: ClaimTuple = {
+    ...firstClaim,
+    id: 337n,
+    createdAt: 2000n
+  };
+
+  const firstEvaluation: ClaimEvaluation = {
+    claim: firstClaim,
+    score: 27,
+    reasons: ["Proof resolves to an image."],
+    evidence: {
+      tokenUri: "ipfs://claim-336",
+      contentUri: "ipfs://image-336",
+      contentType: "image/jpeg",
+      text: "Outdoor proof image",
+      imageUrl: "ipfs://image-336"
+    }
+  };
+
+  const laterEvaluation: ClaimEvaluation = {
+    claim: laterClaim,
+    score: 27,
+    reasons: ["Proof resolves to an image."],
+    evidence: {
+      tokenUri: "ipfs://claim-337",
+      contentUri: "ipfs://image-337",
+      contentType: "image/jpeg",
+      text: "Outdoor proof image",
+      imageUrl: "ipfs://image-337"
+    }
+  };
+
+  const ranked = rankEvaluations([laterEvaluation, firstEvaluation]);
+  assert.equal(ranked[0]?.claim.id, 336n);
+});
+
+test("deprioritizes later duplicate evidence submissions", () => {
+  const firstClaim: ClaimTuple = {
+    id: 336n,
+    issuer: "0x1111111111111111111111111111111111111111",
+    bountyId: 82n,
+    bountyIssuer: "0x2222222222222222222222222222222222222222",
+    name: "Blue object proof",
+    description: "Outdoor image proof",
+    createdAt: 1000n,
+    accepted: false
+  };
+
+  const duplicateClaim: ClaimTuple = {
+    ...firstClaim,
+    id: 337n,
+    createdAt: 2000n
+  };
+
+  const sharedEvidence: ClaimEvidence = {
+    tokenUri: "ipfs://same-proof",
+    contentUri: "ipfs://same-image",
+    contentType: "image/jpeg",
+    title: "Blue object outdoors",
+    text: "Outdoor proof image with timestamp",
+    imageUrl: "ipfs://same-image"
+  };
+
+  const firstEvaluation: ClaimEvaluation = {
+    claim: firstClaim,
+    score: 27,
+    reasons: ["Proof resolves to an image."],
+    evidence: sharedEvidence
+  };
+
+  const duplicateEvaluation: ClaimEvaluation = {
+    claim: duplicateClaim,
+    score: 27,
+    reasons: ["Proof resolves to an image."],
+    evidence: {
+      ...sharedEvidence
+    }
+  };
+
+  const ranked = rankEvaluations([duplicateEvaluation, firstEvaluation]);
+  assert.equal(ranked[0]?.claim.id, 336n);
+  const duplicateResult = ranked.find((item) => item.claim.id === 337n);
+  assert.ok(duplicateResult);
+  assert.ok(duplicateResult!.score < firstEvaluation.score);
+  assert.match(duplicateResult!.reasons.join(" "), /duplicate evidence/i);
 });

@@ -32,6 +32,7 @@ const STOP_WORDS = new Set([
   "their",
   "your"
 ]);
+const DUPLICATE_EVIDENCE_PENALTY = 20;
 
 function tokenize(input: string): string[] {
   return input
@@ -64,6 +65,83 @@ function looksLikeRealWorldProof(evidence: ClaimEvidence): boolean {
   return /photo|image|video|camera|selfie|proof|irl|street|outside|holding|seen|timestamp/.test(
     haystack
   );
+}
+
+function normalizeCompactText(input: string): string {
+  return input.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function evidenceFingerprint(evidence: ClaimEvidence): string | undefined {
+  const mediaRef = (
+    evidence.imageUrl ||
+    evidence.animationUrl ||
+    evidence.contentUri ||
+    ""
+  )
+    .toLowerCase()
+    .trim();
+  const textRef = normalizeCompactText(evidence.text).slice(0, 280);
+  const titleRef = normalizeCompactText(evidence.title ?? "");
+
+  if (!mediaRef && !textRef && !titleRef) {
+    return undefined;
+  }
+
+  return [mediaRef, evidence.contentType.toLowerCase().trim(), titleRef, textRef].join("|");
+}
+
+export function rankEvaluations(evaluations: ClaimEvaluation[]): ClaimEvaluation[] {
+  const byEvidence = new Map<string, ClaimEvaluation[]>();
+
+  for (const evaluation of evaluations) {
+    if (evaluation.score < 0) {
+      continue;
+    }
+    const fingerprint = evidenceFingerprint(evaluation.evidence);
+    if (!fingerprint) {
+      continue;
+    }
+    const group = byEvidence.get(fingerprint) ?? [];
+    group.push(evaluation);
+    byEvidence.set(fingerprint, group);
+  }
+
+  for (const group of byEvidence.values()) {
+    if (group.length < 2) {
+      continue;
+    }
+
+    group.sort((left, right) => {
+      if (left.claim.createdAt !== right.claim.createdAt) {
+        return left.claim.createdAt < right.claim.createdAt ? -1 : 1;
+      }
+      if (left.claim.id !== right.claim.id) {
+        return left.claim.id < right.claim.id ? -1 : 1;
+      }
+      return 0;
+    });
+
+    const originalClaim = group[0]!;
+    for (const duplicate of group.slice(1)) {
+      duplicate.score -= DUPLICATE_EVIDENCE_PENALTY;
+      duplicate.reasons.push(
+        `Duplicate evidence matched earlier claim ${originalClaim.claim.id.toString()}; later copies are deprioritized.`
+      );
+    }
+  }
+
+  return evaluations.sort((left, right) => {
+    if (right.score !== left.score) {
+      return right.score - left.score;
+    }
+    if (left.claim.createdAt !== right.claim.createdAt) {
+      return left.claim.createdAt < right.claim.createdAt ? -1 : 1;
+    }
+    if (left.claim.id !== right.claim.id) {
+      return left.claim.id < right.claim.id ? -1 : 1;
+    }
+    return 0;
+  });
 }
 
 export function scoreClaimWithEvidence(
@@ -186,10 +264,5 @@ export async function evaluateClaims(
     })
   );
 
-  return evaluations.sort((left, right) => {
-    if (right.score !== left.score) {
-      return right.score - left.score;
-    }
-    return Number(right.claim.createdAt - left.claim.createdAt);
-  });
+  return rankEvaluations(evaluations);
 }

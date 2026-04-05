@@ -103,6 +103,8 @@ npm run dev -- watch-bounty --bounty-id 123
   - the claim proof URL and metadata
   - whether the claim resolves to image, video, or web evidence
   - whether the evidence looks like a real-world proof artifact
+  - duplicate-evidence penalty for later copy submissions
+  - tie-breaker that favors earlier submissions over later ones
 - Real-world bounty prompts are guarded so obvious digital-only tasks are rejected before creation
 - Auto-accept safeguards can keep the bounty open long enough for organic competition
 

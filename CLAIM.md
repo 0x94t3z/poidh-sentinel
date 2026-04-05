@@ -14,7 +14,7 @@ It supports Poidh on Arbitrum, Base, and Degen Chain by selecting the chain thro
 - Bounty creation: `src/main.ts` (`requirements-flow`)
 - Submission monitoring: `src/bot.ts` watcher loop
 - Evaluation logic: `src/core/evaluate.ts`
-- Winner selection logic: `src/bot.ts` (highest score)
+- Winner selection logic: `src/bot.ts` (highest score, duplicate-evidence penalty, earliest-submission tie-break)
 - On-chain payout flow: `acceptClaim`, `submitClaimForVote`, and `resolveVote`
 - Public reasoning: `src/core/social.ts`, `src/core/artifacts.ts`, `src/runtime/decisionArtifacts.ts`, and `src/runtime/relay*`
 - Real-world guard: `src/bot.ts` rejects obvious digital-only bounty prompts before creation
