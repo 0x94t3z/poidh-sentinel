@@ -6,35 +6,36 @@ It shows the same decision package that gets written to disk and can be shared t
 ## Summary
 
 - Chain: `arbitrum`
-- Bounty: `Take a photo of a clock showing the current time outdoors`
-- Winner claim: `341`
-- Status: `accepted on-chain`
-- Proof folders: `artifacts/production/83` and `artifacts/relay/83`
+- Bounty: `Photo of a handwritten note with today’s date`
+- Winner claim: `346`
+- Status: `evaluated; final on-chain action deferred`
+- Proof folders: `artifacts/production/84` and `artifacts/relay/84`
 
 ## What the production report includes
 
-- Description/evidence overlap matched `time`
+- Description/evidence overlap matched `handwritten`, `note`, and `poidh`
 - Proof resolved to an image
 - Metadata included an image URL
-- Vision summary captured the visible handwritten text from the image
+- AI summary captured the OCR/text-based evidence summary
 - The evidence text looked like a real-world proof artifact
-- Winner state was confirmed as already accepted on-chain
+- Winner state was recorded in the decision artifacts
 
 ## Example production output shape
 
 ```json
 {
-  "bountyId": "83",
-  "winnerClaimId": "341",
-  "score": 61,
+  "bountyId": "84",
+  "winnerClaimId": "346",
+  "score": 23,
   "reasons": [
-    "Description/evidence overlap matched time.",
+    "Description/evidence overlap matched handwritten, note, poidh.",
     "Proof resolves to an image, which is strong evidence for a real-world task.",
     "Metadata includes an image URL.",
-    "Vision summary: Visible handwritten text: Sunday 5th April 2026, @lorah24, poidh.",
+    "AI summary: OCR output is garbled and does not contain any readable date, username, or the word 'poidh'.",
     "The evidence text looks like a real-world proof artifact.",
-    "Claim is already accepted on-chain.",
-    "Claim is already accepted on-chain, so it is treated as final-valid regardless of strict signal mismatches."
+    "Local OCR extracted readable text from the image proof.",
+    "Strict deterministic signal check flagged: missing clear date signal, missing clear username signal.",
+    "AI evaluator unavailable; used deterministic scoring."
   ]
 }
 ```
@@ -45,15 +46,15 @@ It shows the same decision package that gets written to disk and can be shared t
 {
   "targets": ["farcaster"],
   "decision": {
-    "bountyId": "83",
-    "bountyTitle": "Take a photo of a clock showing the current time outdoors",
-    "winningClaimId": "341",
-    "url": "https://poidh.xyz/arbitrum/bounty/263"
+    "bountyId": "84",
+    "bountyTitle": "Photo of a handwritten note with today’s date",
+    "winningClaimId": "346",
+    "url": "https://poidh.xyz/arbitrum/bounty/264"
   },
   "followUpAnswers": [
     {
       "question": "Why did this claim win?",
-      "answer": "Description/evidence overlap matched time. Proof resolves to an image..."
+      "answer": "Description/evidence overlap matched handwritten, note, poidh. Proof resolves to an image..."
     }
   ]
 }
