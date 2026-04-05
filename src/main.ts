@@ -130,6 +130,16 @@ function printRequirementsFlowBanner(minClaimsBeforeAccept: number, minDecisionA
   }
 }
 
+function printWatchBountyBanner(minClaimsBeforeAccept: number, minDecisionAgeSeconds: number) {
+  console.log("watch-bounty: resume monitoring an existing bounty, evaluate claims, resolve, then post the decision thread.");
+  console.log(
+    `Auto-accept wait: requires at least ${minClaimsBeforeAccept} claim(s) before final action${minDecisionAgeSeconds > 0 ? ` and waits ${minDecisionAgeSeconds} second(s) after the first claim` : ""}.`
+  );
+  if (minClaimsBeforeAccept > 1) {
+    console.log("Expected behavior: after the first claim, the bot keeps polling until more submissions arrive.");
+  }
+}
+
 async function run() {
   const [rawCommand = "requirements-flow", ...rest] = process.argv.slice(2);
   const command = rawCommand;
@@ -268,6 +278,8 @@ async function run() {
     case "requirements-flow": {
       if (command === "requirements-flow") {
         printRequirementsFlowBanner(minClaimsBeforeAccept, minDecisionAgeSeconds);
+      } else {
+        printWatchBountyBanner(minClaimsBeforeAccept, minDecisionAgeSeconds);
       }
       await bot.runWatcher();
       break;
