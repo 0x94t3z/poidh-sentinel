@@ -47,8 +47,8 @@ Poidh itself does not end solo bounties on a timer; the creator accepts a claim 
 
 Recommended defaults in this repo:
 - `BOUNTY_MODE=solo`
-- `BOUNTY_TITLE=Take a photo of something blue outdoors`
-- `BOUNTY_PROMPT=Upload a clear outdoor photo of something blue.`
+- `BOUNTY_TITLE=Take a photo of something red outdoors`
+- `BOUNTY_PROMPT=Upload a clear outdoor photo of something red.`
 - `BOUNTY_REWARD_ETH=0.001`
 
 Poidh minimums are documented in the official skill docs:

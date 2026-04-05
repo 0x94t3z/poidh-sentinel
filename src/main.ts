@@ -163,10 +163,10 @@ async function run() {
     getInt("FIRST_CLAIM_COOLDOWN_SECONDS", 0)
   );
   const bountyKind = (getEnv("BOUNTY_MODE", "solo") === "open" ? "open" : "solo") as "solo" | "open";
-  const bountyName = getEnv("BOUNTY_TITLE", "Take a photo of something blue outdoors");
+  const bountyName = getEnv("BOUNTY_TITLE", "Take a photo of something red outdoors");
   const bountyDescription = getEnv(
     "BOUNTY_PROMPT",
-    "Upload a clear outdoor photo of something blue."
+    "Upload a clear outdoor photo of something red."
   );
   const bountyAmountEth = getEnv("BOUNTY_REWARD_ETH", "0.001");
   const artifactDir = getEnv("PRODUCTION_ARTIFACT_DIR", getDefaultArtifactDir(command));
