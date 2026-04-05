@@ -221,15 +221,24 @@ export class PoidhBot {
       if (this.lastDecisionKey === decisionKey) {
         return;
       }
-      await postDecision({
-        bountyId,
-        bountyTitle: bounty.name,
-        winningClaimId: winner.claim.id,
-        reason,
-        url: frontendUrl
-      });
-      this.lastDecisionKey = decisionKey;
-      await this.persistBountyState(bountyId);
+      try {
+        await postDecision({
+          bountyId,
+          bountyTitle: bounty.name,
+          winningClaimId: winner.claim.id,
+          reason,
+          url: frontendUrl
+        });
+        this.lastDecisionKey = decisionKey;
+        await this.persistBountyState(bountyId);
+      } catch (error) {
+        const reasonText =
+          error instanceof Error ? error.message : "Failed to publish decision to social relay.";
+        console.warn(`Decision post deferred: ${reasonText}`);
+        console.warn(
+          "Keep relay running, or unset DECISION_WEBHOOK_URL if you want local-only mode."
+        );
+      }
     };
 
     if (!this.autoFinalizeWinner) {
