@@ -3,12 +3,32 @@ export function getEnv(name: string, fallback = ""): string {
   return value && value.length > 0 ? value : fallback;
 }
 
+export function getEnvAny(names: string[], fallback = ""): string {
+  for (const name of names) {
+    const value = process.env[name]?.trim();
+    if (value && value.length > 0) {
+      return value;
+    }
+  }
+  return fallback;
+}
+
 export function requireEnv(name: string): string {
   const value = process.env[name]?.trim();
   if (!value) {
     throw new Error(`Missing required environment variable: ${name}`);
   }
   return value;
+}
+
+export function requireEnvAny(names: string[]): string {
+  for (const name of names) {
+    const value = process.env[name]?.trim();
+    if (value && value.length > 0) {
+      return value;
+    }
+  }
+  throw new Error(`Missing required environment variable. Set one of: ${names.join(", ")}`);
 }
 
 export function getBool(name: string, fallback: boolean): boolean {

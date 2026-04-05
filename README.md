@@ -2,7 +2,7 @@
 
 Open-source TypeScript bot for Poidh bounty workflows on Arbitrum, Base, and Degen Chain.
 
-The chain is selected with `POIDH_CHAIN`, and the repo includes the matching contract addresses and frontend offsets for each supported network.
+The chain is selected with `TARGET_CHAIN`, and the repo includes the matching contract addresses and frontend offsets for each supported network.
 
 It can:
 
@@ -34,22 +34,22 @@ cp .env.example .env
 
 3. Fill in your values.
 
-- `PRIVATE_KEY` must be an EOA private key, not a smart wallet
-- `RPC_URL` should point at the chain you want to use
-- `POIDH_CHAIN` must be `arbitrum`, `base`, or `degen`
-- For relay posting, set `SOCIAL_POST_WEBHOOK_URL=http://127.0.0.1:8787/decision`
+- `BOT_PRIVATE_KEY` must be an EOA private key, not a smart wallet
+- `CHAIN_RPC_URL` should point at the chain you want to use
+- `TARGET_CHAIN` must be `arbitrum`, `base`, or `degen`
+- For relay posting, set `DECISION_WEBHOOK_URL=http://127.0.0.1:8787/decision`
 - For Farcaster posting, set `NEYNAR_API_KEY`, `FARCASTER_SIGNER_UUID`, and optionally `FARCASTER_CHANNEL_ID=poidh`
-- For Farcaster webhook verification, set `NEYNAR_WEBHOOK_SECRET` only if your Neynar plan includes webhook access
-- For optional LLM polish on Farcaster copy, set `OPENROUTER_API_KEY` and optionally `OPENROUTER_MODEL=openrouter/free`
+- For Farcaster webhook verification, set `WEBHOOK_SIGNATURE_SECRET` only if your Neynar plan includes webhook access
+- For optional LLM polish on Farcaster copy, set `OPENROUTER_API_KEY` and optionally `COPY_POLISH_MODEL=openrouter/free`
 - To prevent first-claim instant resolution, set `MIN_PARTICIPANTS_BEFORE_FINALIZE` and/or `FIRST_CLAIM_COOLDOWN_SECONDS`
 
 Poidh itself does not end solo bounties on a timer; the creator accepts a claim when they decide it is good enough. Open bounties can move into the contract’s vote flow, which has its own on-chain deadline. `FIRST_CLAIM_COOLDOWN_SECONDS` is only a bot-side safety delay after the first claim is observed, so the bot does not jump on the first valid submission too early.
 
 Recommended defaults in this repo:
-- `BOUNTY_KIND=solo`
-- `BOUNTY_NAME=Take a photo of something blue outdoors`
-- `BOUNTY_DESCRIPTION=Upload a clear outdoor photo of something blue.`
-- `BOUNTY_AMOUNT_ETH=0.001`
+- `BOUNTY_MODE=solo`
+- `BOUNTY_TITLE=Take a photo of something blue outdoors`
+- `BOUNTY_PROMPT=Upload a clear outdoor photo of something blue.`
+- `BOUNTY_REWARD_ETH=0.001`
 
 Poidh minimums are documented in the official skill docs:
 https://github.com/picsoritdidnthappen/poidh-app/blob/prod/SKILL.md
@@ -118,7 +118,7 @@ npm run dev -- watch-bounty --bounty-id 123
 
 ## Social posting
 
-Set `SOCIAL_POST_WEBHOOK_URL` if you want the bot to forward its decision summary to the local Farcaster relay.
+Set `DECISION_WEBHOOK_URL` if you want the bot to forward its decision summary to the local Farcaster relay.
 
 If the webhook is unset, the bot prints the decision locally instead.
 
@@ -138,12 +138,17 @@ These include winner, reasons, follow-up Q/A text, and both the declared bounty 
 ## Notes
 
 - Poidh requires EOA wallets for issuer actions.
-- If you stop and restart without `BOUNTY_ID`, bot resumes from `BOUNTY_STATE_FILE` (`.poidh-state.json` by default).
+- If you stop and restart without `BOUNTY_ID`, bot resumes from `BOT_STATE_FILE` (`.poidh-state.json` by default).
 - Keep `AUTO_FINALIZE_WINNER=true` for autonomous payout behavior.
 - Use `MIN_PARTICIPANTS_BEFORE_FINALIZE` and `FIRST_CLAIM_COOLDOWN_SECONDS` to keep the bounty open long enough for organic competition.
 - `MIN_PARTICIPANTS_BEFORE_FINALIZE=2` is a good default for demos where you want more than one claim before payout.
 - When that setting is `2`, `Auto-finalize is waiting...` is expected after the first claim.
-- Legacy names still supported for compatibility: `AUTO_ACCEPT`, `MIN_CLAIMS_BEFORE_ACCEPT`, and `MIN_DECISION_AGE_SECONDS`.
+- Legacy names still supported for compatibility:
+  - `PRIVATE_KEY`, `RPC_URL`, `POIDH_CHAIN`
+  - `SOCIAL_POST_WEBHOOK_URL`, `SOCIAL_POST_AUTHOR`, `RELAY_PORT`, `RELAY_OUTPUT_DIR`
+  - `NEYNAR_WEBHOOK_SECRET`, `BOUNTY_STATE_FILE`, `OPENROUTER_MODEL`
+  - `POLL_INTERVAL_MS`, `AUTO_ACCEPT`, `MIN_CLAIMS_BEFORE_ACCEPT`, `MIN_DECISION_AGE_SECONDS`
+  - `BOUNTY_KIND`, `BOUNTY_NAME`, `BOUNTY_DESCRIPTION`, `BOUNTY_AMOUNT_ETH`, `ARTIFACT_DIR`
 - In autonomous mode, final public decision posts are sent after the on-chain final action path is reached.
 
 ## Claim pack

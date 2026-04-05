@@ -1,3 +1,5 @@
+import { getEnvAny } from "../config.js";
+
 export type DecisionPost = {
   bountyId: bigint;
   bountyTitle: string;
@@ -83,8 +85,8 @@ export async function polishDecisionCopy(
   }> = buildFollowUpAnswers(post.reason),
   author?: string
 ): Promise<{ main: string; reply: string } | undefined> {
-  const apiKey = process.env.OPENROUTER_API_KEY?.trim();
-  const model = process.env.OPENROUTER_MODEL?.trim() || "openrouter/free";
+  const apiKey = getEnvAny(["OPENROUTER_API_KEY"], "");
+  const model = getEnvAny(["COPY_POLISH_MODEL", "OPENROUTER_MODEL"], "openrouter/free");
   if (!apiKey) {
     return undefined;
   }
@@ -263,7 +265,7 @@ export function buildFarcasterCastDraft(
 }
 
 export function buildDecisionRelayEnvelope(post: DecisionPost): DecisionRelayEnvelope {
-  const author = process.env.SOCIAL_POST_AUTHOR?.trim();
+  const author = getEnvAny(["SOCIAL_AUTHOR", "SOCIAL_POST_AUTHOR"], "");
   const targets = parseSocialTargets();
   const message = buildDecisionMessage(post, author);
   const castDraft = buildFarcasterCastDraft(post, author);
@@ -317,9 +319,9 @@ export async function postCastViaNeynar(
   castDraft: FarcasterCastDraft,
   options?: { parentCastHash?: string }
 ): Promise<string | undefined> {
-  const apiKey = process.env.NEYNAR_API_KEY?.trim();
-  const signerUuid = process.env.FARCASTER_SIGNER_UUID?.trim();
-  const channelId = process.env.FARCASTER_CHANNEL_ID?.trim();
+  const apiKey = getEnvAny(["NEYNAR_API_KEY"], "");
+  const signerUuid = getEnvAny(["FARCASTER_SIGNER_UUID"], "");
+  const channelId = getEnvAny(["FARCASTER_CHANNEL_ID"], "");
 
   if (!apiKey || !signerUuid) {
     return undefined;
@@ -355,7 +357,7 @@ export async function postCastViaNeynar(
 }
 
 export async function postDecision(post: DecisionPost): Promise<boolean> {
-  const webhookUrl = process.env.SOCIAL_POST_WEBHOOK_URL?.trim();
+  const webhookUrl = getEnvAny(["DECISION_WEBHOOK_URL", "SOCIAL_POST_WEBHOOK_URL"], "");
   const envelope = buildDecisionRelayEnvelope(post);
 
   if (webhookUrl) {

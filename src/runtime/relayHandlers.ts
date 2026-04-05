@@ -47,7 +47,8 @@ function isRelayEnvelope(value: unknown): value is DecisionRelayEnvelope {
 }
 
 function verifyNeynarWebhookSignature(rawBody: string, signature?: string | null): boolean {
-  const secret = process.env.NEYNAR_WEBHOOK_SECRET?.trim();
+  const secret =
+    process.env.WEBHOOK_SIGNATURE_SECRET?.trim() || process.env.NEYNAR_WEBHOOK_SECRET?.trim();
   if (!secret) {
     return true;
   }

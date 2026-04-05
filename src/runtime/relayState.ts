@@ -1,7 +1,7 @@
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { DecisionRelayEnvelope } from "../core/social.js";
-import { getEnv, getInt } from "../config.js";
+import { getEnvAny, getIntAny } from "../config.js";
 
 export type RelayState = {
   generatedAt: string;
@@ -82,15 +82,15 @@ function rehydrateRelayState(state: RelayState): RelayState {
 }
 
 export function relayOutputDir(): string {
-  return getEnv("RELAY_OUTPUT_DIR", "artifacts/relay");
+  return getEnvAny(["RELAY_ARTIFACT_DIR", "RELAY_OUTPUT_DIR"], "artifacts/relay");
 }
 
 export function productionArtifactDir(): string {
-  return getEnv("ARTIFACT_DIR", "artifacts/production");
+  return getEnvAny(["PRODUCTION_ARTIFACT_DIR", "ARTIFACT_DIR"], "artifacts/production");
 }
 
 export function relayPort(): number {
-  return getInt("RELAY_PORT", 8787);
+  return getIntAny(["RELAY_LISTEN_PORT", "RELAY_PORT"], 8787);
 }
 
 export function truncateText(text: string, maxLength: number): string {
