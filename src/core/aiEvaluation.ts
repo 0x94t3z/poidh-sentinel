@@ -184,22 +184,27 @@ function stripJsonEnvelope(rawText: string): string {
   return trimmed.slice(start, end + 1);
 }
 
-export async function evaluateClaimWithAi(input: AiEvaluationInput): Promise<AiClaimEvaluation | undefined> {
-  const enableVision = input.enableVision ?? true;
-  const inspectLinkedUrls = input.inspectLinkedUrls ?? true;
-  const maxLinkedUrls = Math.max(0, Math.floor(input.maxLinkedUrls ?? 2));
+type OpenRouterMessage = {
+  role: "system" | "user";
+  content:
+    | string
+    | Array<
+        | {
+            type: "text";
+            text: string;
+          }
+        | {
+            type: "image_url";
+            image_url: { url: string };
+          }
+      >;
+};
 
-  const imageUrls = enableVision ? collectEvidenceImageUrls(input.evidence) : [];
-  const linkedUrls = inspectLinkedUrls
-    ? uniqueNormalizedUrls(
-        extractUrls(`${input.claim.description} ${input.evidence.text} ${input.evidence.title ?? ""}`)
-      )
-    : [];
-  const linkedContexts =
-    inspectLinkedUrls && linkedUrls.length > 0
-      ? await fetchLinkedContexts(linkedUrls, maxLinkedUrls)
-      : [];
-
+async function requestAiEvaluation(
+  apiKey: string,
+  model: string,
+  messages: OpenRouterMessage[]
+): Promise<AiClaimEvaluation | undefined> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 20_000);
 
@@ -207,63 +212,15 @@ export async function evaluateClaimWithAi(input: AiEvaluationInput): Promise<AiC
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
-        authorization: `Bearer ${input.apiKey}`,
+        authorization: `Bearer ${apiKey}`,
         "content-type": "application/json"
       },
       signal: controller.signal,
       body: JSON.stringify({
-        model: input.model,
+        model,
         temperature: 0,
         max_tokens: 320,
-        messages: [
-          {
-            role: "system",
-            content:
-              "You evaluate Poidh real-world bounty submissions. Return strict JSON with keys verdict, confidence, reasons. verdict must be one of accept, reject, needs_review. confidence must be 0..1. reasons must be a short array of factual strings. Reject if evidence does not clearly satisfy the prompt. When image URLs are provided, visually inspect them."
-          },
-          {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify(
-                  {
-                    bounty: {
-                      title: input.bountyTitle,
-                      prompt: input.bountyPrompt
-                    },
-                    claim: {
-                      id: input.claim.id.toString(),
-                      name: input.claim.name,
-                      description: input.claim.description
-                    },
-                    evidence: {
-                      tokenUri: input.evidence.tokenUri,
-                      contentUri: input.evidence.contentUri,
-                      contentType: input.evidence.contentType,
-                      title: input.evidence.title,
-                      text: input.evidence.text,
-                      imageUrl: input.evidence.imageUrl,
-                      animationUrl: input.evidence.animationUrl,
-                      metadata: input.evidence.rawMetadata
-                    },
-                    linkedContext: linkedContexts,
-                    instructions: {
-                      imageCount: imageUrls.length,
-                      linkedUrlCount: linkedContexts.length
-                    }
-                  },
-                  null,
-                  2
-                )
-              },
-              ...imageUrls.map((url) => ({
-                type: "image_url",
-                image_url: { url }
-              }))
-            ]
-          }
-        ]
+        messages
       })
     });
 
@@ -300,11 +257,95 @@ export async function evaluateClaimWithAi(input: AiEvaluationInput): Promise<AiC
       verdict: parseVerdict(parsed.verdict),
       confidence: normalizeConfidence(parsed.confidence),
       reasons,
-      model: input.model
+      model
     };
   } catch {
     return undefined;
   } finally {
     clearTimeout(timeout);
   }
+}
+
+export async function evaluateClaimWithAi(input: AiEvaluationInput): Promise<AiClaimEvaluation | undefined> {
+  const enableVision = input.enableVision ?? true;
+  const inspectLinkedUrls = input.inspectLinkedUrls ?? true;
+  const maxLinkedUrls = Math.max(0, Math.floor(input.maxLinkedUrls ?? 2));
+
+  const imageUrls = enableVision ? collectEvidenceImageUrls(input.evidence) : [];
+  const linkedUrls = inspectLinkedUrls
+    ? uniqueNormalizedUrls(
+        extractUrls(`${input.claim.description} ${input.evidence.text} ${input.evidence.title ?? ""}`)
+      )
+    : [];
+  const linkedContexts =
+    inspectLinkedUrls && linkedUrls.length > 0
+      ? await fetchLinkedContexts(linkedUrls, maxLinkedUrls)
+      : [];
+
+  const sharedSystemMessage: OpenRouterMessage = {
+    role: "system",
+    content:
+      "You evaluate Poidh real-world bounty submissions. Return strict JSON with keys verdict, confidence, reasons. verdict must be one of accept, reject, needs_review. confidence must be 0..1. reasons must be a short array of factual strings. Reject if evidence does not clearly satisfy the prompt. When image URLs are provided, visually inspect them."
+  };
+
+  const sharedPayload = {
+    bounty: {
+      title: input.bountyTitle,
+      prompt: input.bountyPrompt
+    },
+    claim: {
+      id: input.claim.id.toString(),
+      name: input.claim.name,
+      description: input.claim.description
+    },
+    evidence: {
+      tokenUri: input.evidence.tokenUri,
+      contentUri: input.evidence.contentUri,
+      contentType: input.evidence.contentType,
+      title: input.evidence.title,
+      text: input.evidence.text,
+      imageUrl: input.evidence.imageUrl,
+      animationUrl: input.evidence.animationUrl,
+      metadata: input.evidence.rawMetadata
+    },
+    linkedContext: linkedContexts,
+    instructions: {
+      imageCount: imageUrls.length,
+      linkedUrlCount: linkedContexts.length
+    }
+  };
+
+  const multimodalResult = await requestAiEvaluation(input.apiKey, input.model, [
+    sharedSystemMessage,
+    {
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(sharedPayload, null, 2)
+        },
+        ...imageUrls.map((url) => ({
+          type: "image_url" as const,
+          image_url: { url }
+        }))
+      ]
+    }
+  ]);
+  if (multimodalResult) {
+    return multimodalResult;
+  }
+
+  // Fallback for models/routes that reject multimodal payloads.
+  const textOnlyPayload = {
+    ...sharedPayload,
+    imageUrls
+  };
+
+  return requestAiEvaluation(input.apiKey, input.model, [
+    sharedSystemMessage,
+    {
+      role: "user",
+      content: JSON.stringify(textOnlyPayload, null, 2)
+    }
+  ]);
 }
