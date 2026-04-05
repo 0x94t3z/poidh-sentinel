@@ -13,9 +13,9 @@ export type BotConfig = {
   rpcUrl: string;
   privateKey: string;
   pollIntervalMs: number;
-  autoAccept: boolean;
-  minClaimsBeforeAccept: number;
-  minDecisionAgeSeconds: number;
+  autoFinalizeWinner: boolean;
+  minParticipantsBeforeFinalize: number;
+  firstClaimCooldownSeconds: number;
   bountyKind: "solo" | "open";
   bountyName: string;
   bountyDescription: string;
@@ -30,9 +30,9 @@ export type BotConfig = {
 export class PoidhBot {
   readonly issuerClient: PoidhClient;
   readonly pollIntervalMs: number;
-  readonly autoAccept: boolean;
-  readonly minClaimsBeforeAccept: number;
-  readonly minDecisionAgeSeconds: number;
+  readonly autoFinalizeWinner: boolean;
+  readonly minParticipantsBeforeFinalize: number;
+  readonly firstClaimCooldownSeconds: number;
   readonly bountyKind: "solo" | "open";
   readonly bountyName: string;
   readonly bountyDescription: string;
@@ -61,9 +61,9 @@ export class PoidhBot {
   constructor(config: BotConfig) {
     this.issuerClient = new PoidhClient(config.chainName, config.rpcUrl, config.privateKey);
     this.pollIntervalMs = config.pollIntervalMs;
-    this.autoAccept = config.autoAccept;
-    this.minClaimsBeforeAccept = Math.max(1, Math.floor(config.minClaimsBeforeAccept));
-    this.minDecisionAgeSeconds = Math.max(0, Math.floor(config.minDecisionAgeSeconds));
+    this.autoFinalizeWinner = config.autoFinalizeWinner;
+    this.minParticipantsBeforeFinalize = Math.max(1, Math.floor(config.minParticipantsBeforeFinalize));
+    this.firstClaimCooldownSeconds = Math.max(0, Math.floor(config.firstClaimCooldownSeconds));
     this.bountyKind = config.bountyKind;
     this.bountyName = config.bountyName;
     this.bountyDescription = config.bountyDescription;
@@ -194,29 +194,29 @@ export class PoidhBot {
       await this.persistBountyState(bountyId);
     };
 
-    if (!this.autoAccept) {
+    if (!this.autoFinalizeWinner) {
       await publishDecisionIfNeeded();
       return { bounty, evaluations };
     }
 
-    if (claims.length < this.minClaimsBeforeAccept) {
+    if (claims.length < this.minParticipantsBeforeFinalize) {
       console.log(
-        `Auto-accept is waiting: ${claims.length} claim(s) found, requires at least ${this.minClaimsBeforeAccept}.`
+        `Auto-finalize is waiting: ${claims.length} claim(s) found, requires at least ${this.minParticipantsBeforeFinalize}.`
       );
       return { bounty, evaluations };
     }
 
-    if (this.minDecisionAgeSeconds > 0) {
+    if (this.firstClaimCooldownSeconds > 0) {
       const earliestClaimCreatedAt = claims.reduce(
         (earliest, claim) => (claim.createdAt < earliest ? claim.createdAt : earliest),
         claims[0]!.createdAt
       );
       const now = BigInt(Math.floor(Date.now() / 1000));
-      const minReadyTime = earliestClaimCreatedAt + BigInt(this.minDecisionAgeSeconds);
+      const minReadyTime = earliestClaimCreatedAt + BigInt(this.firstClaimCooldownSeconds);
       if (now < minReadyTime) {
         const waitSeconds = Number(minReadyTime - now);
         console.log(
-          `Auto-accept is waiting: decision window is still open for ${waitSeconds} more second(s).`
+          `Auto-finalize is waiting: decision window is still open for ${waitSeconds} more second(s).`
         );
         return { bounty, evaluations };
       }

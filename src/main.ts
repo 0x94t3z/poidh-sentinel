@@ -2,7 +2,7 @@ import "dotenv/config";
 import { readFile } from "node:fs/promises";
 import { PoidhBot } from "./bot.js";
 import { resolveFrontendBountyUrl } from "./core/chains.js";
-import { getBool, getEnv, getInt, requireEnv } from "./config.js";
+import { getBoolAny, getEnv, getInt, getIntAny, requireEnv } from "./config.js";
 
 function getChainName(): "arbitrum" | "base" | "degen" {
   const value = getEnv("POIDH_CHAIN", "arbitrum").toLowerCase();
@@ -120,22 +120,22 @@ function parseFlagMap(argv: string[]) {
   return { flags, positionals };
 }
 
-function printRequirementsFlowBanner(minClaimsBeforeAccept: number, minDecisionAgeSeconds: number) {
+function printRequirementsFlowBanner(minParticipantsBeforeFinalize: number, firstClaimCooldownSeconds: number) {
   console.log("requirements-flow: create bounty, wait for submissions, evaluate, resolve, then post the decision thread.");
   console.log(
-    `Auto-accept wait: requires at least ${minClaimsBeforeAccept} claim(s) before final action${minDecisionAgeSeconds > 0 ? ` and waits ${minDecisionAgeSeconds} second(s) after the first claim` : ""}.`
+    `Auto-finalize wait: requires at least ${minParticipantsBeforeFinalize} claim(s) before final action${firstClaimCooldownSeconds > 0 ? ` and waits ${firstClaimCooldownSeconds} second(s) after the first claim` : ""}.`
   );
-  if (minClaimsBeforeAccept > 1) {
+  if (minParticipantsBeforeFinalize > 1) {
     console.log("Expected behavior: after the first claim, the bot keeps polling until more submissions arrive.");
   }
 }
 
-function printWatchBountyBanner(minClaimsBeforeAccept: number, minDecisionAgeSeconds: number) {
+function printWatchBountyBanner(minParticipantsBeforeFinalize: number, firstClaimCooldownSeconds: number) {
   console.log("watch-bounty: resume monitoring an existing bounty, evaluate claims, resolve, then post the decision thread.");
   console.log(
-    `Auto-accept wait: requires at least ${minClaimsBeforeAccept} claim(s) before final action${minDecisionAgeSeconds > 0 ? ` and waits ${minDecisionAgeSeconds} second(s) after the first claim` : ""}.`
+    `Auto-finalize wait: requires at least ${minParticipantsBeforeFinalize} claim(s) before final action${firstClaimCooldownSeconds > 0 ? ` and waits ${firstClaimCooldownSeconds} second(s) after the first claim` : ""}.`
   );
-  if (minClaimsBeforeAccept > 1) {
+  if (minParticipantsBeforeFinalize > 1) {
     console.log("Expected behavior: after the first claim, the bot keeps polling until more submissions arrive.");
   }
 }
@@ -153,9 +153,15 @@ async function run() {
   const rpcUrl = requireEnv("RPC_URL");
   const privateKey = requireEnv("PRIVATE_KEY");
   const pollIntervalMs = getInt("POLL_INTERVAL_MS", 60_000);
-  const autoAccept = getBool("AUTO_ACCEPT", true);
-  const minClaimsBeforeAccept = Math.max(1, getInt("MIN_CLAIMS_BEFORE_ACCEPT", 1));
-  const minDecisionAgeSeconds = Math.max(0, getInt("MIN_DECISION_AGE_SECONDS", 0));
+  const autoFinalizeWinner = getBoolAny(["AUTO_FINALIZE_WINNER", "AUTO_ACCEPT"], true);
+  const minParticipantsBeforeFinalize = Math.max(
+    1,
+    getIntAny(["MIN_PARTICIPANTS_BEFORE_FINALIZE", "MIN_CLAIMS_BEFORE_ACCEPT"], 1)
+  );
+  const firstClaimCooldownSeconds = Math.max(
+    0,
+    getIntAny(["FIRST_CLAIM_COOLDOWN_SECONDS", "MIN_DECISION_AGE_SECONDS"], 0)
+  );
   const bountyKind = (getEnv("BOUNTY_KIND", "solo") === "open" ? "open" : "solo") as "solo" | "open";
   const bountyName = getEnv("BOUNTY_NAME", "Take a photo of something blue outdoors");
   const bountyDescription = getEnv(
@@ -165,6 +171,25 @@ async function run() {
   const bountyAmountEth = getEnv("BOUNTY_AMOUNT_ETH", "0.001");
   const artifactDir = getEnv("ARTIFACT_DIR", getDefaultArtifactDir(command));
   const bountyStatePath = getBountyStatePath();
+  if (process.env.AUTO_ACCEPT?.trim() && !process.env.AUTO_FINALIZE_WINNER?.trim()) {
+    console.log("Using legacy env AUTO_ACCEPT. Prefer AUTO_FINALIZE_WINNER.");
+  }
+  if (
+    process.env.MIN_CLAIMS_BEFORE_ACCEPT?.trim() &&
+    !process.env.MIN_PARTICIPANTS_BEFORE_FINALIZE?.trim()
+  ) {
+    console.log(
+      "Using legacy env MIN_CLAIMS_BEFORE_ACCEPT. Prefer MIN_PARTICIPANTS_BEFORE_FINALIZE."
+    );
+  }
+  if (
+    process.env.MIN_DECISION_AGE_SECONDS?.trim() &&
+    !process.env.FIRST_CLAIM_COOLDOWN_SECONDS?.trim()
+  ) {
+    console.log(
+      "Using legacy env MIN_DECISION_AGE_SECONDS. Prefer FIRST_CLAIM_COOLDOWN_SECONDS."
+    );
+  }
   const flagBountyId =
     typeof flags.bountyId === "string"
       ? flags.bountyId
@@ -181,9 +206,9 @@ async function run() {
     rpcUrl,
     privateKey,
     pollIntervalMs,
-    autoAccept,
-    minClaimsBeforeAccept,
-    minDecisionAgeSeconds,
+    autoFinalizeWinner,
+    minParticipantsBeforeFinalize,
+    firstClaimCooldownSeconds,
     bountyKind,
     bountyName,
     bountyDescription,
@@ -282,9 +307,9 @@ async function run() {
     case "watch-bounty":
     case "requirements-flow": {
       if (command === "requirements-flow") {
-        printRequirementsFlowBanner(minClaimsBeforeAccept, minDecisionAgeSeconds);
+        printRequirementsFlowBanner(minParticipantsBeforeFinalize, firstClaimCooldownSeconds);
       } else {
-        printWatchBountyBanner(minClaimsBeforeAccept, minDecisionAgeSeconds);
+        printWatchBountyBanner(minParticipantsBeforeFinalize, firstClaimCooldownSeconds);
       }
       await bot.runWatcher();
       break;

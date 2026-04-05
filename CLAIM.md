@@ -23,9 +23,9 @@ It supports Poidh on Arbitrum, Base, and Degen Chain by selecting the chain thro
 
 - The bot signs transactions from `PRIVATE_KEY` directly.
 - `requirements-flow` creates the bounty if missing, then keeps monitoring automatically.
-- `AUTO_ACCEPT=true` lets the bot finalize the winning claim without a manual step.
-- `MIN_CLAIMS_BEFORE_ACCEPT` and `MIN_DECISION_AGE_SECONDS` keep the bounty open long enough for organic competition. `MIN_DECISION_AGE_SECONDS` is a bot-side delay after the first claim is observed; it is not Poidh's own end timer.
-- If `MIN_CLAIMS_BEFORE_ACCEPT=2`, the bot intentionally waits after the first claim and only moves to final action once a second claim appears.
+- `AUTO_FINALIZE_WINNER=true` lets the bot finalize the winning claim without a manual step.
+- `MIN_PARTICIPANTS_BEFORE_FINALIZE` and `FIRST_CLAIM_COOLDOWN_SECONDS` keep the bounty open long enough for organic competition. `FIRST_CLAIM_COOLDOWN_SECONDS` is a bot-side delay after the first claim is observed; it is not Poidh's own end timer.
+- If `MIN_PARTICIPANTS_BEFORE_FINALIZE=2`, the bot intentionally waits after the first claim and only moves to final action once a second claim appears.
 - Decision summaries and follow-up Q/A text are written to artifacts.
 
 ## Assumptions and limitations

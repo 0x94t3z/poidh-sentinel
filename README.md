@@ -41,9 +41,9 @@ cp .env.example .env
 - For Farcaster posting, set `NEYNAR_API_KEY`, `FARCASTER_SIGNER_UUID`, and optionally `FARCASTER_CHANNEL_ID=poidh`
 - For Farcaster webhook verification, set `NEYNAR_WEBHOOK_SECRET` only if your Neynar plan includes webhook access
 - For optional LLM polish on Farcaster copy, set `OPENROUTER_API_KEY` and optionally `OPENROUTER_MODEL=openrouter/free`
-- To prevent first-claim instant resolution, set `MIN_CLAIMS_BEFORE_ACCEPT` and/or `MIN_DECISION_AGE_SECONDS`
+- To prevent first-claim instant resolution, set `MIN_PARTICIPANTS_BEFORE_FINALIZE` and/or `FIRST_CLAIM_COOLDOWN_SECONDS`
 
-Poidh itself does not end solo bounties on a timer; the creator accepts a claim when they decide it is good enough. Open bounties can move into the contract’s vote flow, which has its own on-chain deadline. `MIN_DECISION_AGE_SECONDS` is only a bot-side safety delay after the first claim is observed, so the bot does not jump on the first valid submission too early.
+Poidh itself does not end solo bounties on a timer; the creator accepts a claim when they decide it is good enough. Open bounties can move into the contract’s vote flow, which has its own on-chain deadline. `FIRST_CLAIM_COOLDOWN_SECONDS` is only a bot-side safety delay after the first claim is observed, so the bot does not jump on the first valid submission too early.
 
 Recommended defaults in this repo:
 - `BOUNTY_KIND=solo`
@@ -77,7 +77,7 @@ npm run dev -- requirements-flow
 - Execute on-chain final action (`acceptClaim` or open-bounty vote path)
 - Post public reasoning in the Farcaster thread
 
-If `MIN_CLAIMS_BEFORE_ACCEPT=2`, the bot will deliberately keep waiting after the first claim and will only move to the final action once a second claim appears.
+If `MIN_PARTICIPANTS_BEFORE_FINALIZE=2`, the bot will deliberately keep waiting after the first claim and will only move to the final action once a second claim appears.
 
 Create a new bounty and stop:
 
@@ -106,7 +106,7 @@ npm run dev -- watch-bounty --bounty-id 123
   - duplicate-evidence penalty for later copy submissions
   - tie-breaker that favors earlier submissions over later ones
 - Real-world bounty prompts are guarded so obvious digital-only tasks are rejected before creation
-- Auto-accept safeguards can keep the bounty open long enough for organic competition
+- Auto-finalize safeguards can keep the bounty open long enough for organic competition
 
 ## Code layout
 
@@ -139,10 +139,11 @@ These include winner, reasons, follow-up Q/A text, and both the declared bounty 
 
 - Poidh requires EOA wallets for issuer actions.
 - If you stop and restart without `BOUNTY_ID`, bot resumes from `BOUNTY_STATE_FILE` (`.poidh-state.json` by default).
-- Keep `AUTO_ACCEPT=true` for autonomous payout behavior.
-- Use `MIN_CLAIMS_BEFORE_ACCEPT` and `MIN_DECISION_AGE_SECONDS` to keep the bounty open long enough for organic competition.
-- `MIN_CLAIMS_BEFORE_ACCEPT=2` is a good default for demos where you want more than one claim before payout.
-- When that setting is `2`, `Auto-accept is waiting...` is expected after the first claim.
+- Keep `AUTO_FINALIZE_WINNER=true` for autonomous payout behavior.
+- Use `MIN_PARTICIPANTS_BEFORE_FINALIZE` and `FIRST_CLAIM_COOLDOWN_SECONDS` to keep the bounty open long enough for organic competition.
+- `MIN_PARTICIPANTS_BEFORE_FINALIZE=2` is a good default for demos where you want more than one claim before payout.
+- When that setting is `2`, `Auto-finalize is waiting...` is expected after the first claim.
+- Legacy names still supported for compatibility: `AUTO_ACCEPT`, `MIN_CLAIMS_BEFORE_ACCEPT`, and `MIN_DECISION_AGE_SECONDS`.
 - In autonomous mode, final public decision posts are sent after the on-chain final action path is reached.
 
 ## Claim pack

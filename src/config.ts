@@ -19,6 +19,17 @@ export function getBool(name: string, fallback: boolean): boolean {
   return ["1", "true", "yes", "on"].includes(value.toLowerCase());
 }
 
+export function getBoolAny(names: string[], fallback: boolean): boolean {
+  for (const name of names) {
+    const value = process.env[name]?.trim();
+    if (!value) {
+      continue;
+    }
+    return ["1", "true", "yes", "on"].includes(value.toLowerCase());
+  }
+  return fallback;
+}
+
 export function getInt(name: string, fallback: number): number {
   const value = process.env[name]?.trim();
   if (!value) {
@@ -26,4 +37,18 @@ export function getInt(name: string, fallback: number): number {
   }
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+export function getIntAny(names: string[], fallback: number): number {
+  for (const name of names) {
+    const value = process.env[name]?.trim();
+    if (!value) {
+      continue;
+    }
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return fallback;
 }
