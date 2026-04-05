@@ -86,7 +86,7 @@ export async function polishDecisionCopy(
   author?: string
 ): Promise<{ main: string; reply: string } | undefined> {
   const apiKey = getEnv("OPENROUTER_API_KEY", "");
-  const model = getEnv("OPENROUTER_MODEL", "nvidia/nemotron-nano-12b-2-vl:free");
+  const model = getEnv("OPENROUTER_MODEL", "nvidia/nemotron-nano-12b-v2-vl:free");
   if (!apiKey) {
     return undefined;
   }

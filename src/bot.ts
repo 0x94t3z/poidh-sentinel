@@ -85,7 +85,7 @@ export class PoidhBot {
     this.bountyAmountEth = config.bountyAmountEth;
     this.evaluationMode = config.evaluationMode;
     this.aiApiKey = config.aiApiKey ?? "";
-    this.aiModel = config.aiModel ?? "nvidia/nemotron-nano-12b-2-vl:free";
+    this.aiModel = config.aiModel ?? "nvidia/nemotron-nano-12b-v2-vl:free";
     this.aiMinConfidence = config.aiMinConfidence ?? 0.55;
     this.aiEnableVision = config.aiEnableVision ?? true;
     this.aiInspectLinkedUrls = config.aiInspectLinkedUrls ?? true;
