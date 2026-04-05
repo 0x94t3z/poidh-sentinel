@@ -1,0 +1,20 @@
+{
+  "generatedAt": "2026-04-05T05:49:46.474Z",
+  "chainName": "arbitrum",
+  "bountyId": "83",
+  "bountyUrl": "https://poidh.xyz/arbitrum/bounty/263",
+  "bountyTitle": "Take a photo of a clock showing the current time outdoors",
+  "winnerClaimId": "341",
+  "bountyAmountWei": "1000000000000000",
+  "currentChainBountyAmountWei": "0",
+  "cast": {
+    "text": "by 0x94t3z.eth\n🏁 Poidh decision\nBounty: Take a photo of a clock showing the current time outdoors\nWinner: claim 341\nView bounty: https://poidh.xyz/arbitrum/bounty/263\nDetails in thread ↓",
+    "embeds": [
+      {
+        "url": "https://poidh.xyz/arbitrum/bounty/263"
+      }
+    ],
+    "author": "0x94t3z.eth",
+    "parentUrl": "https://poidh.xyz/arbitrum/bounty/263"
+  }
+}
