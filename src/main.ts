@@ -140,6 +140,10 @@ function printWatchBountyBanner(minClaimsBeforeAccept: number, minDecisionAgeSec
   }
 }
 
+function printCreateNewBountyBanner() {
+  console.log("create-new-bounty: create a fresh bounty and stop after the on-chain creation step.");
+}
+
 async function run() {
   const [rawCommand = "requirements-flow", ...rest] = process.argv.slice(2);
   const command = rawCommand;
@@ -197,6 +201,7 @@ async function run() {
 
   switch (command) {
     case "create-new-bounty": {
+      printCreateNewBountyBanner();
       const id = await bot.createBountyIfNeeded();
       const issuerClient = bot.issuerClient;
       console.log(`Bounty ID: ${id.toString()}`);
