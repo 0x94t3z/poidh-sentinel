@@ -77,8 +77,6 @@ npm run dev -- requirements-flow
 - Execute on-chain final action (`acceptClaim` or open-bounty vote path)
 - Post public reasoning in the Farcaster thread
 
-Compatibility alias: `npm run dev -- run`
-
 Advanced commands:
 
 Create bounty and stop (no watcher loop):
@@ -86,7 +84,6 @@ Create bounty and stop (no watcher loop):
 ```bash
 npm run dev -- create-bounty-only
 ```
-Compatibility alias: `npm run dev -- create-bounty`
 
 Evaluate a bounty without sending a transaction:
 

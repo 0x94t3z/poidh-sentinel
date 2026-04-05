@@ -33,7 +33,7 @@ Social publishing runs through `SOCIAL_POST_WEBHOOK_URL` and a Farcaster relay t
 
 ## Runtime outputs for proof
 
-`ARTIFACT_DIR=artifacts/production` (default for `run` / `watch-bounty`) writes:
+`ARTIFACT_DIR=artifacts/production` (default for `requirements-flow` / `watch-bounty`) writes:
 
 - `poidh-production-<bountyId>.json|md`
 - `poidh-social-<bountyId>.json|md`

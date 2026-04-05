@@ -122,11 +122,7 @@ function parseFlagMap(argv: string[]) {
 
 async function run() {
   const [rawCommand = "requirements-flow", ...rest] = process.argv.slice(2);
-  const commandAliases: Record<string, string> = {
-    run: "requirements-flow",
-    "create-bounty": "requirements-flow"
-  };
-  const command = commandAliases[rawCommand] ?? rawCommand;
+  const command = rawCommand;
   const { flags } = parseFlagMap(rest);
 
   const chainName = getChainName();
