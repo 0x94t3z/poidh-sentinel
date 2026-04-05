@@ -41,7 +41,7 @@ cp .env.example .env
 - `DECISION_WEBHOOK_URL` is optional. The localhost value is just a convenience default for local `npm run relay`; set it to empty (`DECISION_WEBHOOK_URL=`) for local-only mode with no relay.
 - For Farcaster posting, set `NEYNAR_API_KEY`, `FARCASTER_SIGNER_UUID`, and optionally `FARCASTER_CHANNEL_ID=poidh`
 - For Farcaster webhook verification, set `WEBHOOK_SIGNATURE_SECRET` only if your Neynar plan includes webhook access
-- Set `OPENROUTER_API_KEY` and `OPENROUTER_MODEL=openai/gpt-oss-120b:free` for one shared model used by both Farcaster copy polish and AI winner evaluation
+- Set `OPENROUTER_API_KEY` and `OPENROUTER_MODEL=qwen/qwen3.6-plus:free` for one shared model used by both Farcaster copy polish and AI winner evaluation
 - Install local `tesseract` CLI if you want OCR-first winner checks on image proofs
 - Winner evaluation mode is controlled by `WINNER_EVALUATION_MODE`:
   - `deterministic`: deterministic scoring only
@@ -66,7 +66,7 @@ https://github.com/picsoritdidnthappen/poidh-app/blob/prod/SKILL.md
 This project is designed to run on free-tier tools where possible:
 
 - Runtime: Node.js + TypeScript (`npm`/`tsx`)
-- AI evaluation and copy polish: OpenRouter with a smarter free-tier text model (`openai/gpt-oss-120b:free`) plus local OCR-first evidence extraction
+- AI evaluation and copy polish: OpenRouter with a strong free-tier model (`qwen/qwen3.6-plus:free`) plus local OCR-first evidence extraction
 - Social channel: Farcaster via Neynar API key + signer UUID
 
 Notes:

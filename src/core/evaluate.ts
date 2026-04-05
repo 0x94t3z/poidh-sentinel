@@ -461,7 +461,7 @@ export async function evaluateClaims(
   const mode = options.mode ?? "deterministic";
   const aiEnabled = mode === "ai_hybrid" || mode === "ai_required";
   const aiApiKey = options.aiApiKey?.trim() ?? "";
-  const aiModel = options.aiModel?.trim() || "openai/gpt-oss-120b:free";
+  const aiModel = options.aiModel?.trim() || "qwen/qwen3.6-plus:free";
   const aiMinConfidence = Math.max(0, Math.min(1, options.aiMinConfidence ?? 0.55));
   const aiEnableVision = options.aiEnableVision ?? true;
   const aiInspectLinkedUrls = options.aiInspectLinkedUrls ?? true;

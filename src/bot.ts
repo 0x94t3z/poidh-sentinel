@@ -85,7 +85,7 @@ export class PoidhBot {
     this.bountyAmountEth = config.bountyAmountEth;
     this.evaluationMode = config.evaluationMode;
     this.aiApiKey = config.aiApiKey ?? "";
-    this.aiModel = config.aiModel ?? "openai/gpt-oss-120b:free";
+    this.aiModel = config.aiModel ?? "qwen/qwen3.6-plus:free";
     this.aiMinConfidence = config.aiMinConfidence ?? 0.55;
     this.aiEnableVision = config.aiEnableVision ?? true;
     this.aiInspectLinkedUrls = config.aiInspectLinkedUrls ?? true;

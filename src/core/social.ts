@@ -86,7 +86,7 @@ export async function polishDecisionCopy(
   author?: string
 ): Promise<{ main: string; reply: string } | undefined> {
   const apiKey = getEnv("OPENROUTER_API_KEY", "");
-  const model = getEnv("OPENROUTER_MODEL", "openai/gpt-oss-120b:free");
+  const model = getEnv("OPENROUTER_MODEL", "qwen/qwen3.6-plus:free");
   if (!apiKey) {
     return undefined;
   }

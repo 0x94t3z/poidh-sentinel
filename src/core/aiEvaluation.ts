@@ -350,6 +350,8 @@ type OpenRouterChoiceMessage = {
 };
 
 const aiEvaluationCache = new Map<string, AiClaimEvaluation>();
+const modelsWithoutImageSupport = new Set<string>();
+const loggedNoImageSupportModels = new Set<string>();
 
 function readOpenRouterMessageContent(message: OpenRouterChoiceMessage | undefined): string {
   if (!message) {
@@ -458,6 +460,18 @@ async function requestAiEvaluation(
 
     if (!response.ok) {
       const errorText = (await response.text()).trim();
+      if (
+        response.status === 404 &&
+        /no endpoints found that support image input/i.test(errorText)
+      ) {
+        modelsWithoutImageSupport.add(model);
+        if (!loggedNoImageSupportModels.has(model)) {
+          loggedNoImageSupportModels.add(model);
+          console.warn(
+            `[openrouter] model ${model} does not support image input on this route; falling back to text-only evaluation.`
+          );
+        }
+      }
       if (errorText) {
         console.warn(
           `[openrouter] HTTP ${response.status} ${response.statusText} for model ${model}: ${errorText.slice(0, 400)}`
@@ -528,7 +542,7 @@ export async function evaluateClaimWithAi(input: AiEvaluationInput): Promise<AiC
     return cached;
   }
 
-  const enableVision = input.enableVision ?? true;
+  const enableVision = (input.enableVision ?? true) && !modelsWithoutImageSupport.has(input.model);
   const inspectLinkedUrls = input.inspectLinkedUrls ?? true;
   const maxLinkedUrls = Math.max(0, Math.floor(input.maxLinkedUrls ?? 2));
 
