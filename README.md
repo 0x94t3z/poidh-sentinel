@@ -57,6 +57,7 @@ Recommended defaults in this repo:
 - `BOUNTY_TITLE=Photo of a handwritten note with today’s date`
 - `BOUNTY_PROMPT=Upload a clear outdoor photo of a handwritten note that says today’s full date, your username, and the word poidh.`
 - `BOUNTY_REWARD_ETH=0.001`
+- Set `BOUNTY_MODE=open` when you want the bounty to be fundable by multiple contributors instead of only the creator
 
 Poidh minimums are documented in the official skill docs:
 https://github.com/picsoritdidnthappen/poidh-app/blob/prod/SKILL.md
@@ -159,7 +160,7 @@ Artifacts written to `artifacts/production/`:
 Relay payloads are written to `artifacts/relay/<bountyId>/relay.json|md`.
 
 These include winner, reasons, follow-up Q/A text, and both the declared bounty amount and the current on-chain amount when they differ.
-When AI vision is available, the production report also stores a short `visionSummary` for each evaluated claim so reviewers can see what the model says it observed in the image.
+When AI evaluation is available, the production report also stores a short `AI summary` for each evaluated claim so reviewers can see what the model says it observed.
 
 ## Notes
 
