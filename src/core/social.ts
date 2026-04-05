@@ -1,4 +1,4 @@
-import { getEnvAny } from "../config.js";
+import { getEnv } from "../config.js";
 
 export type DecisionPost = {
   bountyId: bigint;
@@ -85,8 +85,8 @@ export async function polishDecisionCopy(
   }> = buildFollowUpAnswers(post.reason),
   author?: string
 ): Promise<{ main: string; reply: string } | undefined> {
-  const apiKey = getEnvAny(["OPENROUTER_API_KEY"], "");
-  const model = getEnvAny(["COPY_POLISH_MODEL", "OPENROUTER_MODEL"], "openrouter/free");
+  const apiKey = getEnv("OPENROUTER_API_KEY", "");
+  const model = getEnv("COPY_POLISH_MODEL", "openrouter/free");
   if (!apiKey) {
     return undefined;
   }
@@ -265,7 +265,7 @@ export function buildFarcasterCastDraft(
 }
 
 export function buildDecisionRelayEnvelope(post: DecisionPost): DecisionRelayEnvelope {
-  const author = getEnvAny(["SOCIAL_AUTHOR", "SOCIAL_POST_AUTHOR"], "");
+  const author = getEnv("SOCIAL_AUTHOR", "");
   const targets = parseSocialTargets();
   const message = buildDecisionMessage(post, author);
   const castDraft = buildFarcasterCastDraft(post, author);
@@ -319,9 +319,9 @@ export async function postCastViaNeynar(
   castDraft: FarcasterCastDraft,
   options?: { parentCastHash?: string }
 ): Promise<string | undefined> {
-  const apiKey = getEnvAny(["NEYNAR_API_KEY"], "");
-  const signerUuid = getEnvAny(["FARCASTER_SIGNER_UUID"], "");
-  const channelId = getEnvAny(["FARCASTER_CHANNEL_ID"], "");
+  const apiKey = getEnv("NEYNAR_API_KEY", "");
+  const signerUuid = getEnv("FARCASTER_SIGNER_UUID", "");
+  const channelId = getEnv("FARCASTER_CHANNEL_ID", "");
 
   if (!apiKey || !signerUuid) {
     return undefined;
@@ -357,7 +357,7 @@ export async function postCastViaNeynar(
 }
 
 export async function postDecision(post: DecisionPost): Promise<boolean> {
-  const webhookUrl = getEnvAny(["DECISION_WEBHOOK_URL", "SOCIAL_POST_WEBHOOK_URL"], "");
+  const webhookUrl = getEnv("DECISION_WEBHOOK_URL", "");
   const envelope = buildDecisionRelayEnvelope(post);
 
   if (webhookUrl) {

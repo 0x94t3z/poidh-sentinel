@@ -3,32 +3,12 @@ export function getEnv(name: string, fallback = ""): string {
   return value && value.length > 0 ? value : fallback;
 }
 
-export function getEnvAny(names: string[], fallback = ""): string {
-  for (const name of names) {
-    const value = process.env[name]?.trim();
-    if (value && value.length > 0) {
-      return value;
-    }
-  }
-  return fallback;
-}
-
 export function requireEnv(name: string): string {
   const value = process.env[name]?.trim();
   if (!value) {
     throw new Error(`Missing required environment variable: ${name}`);
   }
   return value;
-}
-
-export function requireEnvAny(names: string[]): string {
-  for (const name of names) {
-    const value = process.env[name]?.trim();
-    if (value && value.length > 0) {
-      return value;
-    }
-  }
-  throw new Error(`Missing required environment variable. Set one of: ${names.join(", ")}`);
 }
 
 export function getBool(name: string, fallback: boolean): boolean {
@@ -39,17 +19,6 @@ export function getBool(name: string, fallback: boolean): boolean {
   return ["1", "true", "yes", "on"].includes(value.toLowerCase());
 }
 
-export function getBoolAny(names: string[], fallback: boolean): boolean {
-  for (const name of names) {
-    const value = process.env[name]?.trim();
-    if (!value) {
-      continue;
-    }
-    return ["1", "true", "yes", "on"].includes(value.toLowerCase());
-  }
-  return fallback;
-}
-
 export function getInt(name: string, fallback: number): number {
   const value = process.env[name]?.trim();
   if (!value) {
@@ -57,18 +26,4 @@ export function getInt(name: string, fallback: number): number {
   }
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
-}
-
-export function getIntAny(names: string[], fallback: number): number {
-  for (const name of names) {
-    const value = process.env[name]?.trim();
-    if (!value) {
-      continue;
-    }
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) {
-      return parsed;
-    }
-  }
-  return fallback;
 }

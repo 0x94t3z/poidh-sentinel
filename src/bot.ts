@@ -5,7 +5,7 @@ import { resolveFrontendBountyUrl } from "./core/chains.js";
 import { postDecision } from "./core/social.js";
 import { PoidhClient } from "./core/poidh.js";
 import type { BountyTuple, ClaimEvaluation } from "./core/types.js";
-import { getEnvAny } from "./config.js";
+import { getEnv } from "./config.js";
 import { validateRealWorldBounty } from "./runtime/bountyValidation.js";
 import { writeDecisionArtifacts } from "./runtime/decisionArtifacts.js";
 
@@ -319,7 +319,7 @@ export class PoidhBot {
       winnerClaimId: winner.claim.id,
       evaluations,
       reason,
-      author: getEnvAny(["SOCIAL_AUTHOR", "SOCIAL_POST_AUTHOR"], "")
+      author: getEnv("SOCIAL_AUTHOR", "")
     });
 
     this.lastArtifactKey = decisionKey;

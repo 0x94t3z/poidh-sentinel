@@ -2,14 +2,14 @@ import "dotenv/config";
 import { readFile } from "node:fs/promises";
 import { PoidhBot } from "./bot.js";
 import { resolveFrontendBountyUrl } from "./core/chains.js";
-import { getBoolAny, getEnv, getEnvAny, getIntAny, requireEnvAny } from "./config.js";
+import { getBool, getEnv, getInt, requireEnv } from "./config.js";
 
 function getChainName(): "arbitrum" | "base" | "degen" {
-  const value = getEnvAny(["TARGET_CHAIN", "POIDH_CHAIN"], "arbitrum").toLowerCase();
+  const value = getEnv("TARGET_CHAIN", "arbitrum").toLowerCase();
   if (value === "arbitrum" || value === "base" || value === "degen") {
     return value;
   }
-  throw new Error(`Unsupported chain value: ${value}. Use TARGET_CHAIN or POIDH_CHAIN.`);
+  throw new Error(`Unsupported TARGET_CHAIN value: ${value}`);
 }
 
 function parseBountyId(flagValue?: string): bigint | undefined {
@@ -55,7 +55,7 @@ type BountyState = {
 };
 
 function getBountyStatePath(): string {
-  return getEnvAny(["BOT_STATE_FILE", "BOUNTY_STATE_FILE"], ".poidh-state.json");
+  return getEnv("BOT_STATE_FILE", ".poidh-state.json");
 }
 
 function getDefaultArtifactDir(command: string): string {
@@ -150,78 +150,27 @@ async function run() {
   const { flags } = parseFlagMap(rest);
 
   const chainName = getChainName();
-  const rpcUrl = requireEnvAny(["CHAIN_RPC_URL", "RPC_URL"]);
-  const privateKey = requireEnvAny(["BOT_PRIVATE_KEY", "PRIVATE_KEY"]);
-  const pollIntervalMs = Math.max(1, getIntAny(["WATCH_POLL_INTERVAL_MS", "POLL_INTERVAL_MS"], 60_000));
-  const autoFinalizeWinner = getBoolAny(["AUTO_FINALIZE_WINNER", "AUTO_ACCEPT"], true);
+  const rpcUrl = requireEnv("CHAIN_RPC_URL");
+  const privateKey = requireEnv("BOT_PRIVATE_KEY");
+  const pollIntervalMs = Math.max(1, getInt("WATCH_POLL_INTERVAL_MS", 60_000));
+  const autoFinalizeWinner = getBool("AUTO_FINALIZE_WINNER", true);
   const minParticipantsBeforeFinalize = Math.max(
     1,
-    getIntAny(["MIN_PARTICIPANTS_BEFORE_FINALIZE", "MIN_CLAIMS_BEFORE_ACCEPT"], 1)
+    getInt("MIN_PARTICIPANTS_BEFORE_FINALIZE", 1)
   );
   const firstClaimCooldownSeconds = Math.max(
     0,
-    getIntAny(["FIRST_CLAIM_COOLDOWN_SECONDS", "MIN_DECISION_AGE_SECONDS"], 0)
+    getInt("FIRST_CLAIM_COOLDOWN_SECONDS", 0)
   );
-  const bountyKind = (
-    getEnvAny(["BOUNTY_MODE", "BOUNTY_KIND"], "solo") === "open" ? "open" : "solo"
-  ) as "solo" | "open";
-  const bountyName = getEnvAny(["BOUNTY_TITLE", "BOUNTY_NAME"], "Take a photo of something blue outdoors");
-  const bountyDescription = getEnvAny(
-    ["BOUNTY_PROMPT", "BOUNTY_DESCRIPTION"],
+  const bountyKind = (getEnv("BOUNTY_MODE", "solo") === "open" ? "open" : "solo") as "solo" | "open";
+  const bountyName = getEnv("BOUNTY_TITLE", "Take a photo of something blue outdoors");
+  const bountyDescription = getEnv(
+    "BOUNTY_PROMPT",
     "Upload a clear outdoor photo of something blue."
   );
-  const bountyAmountEth = getEnvAny(["BOUNTY_REWARD_ETH", "BOUNTY_AMOUNT_ETH"], "0.001");
-  const artifactDir = getEnvAny(["PRODUCTION_ARTIFACT_DIR", "ARTIFACT_DIR"], getDefaultArtifactDir(command));
+  const bountyAmountEth = getEnv("BOUNTY_REWARD_ETH", "0.001");
+  const artifactDir = getEnv("PRODUCTION_ARTIFACT_DIR", getDefaultArtifactDir(command));
   const bountyStatePath = getBountyStatePath();
-  if (process.env.POIDH_CHAIN?.trim() && !process.env.TARGET_CHAIN?.trim()) {
-    console.log("Using legacy env POIDH_CHAIN. Prefer TARGET_CHAIN.");
-  }
-  if (process.env.RPC_URL?.trim() && !process.env.CHAIN_RPC_URL?.trim()) {
-    console.log("Using legacy env RPC_URL. Prefer CHAIN_RPC_URL.");
-  }
-  if (process.env.PRIVATE_KEY?.trim() && !process.env.BOT_PRIVATE_KEY?.trim()) {
-    console.log("Using legacy env PRIVATE_KEY. Prefer BOT_PRIVATE_KEY.");
-  }
-  if (process.env.POLL_INTERVAL_MS?.trim() && !process.env.WATCH_POLL_INTERVAL_MS?.trim()) {
-    console.log("Using legacy env POLL_INTERVAL_MS. Prefer WATCH_POLL_INTERVAL_MS.");
-  }
-  if (process.env.AUTO_ACCEPT?.trim() && !process.env.AUTO_FINALIZE_WINNER?.trim()) {
-    console.log("Using legacy env AUTO_ACCEPT. Prefer AUTO_FINALIZE_WINNER.");
-  }
-  if (
-    process.env.MIN_CLAIMS_BEFORE_ACCEPT?.trim() &&
-    !process.env.MIN_PARTICIPANTS_BEFORE_FINALIZE?.trim()
-  ) {
-    console.log(
-      "Using legacy env MIN_CLAIMS_BEFORE_ACCEPT. Prefer MIN_PARTICIPANTS_BEFORE_FINALIZE."
-    );
-  }
-  if (
-    process.env.MIN_DECISION_AGE_SECONDS?.trim() &&
-    !process.env.FIRST_CLAIM_COOLDOWN_SECONDS?.trim()
-  ) {
-    console.log(
-      "Using legacy env MIN_DECISION_AGE_SECONDS. Prefer FIRST_CLAIM_COOLDOWN_SECONDS."
-    );
-  }
-  if (process.env.BOUNTY_KIND?.trim() && !process.env.BOUNTY_MODE?.trim()) {
-    console.log("Using legacy env BOUNTY_KIND. Prefer BOUNTY_MODE.");
-  }
-  if (process.env.BOUNTY_NAME?.trim() && !process.env.BOUNTY_TITLE?.trim()) {
-    console.log("Using legacy env BOUNTY_NAME. Prefer BOUNTY_TITLE.");
-  }
-  if (process.env.BOUNTY_DESCRIPTION?.trim() && !process.env.BOUNTY_PROMPT?.trim()) {
-    console.log("Using legacy env BOUNTY_DESCRIPTION. Prefer BOUNTY_PROMPT.");
-  }
-  if (process.env.BOUNTY_AMOUNT_ETH?.trim() && !process.env.BOUNTY_REWARD_ETH?.trim()) {
-    console.log("Using legacy env BOUNTY_AMOUNT_ETH. Prefer BOUNTY_REWARD_ETH.");
-  }
-  if (process.env.ARTIFACT_DIR?.trim() && !process.env.PRODUCTION_ARTIFACT_DIR?.trim()) {
-    console.log("Using legacy env ARTIFACT_DIR. Prefer PRODUCTION_ARTIFACT_DIR.");
-  }
-  if (process.env.BOUNTY_STATE_FILE?.trim() && !process.env.BOT_STATE_FILE?.trim()) {
-    console.log("Using legacy env BOUNTY_STATE_FILE. Prefer BOT_STATE_FILE.");
-  }
   const flagBountyId =
     typeof flags.bountyId === "string"
       ? flags.bountyId
