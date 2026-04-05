@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-05T16:37:35.053Z",
+  "generatedAt": "2026-04-05T22:11:48.152Z",
   "chainName": "arbitrum",
   "issuerAddress": "0xc698865c38eC12b475AA55764d447566dd54c758",
   "issuerPendingWithdrawalsWei": "0",
@@ -8,14 +8,14 @@
   "bountyName": "Photo of a handwritten note with today’s date",
   "bountyDescription": "Upload a clear outdoor photo of a handwritten note that says today’s full date, your username, and the word poidh.",
   "bountyAmountWei": "1000000000000000",
-  "currentChainBountyAmountWei": "1000000000000000",
+  "currentChainBountyAmountWei": "0",
   "submittedClaims": [],
   "winnerClaimId": "346",
   "evaluations": [
     {
       "claimId": "346",
-      "score": 23,
-      "accepted": false,
+      "score": 73,
+      "accepted": true,
       "proof": "https://beige-impossible-dragon-883.mypinata.cloud/ipfs/QmXTLL43tt1PYgkwnRQ3vd6bEZjSsnwbaJxwEp8UX2ibs5",
       "reasons": [
         "Description/evidence overlap matched handwritten, note, poidh.",
@@ -23,8 +23,9 @@
         "Metadata includes an image URL.",
         "The evidence text looks like a real-world proof artifact.",
         "Local OCR extracted readable text from the image proof.",
+        "Claim is already accepted on-chain.",
         "Strict deterministic signal check flagged: missing clear date signal, missing clear username signal.",
-        "AI evaluator unavailable; used deterministic scoring."
+        "Claim is already accepted on-chain, so it is treated as final-valid regardless of strict signal mismatches."
       ]
     },
     {
@@ -39,12 +40,15 @@
         "The evidence text looks like a real-world proof artifact.",
         "Local OCR extracted readable text from the image proof.",
         "Strict deterministic signal check flagged: missing clear date signal, missing clear username signal, missing clear outdoor signal.",
-        "AI verdict (openrouter/free): reject (0.95 confidence).",
+        "AI verdict (openrouter/free): reject (1.00 confidence).",
         "AI verdict ignored because vision is off and OCR-only evidence did not provide a concrete confirmation for the missing strict signals; used deterministic scoring."
       ],
-      "visionSummary": "The OCR text provided for the image is garbled and does not contain the required elements: the full date 2026-04-05, the username \\\"Poidh",
+      "visionSummary": "1. A photo of a handwritten note",
       "visionSignals": [
-        "\"The OCR text provided for the image is garbled and does not contain the required elements: the full date 2026-04-05, the username \\\"Poidh"
+        "1. A photo of a handwritten note",
+        "2. The note must contain today's date",
+        "3. The note must contain the user's username",
+        "4. The note must contain the word \"poidh\""
       ]
     }
   ]
