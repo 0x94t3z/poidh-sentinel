@@ -34,6 +34,8 @@ function buildClaimEvaluation(overrides?: Partial<ClaimTuple>): ClaimEvaluation 
     claim,
     score: 82,
     reasons: ["Name overlap matched blue.", "Proof resolves to an image."],
+    visionSummary: "Visible handwritten note says hello and blue bottle outdoors.",
+    visionSignals: ["handwritten note", "blue bottle", "outdoors"],
     evidence: {
       tokenUri: "ipfs://claim-331",
       contentUri: "ipfs://claim-331-image",
@@ -92,6 +94,7 @@ test("writes decision and social artifacts with the expected summary fields", as
     finalActionTxHash?: string;
     evaluations: Array<{ claimId: string; score: number; accepted: boolean }>;
   };
+  const decisionMarkdown = await readFile(result.reportPaths.markdownPath, "utf8");
   const socialJson = JSON.parse(await readFile(result.socialPaths.jsonPath, "utf8")) as {
     bountyId: string;
     reason: string;
@@ -110,6 +113,7 @@ test("writes decision and social artifacts with the expected summary fields", as
   assert.ok(
     socialJson.followUpAnswers.some((item) => item.question === "Was the payout handled on-chain?")
   );
+  assert.match(decisionMarkdown, /Vision summary/i);
   assert.match(farcasterMarkdown, /poidh decision/i);
   assert.match(socialMarkdown, /Why did this claim win\?/);
   assert.match(socialMarkdown, /Was the payout handled on-chain\?/);

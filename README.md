@@ -157,6 +157,7 @@ Artifacts written to `artifacts/production/`:
 Relay payloads are written to `artifacts/relay/<bountyId>/relay.json|md`.
 
 These include winner, reasons, follow-up Q/A text, and both the declared bounty amount and the current on-chain amount when they differ.
+When AI vision is available, the production report also stores a short `visionSummary` for each evaluated claim so reviewers can see what the model says it observed in the image.
 
 ## Notes
 

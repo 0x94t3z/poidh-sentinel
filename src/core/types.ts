@@ -44,4 +44,6 @@ export type ClaimEvaluation = {
   score: number;
   reasons: string[];
   evidence: ClaimEvidence;
+  visionSummary?: string;
+  visionSignals?: string[];
 };

@@ -7,6 +7,8 @@ export type AiClaimEvaluation = {
   confidence: number;
   reasons: string[];
   model: string;
+  visionSummary?: string;
+  visionSignals?: string[];
 };
 
 type AiEvaluationInput = {
@@ -196,7 +198,27 @@ function parseAiResponseContent(rawText: string): {
   verdict?: AiEvaluationVerdict;
   confidence?: number;
   reasons?: string[];
+  visionSummary?: string;
+  visionSignals?: string[];
 } | undefined {
+  const normalizeString = (value: unknown): string | undefined => {
+    if (typeof value !== "string") {
+      return undefined;
+    }
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  };
+
+  const normalizeStringArray = (value: unknown): string[] | undefined => {
+    if (!Array.isArray(value)) {
+      return undefined;
+    }
+    const items = value
+      .map((item) => normalizeString(item))
+      .filter((item): item is string => typeof item === "string");
+    return items.length > 0 ? items.slice(0, 10) : undefined;
+  };
+
   const candidates = [
     rawText,
     extractCodeBlockJson(rawText),
@@ -209,11 +231,33 @@ function parseAiResponseContent(rawText: string): {
         verdict: AiEvaluationVerdict;
         confidence: number;
         reasons: string[];
+        visionSummary: string;
+        visionSignals: string[];
+        observedText: string;
+        visibleText: string;
+        ocrText: string;
+        observation: string;
+        observations: string[];
+        visibleSignals: string[];
+        observedSignals: string[];
+        signals: string[];
       }>;
       return {
         verdict: parsed.verdict,
         confidence: parsed.confidence,
-        reasons: parsed.reasons
+        reasons: parsed.reasons,
+        visionSummary:
+          normalizeString(parsed.visionSummary) ??
+          normalizeString(parsed.observedText) ??
+          normalizeString(parsed.visibleText) ??
+          normalizeString(parsed.ocrText) ??
+          normalizeString(parsed.observation) ??
+          normalizeStringArray(parsed.observations)?.join("; "),
+        visionSignals:
+          normalizeStringArray(parsed.visionSignals) ??
+          normalizeStringArray(parsed.visibleSignals) ??
+          normalizeStringArray(parsed.observedSignals) ??
+          normalizeStringArray(parsed.signals)
       };
     } catch {
       continue;
@@ -253,16 +297,41 @@ function parseAiResponseContent(rawText: string): {
       confidence: normalizeConfidence(
         inferReject || inferAccept ? 0.75 : 0.5
       ),
-      reasons: sentenceReasons
+      reasons: sentenceReasons,
+      visionSummary: sentenceReasons[0],
+      visionSignals: sentenceReasons.slice(0, 3)
     };
   }
+
+  const visionSummary =
+    rawText
+      .split(/\r?\n/)
+      .map((line) => line.replace(/^[\s>*-]+/, "").trim())
+      .find((line) =>
+        /\b(image|photo|picture|note|handwritten|hand written|reads|says|shows|visible|contains|outdoor|username|date|poidh)\b/i.test(
+          line
+        )
+      ) ?? rawText;
+
+  const visionSignals = rawText
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^[\s>*-]+/, "").trim())
+    .filter(
+      (line) =>
+        /\b(image|photo|picture|note|handwritten|hand written|reads|says|shows|visible|contains|outdoor|username|date|poidh)\b/i.test(
+          line
+        )
+    )
+    .slice(0, 4);
 
   return {
     verdict: parseVerdict(verdictMatch?.[1].toLowerCase()),
     confidence: normalizeConfidence(
       confidenceMatch?.[1] ? Number.parseFloat(confidenceMatch[1]) : undefined
     ),
-    reasons
+    reasons,
+    visionSummary,
+    visionSignals: visionSignals.length > 0 ? visionSignals : undefined
   };
 }
 
@@ -375,7 +444,9 @@ async function requestAiEvaluation(
       verdict: parseVerdict(parsed.verdict),
       confidence: normalizeConfidence(parsed.confidence),
       reasons,
-      model
+      model,
+      visionSummary: parsed.visionSummary,
+      visionSignals: parsed.visionSignals
     };
   } catch {
     return undefined;
@@ -403,7 +474,7 @@ export async function evaluateClaimWithAi(input: AiEvaluationInput): Promise<AiC
   const sharedSystemMessage: OpenRouterMessage = {
     role: "system",
     content:
-      "You evaluate Poidh real-world bounty submissions. Return strict JSON with keys verdict, confidence, reasons. verdict must be one of accept, reject, needs_review. confidence must be 0..1. reasons must be a short array of factual strings. Reject if evidence does not clearly satisfy the prompt. When image URLs are provided, visually inspect them."
+      "You evaluate Poidh real-world bounty submissions. Return strict JSON with keys verdict, confidence, reasons, visionSummary, visionSignals. verdict must be one of accept, reject, needs_review. confidence must be 0..1. reasons must be a short array of factual strings. visionSummary must be a short plain-language description of what you actually see in the proof image or proof page, especially any visible text. visionSignals must be a short array of the main visible cues or transcribed words you observed. Reject if evidence does not clearly satisfy the prompt. When image URLs are provided, visually inspect them."
   };
 
   const sharedPayload = {

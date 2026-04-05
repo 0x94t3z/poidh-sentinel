@@ -502,6 +502,12 @@ export async function evaluateClaims(
         evaluation.reasons.push(
           `AI verdict (${aiEvaluation.model}): ${aiEvaluation.verdict} (${aiEvaluation.confidence.toFixed(2)} confidence).`
         );
+        if (aiEvaluation.visionSummary) {
+          evaluation.visionSummary = aiEvaluation.visionSummary;
+        }
+        if (aiEvaluation.visionSignals && aiEvaluation.visionSignals.length > 0) {
+          evaluation.visionSignals = aiEvaluation.visionSignals;
+        }
         if (aiEvaluation.reasons.length > 0) {
           evaluation.reasons.push(...aiEvaluation.reasons.map((reason) => `AI: ${reason}`));
         }

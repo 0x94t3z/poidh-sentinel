@@ -32,6 +32,8 @@ export type DecisionArtifact = {
     accepted: boolean;
     proof: string;
     reasons: string[];
+    visionSummary?: string;
+    visionSignals?: string[];
   }>;
 };
 
@@ -117,6 +119,12 @@ function markdownLines(artifact: DecisionArtifact): string[] {
     lines.push(
       `- Claim ${evaluation.claimId}: score ${evaluation.score}, accepted ${evaluation.accepted}, proof ${evaluation.proof}`
     );
+    if (evaluation.visionSummary) {
+      lines.push(`  - Vision summary: ${evaluation.visionSummary}`);
+    }
+    if (evaluation.visionSignals && evaluation.visionSignals.length > 0) {
+      lines.push(`  - Vision signals: ${evaluation.visionSignals.join(", ")}`);
+    }
     for (const reason of evaluation.reasons) {
       lines.push(`  - ${reason}`);
     }
@@ -238,6 +246,8 @@ export function summarizeEvaluations(evaluations: ClaimEvaluation[]) {
     score: evaluation.score,
     accepted: evaluation.claim.accepted,
     proof: evaluation.evidence.contentUri,
-    reasons: evaluation.reasons
+    reasons: evaluation.reasons,
+    visionSummary: evaluation.visionSummary,
+    visionSignals: evaluation.visionSignals
   }));
 }

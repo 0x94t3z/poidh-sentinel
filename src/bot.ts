@@ -199,6 +199,9 @@ export class PoidhBot {
         `- claim ${evaluation.claim.id.toString()}: ${status}, score ${evaluation.score.toFixed(2)}, accepted ${evaluation.claim.accepted ? "true" : "false"}`
       );
       console.log(`  proof: ${proof}`);
+      if (evaluation.visionSummary) {
+        console.log(`  vision: ${evaluation.visionSummary}`);
+      }
       console.log(`  reason: ${reason}`);
     }
   }

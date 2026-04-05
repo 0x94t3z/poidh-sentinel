@@ -16,6 +16,7 @@ It shows the same decision package that gets written to disk and can be shared t
 - Description/evidence overlap matched `time`
 - Proof resolved to an image
 - Metadata included an image URL
+- Vision summary captured the visible handwritten text from the image
 - The evidence text looked like a real-world proof artifact
 - Winner state was confirmed as already accepted on-chain
 
@@ -30,6 +31,7 @@ It shows the same decision package that gets written to disk and can be shared t
     "Description/evidence overlap matched time.",
     "Proof resolves to an image, which is strong evidence for a real-world task.",
     "Metadata includes an image URL.",
+    "Vision summary: Visible handwritten text: Sunday 5th April 2026, @lorah24, poidh.",
     "The evidence text looks like a real-world proof artifact.",
     "Claim is already accepted on-chain.",
     "Claim is already accepted on-chain, so it is treated as final-valid regardless of strict signal mismatches."
