@@ -162,7 +162,7 @@ These include winner, reasons, follow-up Q/A text, and both the declared bounty 
 
 - Poidh requires EOA wallets for issuer actions.
 - If you stop and restart without `BOUNTY_ID`, bot resumes from `BOT_STATE_FILE` (`.poidh-state.json` by default).
-- Keep `AUTO_FINALIZE_WINNER=true` for autonomous payout behavior.
+- Keep `AUTO_FINALIZE_WINNER=false` while testing so the bot will not finalize too early; switch it to `true` only when you want autonomous payout behavior.
 - Use `MIN_PARTICIPANTS_BEFORE_FINALIZE` and `FIRST_CLAIM_COOLDOWN_SECONDS` to keep the bounty open long enough for organic competition.
 - `MIN_PARTICIPANTS_BEFORE_FINALIZE=2` is a good default for demos where you want more than one claim before payout.
 - The shared example template defaults to `MIN_PARTICIPANTS_BEFORE_FINALIZE=2` and `FIRST_CLAIM_COOLDOWN_SECONDS=3600`, so a fresh client will not auto-finalize right away.

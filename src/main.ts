@@ -176,7 +176,7 @@ async function run() {
   const rpcUrl = requireEnv("CHAIN_RPC_URL");
   const privateKey = requireEnv("BOT_PRIVATE_KEY");
   const pollIntervalMs = Math.max(1, getInt("WATCH_POLL_INTERVAL_MS", 60_000));
-  const autoFinalizeWinner = getBool("AUTO_FINALIZE_WINNER", true);
+  const autoFinalizeWinner = getBool("AUTO_FINALIZE_WINNER", false);
   const minParticipantsBeforeFinalize = Math.max(
     1,
     getInt("MIN_PARTICIPANTS_BEFORE_FINALIZE", 1)
