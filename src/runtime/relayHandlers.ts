@@ -175,9 +175,9 @@ export async function handleDecision(request: IncomingMessage, response: ServerR
           )
         : undefined;
 
-      let parentCastHash = replyCastHash ?? mainCastHash;
+      const detailParentCastHash = replyCastHash ?? mainCastHash;
       for (const detailReply of detailReplies) {
-        if (!parentCastHash) {
+        if (!detailParentCastHash) {
           break;
         }
         const detailCastHash = await postCastViaNeynar(
@@ -185,13 +185,12 @@ export async function handleDecision(request: IncomingMessage, response: ServerR
             text: detailReply,
             embeds: []
           },
-          { parentCastHash }
+          { parentCastHash: detailParentCastHash }
         );
         if (!detailCastHash) {
           break;
         }
         detailCastHashes.push(detailCastHash);
-        parentCastHash = detailCastHash;
       }
     } catch (error) {
       farcasterError = error instanceof Error ? error.message : "Unknown Farcaster posting error";
