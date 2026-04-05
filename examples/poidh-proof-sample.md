@@ -8,7 +8,7 @@ It shows the same decision package that gets written to disk and can be shared t
 - Chain: `arbitrum`
 - Bounty: `Photo of a handwritten note with today’s date`
 - Winner claim: `346`
-- Status: `evaluated; final on-chain action deferred`
+- Status: `evaluated; winner already accepted on-chain`
 - Proof folders: `artifacts/production/84` and `artifacts/relay/84`
 
 ## What the production report includes
@@ -16,9 +16,10 @@ It shows the same decision package that gets written to disk and can be shared t
 - Description/evidence overlap matched `handwritten`, `note`, and `poidh`
 - Proof resolved to an image
 - Metadata included an image URL
-- AI summary captured the OCR/text-based evidence summary
+- Local OCR captured readable evidence text
 - The evidence text looked like a real-world proof artifact
-- Winner state was recorded in the decision artifacts
+- Winner state was recorded as already accepted on-chain
+- Strict signal notes were preserved in the artifact output
 
 ## Example production output shape
 
@@ -26,16 +27,18 @@ It shows the same decision package that gets written to disk and can be shared t
 {
   "bountyId": "84",
   "winnerClaimId": "346",
-  "score": 23,
+  "score": 73,
+  "accepted": true,
+  "proof": "https://beige-impossible-dragon-883.mypinata.cloud/ipfs/QmXTLL43tt1PYgkwnRQ3vd6bEZjSsnwbaJxwEp8UX2ibs5",
   "reasons": [
     "Description/evidence overlap matched handwritten, note, poidh.",
     "Proof resolves to an image, which is strong evidence for a real-world task.",
     "Metadata includes an image URL.",
-    "AI summary: OCR output is garbled and does not contain any readable date, username, or the word 'poidh'.",
     "The evidence text looks like a real-world proof artifact.",
     "Local OCR extracted readable text from the image proof.",
+    "Claim is already accepted on-chain.",
     "Strict deterministic signal check flagged: missing clear date signal, missing clear username signal.",
-    "AI evaluator unavailable; used deterministic scoring."
+    "Claim is already accepted on-chain, so it is treated as final-valid regardless of strict signal mismatches."
   ]
 }
 ```
@@ -54,7 +57,11 @@ It shows the same decision package that gets written to disk and can be shared t
   "followUpAnswers": [
     {
       "question": "Why did this claim win?",
-      "answer": "Description/evidence overlap matched handwritten, note, poidh. Proof resolves to an image..."
+      "answer": "Description/evidence overlap matched handwritten, note, poidh. Proof resolves to an image, which is strong evidence for a real-world task. Metadata includes an image URL."
+    },
+    {
+      "question": "What evidence did the bot check?",
+      "answer": "It checked the claim tokenURI, claim metadata, resolved content type, and the submission text."
     }
   ]
 }

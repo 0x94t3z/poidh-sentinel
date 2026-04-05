@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { PoidhBot } from "./bot.js";
 import { resolveFrontendBountyUrl } from "./core/chains.js";
 import type { EvaluationMode } from "./core/evaluate.js";
+import type { ClaimTuple } from "./core/types.js";
 import { getBool, getEnv, getInt, requireEnv } from "./config.js";
 
 function getChainName(): "arbitrum" | "base" | "degen" {
@@ -172,6 +173,47 @@ function printCreateNewBountyBanner(config: {
   console.log(`Prompt: ${config.bountyDescription}`);
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function summarizeText(text: string, max = 110): string {
+  if (text.length <= max) {
+    return text;
+  }
+  return `${text.slice(0, max - 3)}...`;
+}
+
+function printClaimsSnapshot(bountyId: bigint, claims: ClaimTuple[], maxLoggedClaims: number) {
+  console.log(`Pulled ${claims.length} submitted claim(s) for bounty ${bountyId.toString()}.`);
+  if (claims.length === 0) {
+    return;
+  }
+
+  for (const claim of claims.slice(0, maxLoggedClaims)) {
+    console.log(
+      `- claim ${claim.id.toString()} by ${claim.issuer} (${claim.accepted ? "accepted" : "pending"})`
+    );
+    console.log(`  name: ${summarizeText(claim.name, 120)}`);
+    if (claim.description.trim().length > 0) {
+      console.log(`  desc: ${summarizeText(claim.description, 140)}`);
+    }
+  }
+
+  if (claims.length > maxLoggedClaims) {
+    console.log(`...and ${claims.length - maxLoggedClaims} more claim(s).`);
+  }
+}
+
+function printScheduledFlowBanner(stepDelayMs: number) {
+  console.log(
+    "scheduled-flow: one-shot staged run for low-rate automation (claims snapshot -> evaluate -> optional finalize/post)."
+  );
+  if (stepDelayMs > 0) {
+    console.log(`Staged delay between snapshot and evaluation: ${stepDelayMs} ms.`);
+  }
+}
+
 async function run() {
   const [rawCommand = "requirements-flow", ...rest] = process.argv.slice(2);
   const command = rawCommand;
@@ -207,6 +249,8 @@ async function run() {
   const aiEnableVision = getBool("AI_EVALUATION_ENABLE_VISION", false);
   const aiInspectLinkedUrls = getBool("AI_EVALUATION_INSPECT_LINKS", true);
   const aiMaxLinkedUrls = Math.max(0, getInt("AI_EVALUATION_MAX_LINKS", 2));
+  const scheduleStepDelayMs = Math.max(0, getInt("SCHEDULE_STAGE_DELAY_MS", 15_000));
+  const scheduleMaxLoggedClaims = Math.max(1, getInt("SCHEDULE_MAX_LOGGED_CLAIMS", 10));
   const artifactDir = getEnv("PRODUCTION_ARTIFACT_DIR", getDefaultArtifactDir(command));
   const bountyStatePath = getBountyStatePath();
   const flagBountyId =
@@ -247,7 +291,13 @@ async function run() {
     persistedPublishedDecisionBountyId: state?.lastPublishedDecisionBountyId
   });
 
-  if (command === "requirements-flow" || command === "watch-bounty" || command === "evaluate-bounty" || command === "explain-bounty") {
+  if (
+    command === "requirements-flow" ||
+    command === "watch-bounty" ||
+    command === "evaluate-bounty" ||
+    command === "explain-bounty" ||
+    command === "scheduled-flow"
+  ) {
     console.log(`Winner evaluation mode: ${evaluationMode}`);
     if (evaluationMode !== "deterministic" && !aiApiKey) {
       console.log("AI evaluator key is missing, so winner selection falls back to deterministic-only behavior.");
@@ -357,9 +407,51 @@ async function run() {
       await bot.runWatcher();
       break;
     }
+    case "scheduled-flow": {
+      printScheduledFlowBanner(scheduleStepDelayMs);
+      const id = await bot.waitForBountyCreation();
+      await bot.persistBountyState(id);
+
+      const claims = await bot.issuerClient.getAllClaims(id);
+      printClaimsSnapshot(id, claims, scheduleMaxLoggedClaims);
+
+      if (claims.length === 0) {
+        console.log("No submissions yet. Exiting scheduled-flow.");
+        break;
+      }
+
+      if (claims.length < minParticipantsBeforeFinalize) {
+        console.log(
+          `Participants gate not met (${claims.length}/${minParticipantsBeforeFinalize}). Exiting scheduled-flow.`
+        );
+        break;
+      }
+
+      if (scheduleStepDelayMs > 0) {
+        console.log(`Waiting ${scheduleStepDelayMs} ms before evaluation to reduce API burst.`);
+        await sleep(scheduleStepDelayMs);
+      }
+
+      const hasDecision = await bot.runSingleCycle(id);
+      if (!hasDecision) {
+        console.log("No eligible winner yet. Exiting scheduled-flow.");
+        break;
+      }
+
+      if (!autoFinalizeWinner) {
+        console.log(
+          "AUTO_FINALIZE_WINNER=false, so this run evaluated and persisted artifacts without on-chain finalization/post."
+        );
+      } else {
+        console.log(
+          "AUTO_FINALIZE_WINNER=true, so this run attempted finalization and decision posting when gates were satisfied."
+        );
+      }
+      break;
+    }
     default:
       throw new Error(
-        `Unknown command "${rawCommand}". Use requirements-flow, create-new-bounty, watch-bounty, evaluate-bounty, explain-bounty, or resolve-vote.`
+        `Unknown command "${rawCommand}". Use requirements-flow, scheduled-flow, create-new-bounty, watch-bounty, evaluate-bounty, explain-bounty, or resolve-vote.`
       );
   }
 }

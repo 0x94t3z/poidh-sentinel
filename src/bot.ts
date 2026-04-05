@@ -344,16 +344,22 @@ export class PoidhBot {
 
     while (true) {
       try {
-        const result = await this.actOnBounty(bountyId);
-        if (result) {
-          await this.persistDecisionArtifacts(bountyId, result.bounty, result.evaluations);
-        }
+        await this.runSingleCycle(bountyId);
       } catch (error) {
         console.error(error);
       }
 
       await new Promise((resolve) => setTimeout(resolve, this.pollIntervalMs));
     }
+  }
+
+  async runSingleCycle(bountyId: bigint): Promise<boolean> {
+    const result = await this.actOnBounty(bountyId);
+    if (!result) {
+      return false;
+    }
+    await this.persistDecisionArtifacts(bountyId, result.bounty, result.evaluations);
+    return true;
   }
 
   async persistDecisionArtifacts(

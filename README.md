@@ -49,6 +49,7 @@ cp .env.example .env
   - `ai_required`: claims must pass AI evidence evaluation to be eligible
 - Optionally set `AI_EVALUATION_MIN_CONFIDENCE`, `AI_EVALUATION_ENABLE_VISION`, `AI_EVALUATION_INSPECT_LINKS`, and `AI_EVALUATION_MAX_LINKS`
 - To prevent first-claim instant resolution, set `MIN_PARTICIPANTS_BEFORE_FINALIZE` and/or `FIRST_CLAIM_COOLDOWN_SECONDS`
+- For low-rate automation, tune `SCHEDULE_STAGE_DELAY_MS` (delay before evaluation in one-shot scheduler runs)
 
 Poidh itself does not end solo bounties on a timer; the creator accepts a claim when they decide it is good enough. Open bounties can move into the contract’s vote flow, which has its own on-chain deadline. `FIRST_CLAIM_COOLDOWN_SECONDS` is only a bot-side safety delay after the first claim is observed, so the bot does not jump on the first valid submission too early.
 
@@ -112,6 +113,26 @@ Watch an existing bounty:
 npm run dev -- watch-bounty --bounty-id 123
 ```
 
+Run one staged cycle (good for cron/launchd, does not require always-on process):
+
+```bash
+BOUNTY_ID=84 npm run scheduled
+```
+
+`scheduled-flow` does:
+- Pull all submitted claims and print participant snapshot
+- Stop early if participant gate is not met
+- Wait `SCHEDULE_STAGE_DELAY_MS` to reduce burst requests
+- Evaluate once
+- If `AUTO_FINALIZE_WINNER=true`, attempt on-chain finalization and decision post
+- Exit cleanly
+
+Example cron (every 10 minutes):
+
+```cron
+*/10 * * * * cd /path/to/poidh-bounty && BOUNTY_ID=84 npm run scheduled >> /tmp/poidh-scheduled.log 2>&1
+```
+
 ## How it works
 
 - `createSoloBounty` and `createOpenBounty` fund a bounty from an EOA
@@ -168,6 +189,7 @@ When AI evaluation is available, the production report also stores a short `AI s
 - Poidh requires EOA wallets for issuer actions.
 - If you stop and restart without `BOUNTY_ID`, bot resumes from `BOT_STATE_FILE` (`.poidh-state.json` by default).
 - Keep `AUTO_FINALIZE_WINNER=false` while testing so the bot will not finalize too early; switch it to `true` only when you want autonomous payout behavior.
+- For free-tier usage, keep `watch-bounty` for active testing and prefer `scheduled-flow` in production-like runs to avoid constant API polling.
 - Use `MIN_PARTICIPANTS_BEFORE_FINALIZE` and `FIRST_CLAIM_COOLDOWN_SECONDS` to keep the bounty open long enough for organic competition.
 - `MIN_PARTICIPANTS_BEFORE_FINALIZE=2` is a good default for demos where you want more than one claim before payout.
 - The shared example template defaults to `MIN_PARTICIPANTS_BEFORE_FINALIZE=2` and `FIRST_CLAIM_COOLDOWN_SECONDS=3600`, so a fresh client will not auto-finalize right away.
