@@ -231,7 +231,30 @@ function parseAiResponseContent(rawText: string): {
     .slice(0, 5);
 
   if (!verdictMatch && !confidenceMatch && reasons.length === 0) {
-    return undefined;
+    const sentenceReasons = rawText
+      .split(/(?<=[.!?])\s+/)
+      .map((sentence) => sentence.replace(/\s+/g, " ").trim())
+      .filter((sentence) => sentence.length > 0 && !/^since\b/i.test(sentence))
+      .slice(0, 4);
+
+    const inferReject = /(\bdoes not\b|\bdoesn't\b|\bfails?\b|\bmissing\b|\binsufficient\b|\breject\b|\brejected\b|\bshould be rejected\b|\bnot enough\b)/i.test(
+      rawText
+    );
+    const inferAccept = /(\bmeets?\b|\bsatisfies?\b|\bvalid\b|\bacceptable\b|\bshould be accepted\b|\bpasses?\b|\bvalid submission\b|\bvalid claim\b)/i.test(
+      rawText
+    );
+
+    if (!inferReject && !inferAccept && sentenceReasons.length === 0) {
+      return undefined;
+    }
+
+    return {
+      verdict: inferReject ? "reject" : inferAccept ? "accept" : "needs_review",
+      confidence: normalizeConfidence(
+        inferReject || inferAccept ? 0.75 : 0.5
+      ),
+      reasons: sentenceReasons
+    };
   }
 
   return {
