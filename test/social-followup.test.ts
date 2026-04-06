@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { answerFollowUpQuestion, summarizeReasonForSocial } from "../src/core/social.js";
+import {
+  answerAssistantQuestion,
+  answerFollowUpQuestion,
+  summarizeReasonForSocial
+} from "../src/core/social.js";
 
 test("summarizeReasonForSocial removes low-signal AI scaffolding", () => {
   const reason =
@@ -25,3 +29,18 @@ test("answerFollowUpQuestion returns concise finalized confirmation", () => {
   assert.match(answer, /0xabc123/i);
 });
 
+test("answerAssistantQuestion returns funding wallet instructions", () => {
+  const answer = answerAssistantQuestion("what wallet should i fund?", {
+    botWalletAddress: "0x1234567890123456789012345678901234567890",
+    minBountyEth: "0.001"
+  });
+
+  assert.match(answer, /0x1234567890123456789012345678901234567890/i);
+  assert.match(answer, /0.001/i);
+});
+
+test("answerAssistantQuestion returns open bounty idea", () => {
+  const answer = answerAssistantQuestion("any open bounty idea we can crowdfund?");
+  assert.match(answer, /open bounty idea/i);
+  assert.match(answer, /handwritten/i);
+});

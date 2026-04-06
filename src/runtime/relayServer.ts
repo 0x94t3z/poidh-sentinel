@@ -1,5 +1,11 @@
 import { createServer } from "node:http";
-import { handleDecision, handleExplain, handleFollowUp, handleNeynarWebhook } from "./relayHandlers.js";
+import {
+  handleAssistant,
+  handleDecision,
+  handleExplain,
+  handleFollowUp,
+  handleNeynarWebhook
+} from "./relayHandlers.js";
 import { relayPort } from "./relayState.js";
 
 export function startRelay() {
@@ -18,6 +24,11 @@ export function startRelay() {
 
     if (request.method === "POST" && request.url === "/follow-up") {
       void handleFollowUp(request, response);
+      return;
+    }
+
+    if (request.method === "POST" && request.url === "/assistant") {
+      void handleAssistant(request, response);
       return;
     }
 
@@ -44,6 +55,7 @@ export function startRelay() {
   server.listen(port, () => {
     console.log(`poidh relay listening on http://127.0.0.1:${port}`);
     console.log(`POST decisions to http://127.0.0.1:${port}/decision`);
+    console.log(`POST assistant chat to http://127.0.0.1:${port}/assistant`);
     console.log(`Watching tracked bounty threads for follow-up replies at http://127.0.0.1:${port}/webhooks/neynar`);
   });
 }

@@ -1,6 +1,9 @@
 import { createHmac } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { parseEther } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
 import {
+  answerAssistantQuestion,
   answerFollowUpQuestion,
   buildDecisionMessage,
   buildDecisionReply,
@@ -9,7 +12,12 @@ import {
   polishDecisionCopy,
   type DecisionRelayEnvelope
 } from "../core/social.js";
+import { getBool, getEnv, requireEnv } from "../config.js";
+import { resolveFrontendBountyUrl } from "../core/chains.js";
+import { PoidhClient } from "../core/poidh.js";
+import { validateRealWorldBounty } from "./bountyValidation.js";
 import {
+  type AssistantRequest,
   findRelayStateByCastHash,
   loadProductionArtifact,
   loadRelayState,
@@ -100,6 +108,69 @@ function splitForThread(text: string, maxLength = 260): string[] {
 
 function previewLogText(text: string, maxLength = 140): string {
   return truncateText(text.trim().replace(/\s+/g, " "), maxLength);
+}
+
+function getTargetChainName(): "arbitrum" | "base" | "degen" {
+  const value = getEnv("TARGET_CHAIN", "arbitrum").toLowerCase();
+  if (value === "arbitrum" || value === "base" || value === "degen") {
+    return value;
+  }
+  throw new Error(`Unsupported TARGET_CHAIN value: ${value}`);
+}
+
+function mentionsAreEnabled(): boolean {
+  return getBool("ENABLE_GENERAL_MENTION_REPLIES", false);
+}
+
+function getBotHandle(): string {
+  return getEnv("BOT_FARCASTER_HANDLE", "poidh-sentinel").replace(/^@/, "").toLowerCase();
+}
+
+function getBotFid(): number | undefined {
+  const value = getEnv("BOT_FID", "");
+  if (!value) {
+    return undefined;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function getBotWalletAddress(): `0x${string}` | undefined {
+  const privateKey = getEnv("BOT_PRIVATE_KEY", "");
+  if (!privateKey) {
+    return undefined;
+  }
+  try {
+    const normalized = privateKey.startsWith("0x") ? privateKey : `0x${privateKey}`;
+    return privateKeyToAccount(normalized as `0x${string}`).address;
+  } catch {
+    return undefined;
+  }
+}
+
+function isBotMention(text: string): boolean {
+  const handle = getBotHandle();
+  return new RegExp(`(^|\\s)@${handle}(\\b|\\s|$)`, "i").test(text);
+}
+
+function isExplicitBotMention(event: NeynarWebhookEvent): boolean {
+  const text = event.data?.text ?? "";
+  const botHandle = getBotHandle();
+  if (isBotMention(text)) {
+    return true;
+  }
+
+  const mentionedProfiles = event.data?.mentioned_profiles ?? [];
+  return mentionedProfiles.some((profile) => {
+    if (profile.username && profile.username.toLowerCase() === botHandle) {
+      return true;
+    }
+    const botFid = getBotFid();
+    if (botFid && profile.fid && profile.fid === botFid) {
+      return true;
+    }
+    return false;
+  });
 }
 
 function buildDetailReplies(envelope: DecisionRelayEnvelope): string[] {
@@ -291,10 +362,45 @@ export async function handleFollowUp(request: IncomingMessage, response: ServerR
     const bountyId = body.bountyId?.toString().trim();
     const question = body.question?.trim() || body.text?.trim() || body.message?.trim();
 
-    if (!bountyId || !question) {
+    if (!question) {
       jsonResponse(response, 400, {
         ok: false,
-        error: "follow-up payload requires bountyId and question."
+        error: "follow-up payload requires question."
+      });
+      return;
+    }
+
+    if (!bountyId) {
+      const parentCastHash = body.replyToCastHash?.trim() || body.parentCastHash?.trim();
+      const answer = answerAssistantQuestion(question, {
+        botWalletAddress: getBotWalletAddress(),
+        mentionsEnabled: mentionsAreEnabled(),
+        freeTierMode: !mentionsAreEnabled()
+      });
+      let farcasterCastHash: string | undefined;
+      let farcasterError: string | undefined;
+
+      try {
+        farcasterCastHash = await postCastViaNeynar(
+          {
+            text: answer,
+            embeds: []
+          },
+          { parentCastHash }
+        );
+      } catch (error) {
+        farcasterError = error instanceof Error ? error.message : "Unknown Farcaster reply error";
+        console.error(farcasterError);
+      }
+
+      jsonResponse(response, 200, {
+        ok: true,
+        mode: "assistant-general",
+        question,
+        answer,
+        postedToFarcaster: Boolean(farcasterCastHash),
+        farcasterCastHash,
+        farcasterError
       });
       return;
     }
@@ -313,7 +419,10 @@ export async function handleFollowUp(request: IncomingMessage, response: ServerR
       resolveReasonFromProductionArtifact(productionArtifact) ?? state.envelope.decision.reason;
     const answer = answerFollowUpQuestion(question, {
       reason,
-      finalActionTxHash: productionArtifact?.finalActionTxHash
+      finalActionTxHash: productionArtifact?.finalActionTxHash,
+      botWalletAddress: getBotWalletAddress(),
+      mentionsEnabled: mentionsAreEnabled(),
+      freeTierMode: !mentionsAreEnabled()
     });
     const parentCastHash = body.replyToCastHash?.trim() || body.parentCastHash?.trim() || state.farcasterCastIds[0];
 
@@ -387,6 +496,134 @@ export async function handleFollowUp(request: IncomingMessage, response: ServerR
   }
 }
 
+export async function handleAssistant(request: IncomingMessage, response: ServerResponse) {
+  try {
+    const { json } = await readRequestBody(request);
+    if (!json || typeof json !== "object") {
+      jsonResponse(response, 400, { ok: false, error: "Invalid assistant payload." });
+      return;
+    }
+
+    const body = json as AssistantRequest;
+    const question = body.question?.trim() || body.text?.trim() || body.message?.trim();
+    const createOpenBounty = Boolean(body.createOpenBounty);
+    const parentCastHash = body.replyToCastHash?.trim() || body.parentCastHash?.trim();
+    const botWalletAddress = getBotWalletAddress();
+
+    if (!question && !createOpenBounty) {
+      jsonResponse(response, 400, {
+        ok: false,
+        error: "assistant payload requires question or createOpenBounty=true."
+      });
+      return;
+    }
+
+    const chainName = getTargetChainName();
+    const fallbackRewardEth = getEnv("BOUNTY_REWARD_ETH", "0.001");
+    let answer =
+      question && question.length > 0
+        ? answerAssistantQuestion(question, {
+            botWalletAddress,
+            mentionsEnabled: mentionsAreEnabled(),
+            freeTierMode: !mentionsAreEnabled(),
+            minBountyEth: fallbackRewardEth
+          })
+        : "ready to create an open bounty.";
+
+    let createdBounty:
+      | {
+          bountyId: string;
+          bountyUrl: string;
+          txHash: string;
+          bountyTitle: string;
+          bountyDescription: string;
+          bountyRewardEth: string;
+        }
+      | undefined;
+
+    if (createOpenBounty) {
+      const enabled = getBool("ASSISTANT_ENABLE_CREATE_OPEN_BOUNTY", false);
+      if (!enabled) {
+        jsonResponse(response, 403, {
+          ok: false,
+          error:
+            "Assistant creation is disabled. Set ASSISTANT_ENABLE_CREATE_OPEN_BOUNTY=true to allow on-chain open bounty creation."
+        });
+        return;
+      }
+
+      const bountyTitle = body.bountyTitle?.trim() || getEnv("BOUNTY_TITLE", "");
+      const bountyDescription = body.bountyDescription?.trim() || getEnv("BOUNTY_PROMPT", "");
+      const bountyRewardEth = body.bountyRewardEth?.trim() || fallbackRewardEth;
+
+      if (!bountyTitle || !bountyDescription) {
+        jsonResponse(response, 400, {
+          ok: false,
+          error: "createOpenBounty requires bountyTitle and bountyDescription (or defaults in .env)."
+        });
+        return;
+      }
+
+      const validationErrors = validateRealWorldBounty(bountyTitle, bountyDescription);
+      if (validationErrors.length > 0) {
+        jsonResponse(response, 400, {
+          ok: false,
+          error: `Real-world bounty validation failed: ${validationErrors.join(" ")}`
+        });
+        return;
+      }
+
+      const client = new PoidhClient(chainName, requireEnv("CHAIN_RPC_URL"), requireEnv("BOT_PRIVATE_KEY"));
+      const createResult = await client.createBounty(
+        "open",
+        bountyTitle,
+        bountyDescription,
+        parseEther(bountyRewardEth)
+      );
+      createdBounty = {
+        bountyId: createResult.bountyId.toString(),
+        bountyUrl: resolveFrontendBountyUrl(chainName, createResult.bountyId),
+        txHash: createResult.hash,
+        bountyTitle,
+        bountyDescription,
+        bountyRewardEth
+      };
+      answer = `${answer} created open bounty ${createdBounty.bountyId}: ${createdBounty.bountyUrl}`;
+    }
+
+    let farcasterCastHash: string | undefined;
+    let farcasterError: string | undefined;
+
+    try {
+      farcasterCastHash = await postCastViaNeynar(
+        {
+          text: answer,
+          embeds: createdBounty?.bountyUrl ? [{ url: createdBounty.bountyUrl }] : []
+        },
+        { parentCastHash }
+      );
+    } catch (error) {
+      farcasterError = error instanceof Error ? error.message : "Unknown Farcaster assistant reply error";
+      console.error(farcasterError);
+    }
+
+    jsonResponse(response, 200, {
+      ok: true,
+      chainName,
+      question,
+      answer,
+      botWalletAddress,
+      createdBounty,
+      postedToFarcaster: Boolean(farcasterCastHash),
+      farcasterCastHash,
+      farcasterError
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown assistant error";
+    jsonResponse(response, 500, { ok: false, error: message });
+  }
+}
+
 export async function handleNeynarWebhook(request: IncomingMessage, response: ServerResponse) {
   try {
     const signature = request.headers["x-neynar-signature"];
@@ -430,7 +667,60 @@ export async function handleNeynarWebhook(request: IncomingMessage, response: Se
     }
 
     if (!relayState) {
-      jsonResponse(response, 200, { ok: true, ignored: true, reason: "No matching bounty thread." });
+      if (!mentionsAreEnabled() || !isExplicitBotMention(event)) {
+        jsonResponse(response, 200, {
+          ok: true,
+          ignored: true,
+          reason: "No matching bounty thread or explicit bot mention."
+        });
+        return;
+      }
+
+      if (getBotFid() && event.data.author?.fid && event.data.author.fid === getBotFid()) {
+        jsonResponse(response, 200, {
+          ok: true,
+          ignored: true,
+          reason: "Ignoring self-authored mention."
+        });
+        return;
+      }
+
+      const answer = answerAssistantQuestion(event.data.text, {
+        botWalletAddress: getBotWalletAddress(),
+        mentionsEnabled: true,
+        freeTierMode: false,
+        minBountyEth: getEnv("BOUNTY_REWARD_ETH", "0.001")
+      });
+      const replyParentHash = event.data.hash?.trim();
+      if (!replyParentHash) {
+        jsonResponse(response, 200, { ok: true, ignored: true, reason: "Missing parent hash for mention reply." });
+        return;
+      }
+
+      let farcasterCastHash: string | undefined;
+      let farcasterError: string | undefined;
+      try {
+        farcasterCastHash = await postCastViaNeynar(
+          {
+            text: answer,
+            embeds: []
+          },
+          { parentCastHash: replyParentHash }
+        );
+      } catch (error) {
+        farcasterError = error instanceof Error ? error.message : "Unknown Farcaster mention reply error";
+        console.error(farcasterError);
+      }
+
+      jsonResponse(response, 200, {
+        ok: true,
+        mode: "assistant-general",
+        question: event.data.text,
+        answer,
+        postedToFarcaster: Boolean(farcasterCastHash),
+        farcasterCastHash,
+        farcasterError
+      });
       return;
     }
 
@@ -452,7 +742,10 @@ export async function handleNeynarWebhook(request: IncomingMessage, response: Se
       resolveReasonFromProductionArtifact(productionArtifact) ?? relayState.envelope.decision.reason;
     const answer = answerFollowUpQuestion(event.data.text, {
       reason,
-      finalActionTxHash: productionArtifact?.finalActionTxHash
+      finalActionTxHash: productionArtifact?.finalActionTxHash,
+      botWalletAddress: getBotWalletAddress(),
+      mentionsEnabled: mentionsAreEnabled(),
+      freeTierMode: !mentionsAreEnabled()
     });
 
     const replyParentHash =
@@ -523,6 +816,6 @@ export async function handleExplain(response: ServerResponse) {
   jsonResponse(response, 200, {
     ok: true,
     outputDir: relayOutputDir(),
-    note: "The latest decision payload is written by the relay after each Farcaster post attempt. Follow-up replies can be posted through /follow-up."
+    note: "The latest decision payload is written by the relay after each Farcaster post attempt. Follow-up replies can be posted through /follow-up. General assistant chat is available through /assistant."
   });
 }

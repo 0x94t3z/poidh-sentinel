@@ -31,6 +31,19 @@ export type FollowUpRequest = {
   source?: string;
 };
 
+export type AssistantRequest = {
+  question?: string;
+  text?: string;
+  message?: string;
+  replyToCastHash?: string;
+  parentCastHash?: string;
+  source?: string;
+  createOpenBounty?: boolean;
+  bountyTitle?: string;
+  bountyDescription?: string;
+  bountyRewardEth?: string;
+};
+
 export type NeynarWebhookEvent = {
   type?: string;
   data?: {
@@ -38,6 +51,10 @@ export type NeynarWebhookEvent = {
     parent_hash?: string | null;
     thread_hash?: string | null;
     text?: string;
+    mentioned_profiles?: Array<{
+      fid?: number;
+      username?: string;
+    }>;
     author?: {
       fid?: number;
     };

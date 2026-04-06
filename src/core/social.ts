@@ -233,6 +233,9 @@ export function answerFollowUpQuestion(
   context: {
     reason: string;
     finalActionTxHash?: string;
+    botWalletAddress?: string;
+    mentionsEnabled?: boolean;
+    freeTierMode?: boolean;
   },
   knownAnswers: Array<{
     question: string;
@@ -312,7 +315,81 @@ export function answerFollowUpQuestion(
     return "The bot resolves the bounty on-chain with acceptClaim for solo bounties or the vote flow for open bounties, and the final transaction is recorded once it completes.";
   }
 
+  if (
+    normalizedQuestion.includes("open bounty") ||
+    normalizedQuestion.includes("crowdfund") ||
+    normalizedQuestion.includes("idea") ||
+    normalizedQuestion.includes("wallet") ||
+    normalizedQuestion.includes("address") ||
+    normalizedQuestion.includes("fund") ||
+    normalizedQuestion.includes("chat") ||
+    normalizedQuestion.includes("talk") ||
+    normalizedQuestion.includes("create bounty")
+  ) {
+    return answerAssistantQuestion(question, {
+      botWalletAddress: context.botWalletAddress,
+      mentionsEnabled: context.mentionsEnabled ?? false,
+      freeTierMode: context.freeTierMode ?? false
+    });
+  }
+
   return `The bot selected the highest-scoring valid claim using deterministic scoring with optional AI evidence checks. ${conciseReason}`;
+}
+
+export function answerAssistantQuestion(
+  question: string,
+  context: {
+    botWalletAddress?: string;
+    mentionsEnabled?: boolean;
+    freeTierMode?: boolean;
+    minBountyEth?: string;
+  } = {}
+): string {
+  const normalizedQuestion = normalizeQuestion(question);
+  const minBountyEth = context.minBountyEth ?? "0.001";
+
+  if (
+    normalizedQuestion.includes("idea") ||
+    normalizedQuestion.includes("open bounty") ||
+    normalizedQuestion.includes("crowdfund")
+  ) {
+    return "good open bounty idea: upload a clear outdoor photo of a handwritten note with today’s full date, your username, and `poidh`, then keep it open for at least 2 participants before finalizing.";
+  }
+
+  if (
+    normalizedQuestion.includes("chat") ||
+    normalizedQuestion.includes("talk") ||
+    normalizedQuestion.includes("best way")
+  ) {
+    if (context.mentionsEnabled) {
+      return "you can mention the bot in-thread and it can reply there. if needed, you can also use relay follow-up for manual fallback.";
+    }
+    if (context.freeTierMode) {
+      return "right now the stable path is thread replies / relay follow-up. direct mention webhook chat is limited on free tier, so i keep replies in-thread for reliability.";
+    }
+    return "best path right now is in-thread replies (or relay follow-up) so decisions and reasoning stay public and auditable.";
+  }
+
+  if (
+    normalizedQuestion.includes("wallet") ||
+    normalizedQuestion.includes("fund") ||
+    normalizedQuestion.includes("address")
+  ) {
+    if (context.botWalletAddress) {
+      return `funding wallet: ${context.botWalletAddress}. send at least ${minBountyEth} ETH plus gas buffer, then i can create an open bounty from that wallet.`;
+    }
+    return "funding wallet is not configured yet. once BOT_PRIVATE_KEY is set, i can share the exact funding address.";
+  }
+
+  if (
+    normalizedQuestion.includes("create") ||
+    normalizedQuestion.includes("make bounty") ||
+    normalizedQuestion.includes("post bounty")
+  ) {
+    return `send the goal + title + prompt + reward (min ${minBountyEth} ETH), and i can create an open bounty flow from that request.`;
+  }
+
+  return "i can help with open bounty ideas, wallet funding instructions, and autonomous evaluation/finalization flow.";
 }
 
 export function buildFarcasterCastDraft(

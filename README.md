@@ -41,6 +41,10 @@ cp .env.example .env
 - `DECISION_WEBHOOK_URL` is optional. The localhost value is just a convenience default for local `npm run relay`; set it to empty (`DECISION_WEBHOOK_URL=`) for local-only mode with no relay.
 - For Farcaster posting, set `NEYNAR_API_KEY`, `FARCASTER_SIGNER_UUID`, and optionally `FARCASTER_CHANNEL_ID=poidh`
 - For Farcaster webhook verification, set `WEBHOOK_SIGNATURE_SECRET` only if your Neynar plan includes webhook access
+- Set `BOT_FARCASTER_HANDLE` to your bot handle (default `poidh-sentinel`)
+- Optionally set `BOT_FID` so the relay can ignore self-authored mention webhooks
+- Set `ENABLE_GENERAL_MENTION_REPLIES=true` only if you want the relay to answer direct @mentions outside tracked bounty threads
+- Set `ASSISTANT_ENABLE_CREATE_OPEN_BOUNTY=true` only when you want `/assistant` to be allowed to create open bounties on-chain
 - Set `OPENROUTER_API_KEY` and `OPENROUTER_MODEL=openrouter/free` for one shared model used by both Farcaster copy polish and AI winner evaluation
 - Install local `tesseract` CLI if you want OCR-first winner checks on image proofs
 - Winner evaluation mode is controlled by `WINNER_EVALUATION_MODE`:
@@ -173,6 +177,30 @@ If the webhook is unset, the bot prints the decision locally instead.
 That free path is enough for local testing: the bot still creates the bounty, monitors claims, scores them, and writes the decision artifacts. Only the public post handoff is skipped.
 
 This repo is intentionally Farcaster-first. The relay posts one concise decision cast, then one concise thread reply with the winner reasoning. It also skips reposting the same bounty ID once a decision thread is already published, which keeps the free-tier flow from spamming duplicates. Live auto-replies to other people’s questions work when Neynar webhook access is available. Without webhook access, you can still use `POST /follow-up` as a manual fallback.
+
+Mention replies are intentionally separate from bounty-thread replies. They only activate for explicit `@bot` mentions when `ENABLE_GENERAL_MENTION_REPLIES=true`, and they can be filtered to ignore self-authored casts when `BOT_FID` is set.
+
+For general bot chat (not tied to one bounty), use:
+
+```bash
+curl -sS -X POST http://127.0.0.1:8787/assistant \
+  -H 'content-type: application/json' \
+  -d '{"question":"do you have any open bounty idea?"}'
+```
+
+You can also request explicit on-chain open bounty creation through `/assistant` (disabled by default):
+
+```bash
+curl -sS -X POST http://127.0.0.1:8787/assistant \
+  -H 'content-type: application/json' \
+  -d '{
+    "question": "create this open bounty",
+    "createOpenBounty": true,
+    "bountyTitle": "Photo of a handwritten note with today’s date",
+    "bountyDescription": "Upload a clear outdoor photo of a handwritten note that says today’s full date, your username, and the word poidh.",
+    "bountyRewardEth": "0.001"
+  }'
+```
 
 Artifacts written to `artifacts/production/`:
 - `<bountyId>/production.json|md`
