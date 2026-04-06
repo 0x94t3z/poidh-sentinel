@@ -243,8 +243,8 @@ async function run() {
   );
   const bountyAmountEth = getEnv("BOUNTY_REWARD_ETH", "0.001");
   const evaluationMode = getEvaluationMode();
+  const cerebrasApiKey = getEnv("CEREBRAS_API_KEY", "");
   const aiApiKey = getEnv("OPENROUTER_API_KEY", "");
-  const aiModel = getEnv("OPENROUTER_MODEL", "openrouter/free");
   const aiMinConfidence = Math.max(0, Math.min(1, Number(getEnv("AI_EVALUATION_MIN_CONFIDENCE", "0.55")) || 0.55));
   const aiEnableVision = getBool("AI_EVALUATION_ENABLE_VISION", false);
   const aiInspectLinkedUrls = getBool("AI_EVALUATION_INSPECT_LINKS", true);
@@ -278,7 +278,6 @@ async function run() {
     bountyAmountEth,
     evaluationMode,
     aiApiKey,
-    aiModel,
     aiMinConfidence,
     aiEnableVision,
     aiInspectLinkedUrls,
@@ -299,9 +298,14 @@ async function run() {
     command === "scheduled-flow"
   ) {
     console.log(`Winner evaluation mode: ${evaluationMode}`);
-    if (evaluationMode !== "deterministic" && !aiApiKey) {
+    if (evaluationMode !== "deterministic" && !cerebrasApiKey && !aiApiKey) {
       console.log("AI evaluator key is missing, so winner selection falls back to deterministic-only behavior.");
     } else if (evaluationMode !== "deterministic") {
+      if (cerebrasApiKey) {
+        console.log("AI assistant tier: Cerebras first, OpenRouter fallback.");
+      } else {
+        console.log("AI assistant tier: OpenRouter fallback only.");
+      }
       console.log(
         `AI evidence checks: vision=${aiEnableVision ? "on" : "off"}, link-inspection=${aiInspectLinkedUrls ? "on" : "off"} (max ${aiMaxLinkedUrls} links).`
       );

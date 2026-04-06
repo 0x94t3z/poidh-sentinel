@@ -17,6 +17,13 @@ export type FarcasterCastDraft = {
 
 export type SocialTarget = "farcaster";
 
+export type AssistantIntent =
+  | "suggest_bounty"
+  | "evaluate_submission"
+  | "pick_winner"
+  | "general_reply"
+  | "create_bounty";
+
 export type DecisionRelayEnvelope = {
   targets: SocialTarget[];
   message: string;
@@ -28,8 +35,41 @@ export type DecisionRelayEnvelope = {
   }>;
 };
 
+type LlmMessage = {
+  role: string;
+  content: string;
+};
+
+type ChatCompletionResponse = {
+  choices?: Array<{
+    message?: {
+      content?: string;
+    };
+  }>;
+};
+
+const CEREBRAS_API_URL = "https://api.cerebras.ai/v1/chat/completions";
+const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
+
+const DEFAULT_CEREBRAS_MODELS = ["llama-3.3-70b", "llama3.1-8b"];
+const DEFAULT_OPENROUTER_MODELS = [
+  "meta-llama/llama-3.3-70b-instruct:free",
+  "openai/gpt-oss-120b:free",
+  "openai/gpt-oss-20b:free",
+  "stepfun/step-3.5-flash:free",
+  "arcee-ai/trinity-mini:free",
+];
+
 function normalizeWhitespace(text: string): string {
   return text.replace(/\s+/g, " ").trim();
+}
+
+function normalizeQuestion(question: string): string {
+  return question
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function splitSentences(text: string): string[] {
@@ -69,6 +109,298 @@ export function summarizeReasonForSocial(reason: string, maxLength = 320): strin
 
 function parseSocialTargets(): SocialTarget[] {
   return ["farcaster"];
+}
+
+export function classifyAssistantIntent(question: string): AssistantIntent {
+  const normalizedQuestion = normalizeQuestion(question);
+
+  if (
+    normalizedQuestion.includes("create") ||
+    normalizedQuestion.includes("make bounty") ||
+    normalizedQuestion.includes("post bounty")
+  ) {
+    return "create_bounty";
+  }
+
+  if (
+    normalizedQuestion.includes("evaluate") ||
+    normalizedQuestion.includes("review") ||
+    normalizedQuestion.includes("submit") ||
+    normalizedQuestion.includes("proof") ||
+    normalizedQuestion.includes("claim") ||
+    normalizedQuestion.includes("valid")
+  ) {
+    return "evaluate_submission";
+  }
+
+  if (
+    normalizedQuestion.includes("winner") ||
+    normalizedQuestion.includes("who should win") ||
+    normalizedQuestion.includes("finalize") ||
+    normalizedQuestion.includes("finalise") ||
+    normalizedQuestion.includes("accepted") ||
+    normalizedQuestion.includes("select") ||
+    normalizedQuestion.includes("choose")
+  ) {
+    return "pick_winner";
+  }
+
+  if (
+    normalizedQuestion.includes("idea") ||
+    normalizedQuestion.includes("open bounty") ||
+    normalizedQuestion.includes("crowdfund")
+  ) {
+    return "suggest_bounty";
+  }
+
+  return "general_reply";
+}
+
+function assistantIntentLabel(intent: AssistantIntent): string {
+  switch (intent) {
+    case "suggest_bounty":
+      return "suggest a bounty idea";
+    case "evaluate_submission":
+      return "evaluate a submission";
+    case "pick_winner":
+      return "pick a winner";
+    case "create_bounty":
+      return "create a bounty";
+    default:
+      return "general reply";
+  }
+}
+
+function stringifyThreadContext(threadContext: string): string {
+  return threadContext
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .slice(0, 8)
+    .join("\n");
+}
+
+const ASSISTANT_SYSTEM_PROMPT = `you are poidh-sentinel, an autonomous bounty agent for poidh (pics or it didn't happen) on farcaster.
+
+poidh is an on-chain bounty protocol — users create open bounties, anyone can submit proof, and the community votes on the winner. bounties require real-world actions: photos, videos, and physical tasks.
+
+your job:
+- chat with users to help them come up with creative, specific bounty ideas
+- when asked to create a bounty, confirm the idea and say you'll deploy it on-chain
+- if someone wants to fund a bounty, give them the bot's wallet address so they can send ETH
+- evaluate cast submissions against a bounty and give honest verdicts
+- pick winners with clear reasoning
+- explain how poidh works when asked
+
+rules:
+- always be helpful, direct, and lowercase
+- sound human, not robotic
+- keep replies concise and finish your thought
+- never use markdown — no bold, no italic, no bullet dashes, no headers — plain text only
+- never say "as an ai" or include chatbot disclaimers
+- when someone asks for a bounty idea, suggest one specific, fun, real-world idea
+- when someone asks to create, deploy, launch, or make a bounty live, say you're doing it and it'll be live shortly
+- when someone asks about funding, give them the wallet address and say they can send ETH on arbitrum or base
+- open bounties are crowdfunded — multiple people can contribute and the winner is voted on by contributors`;
+
+function uniqueValues(values: string[]): string[] {
+  const seen = new Set<string>();
+  const ordered: string[] = [];
+  for (const value of values) {
+    const trimmed = value.trim();
+    if (!trimmed || seen.has(trimmed)) {
+      continue;
+    }
+    seen.add(trimmed);
+    ordered.push(trimmed);
+  }
+  return ordered;
+}
+
+function getCerebrasModels(): string[] {
+  return uniqueValues([...DEFAULT_CEREBRAS_MODELS]);
+}
+
+function getOpenRouterModels(): string[] {
+  return uniqueValues([...DEFAULT_OPENROUTER_MODELS]);
+}
+
+async function postChatCompletion(
+  apiUrl: string,
+  apiKey: string,
+  model: string,
+  messages: LlmMessage[],
+  options: {
+    maxTokens: number;
+    temperature: number;
+    headers?: Record<string, string>;
+  }
+): Promise<string | undefined> {
+  const response = await fetch(apiUrl, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      ...options.headers
+    },
+    body: JSON.stringify({
+      model,
+      messages,
+      max_tokens: options.maxTokens,
+      temperature: options.temperature
+    })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`${apiUrl} ${response.status}: ${errorText}`);
+  }
+
+  const payload = (await response.json()) as ChatCompletionResponse;
+  const content = payload.choices?.[0]?.message?.content?.trim();
+  return content && content.length > 0 ? content : undefined;
+}
+
+async function callCerebras(
+  messages: LlmMessage[],
+  options: {
+    maxTokens: number;
+    temperature: number;
+  }
+): Promise<string | undefined> {
+  const apiKey = getEnv("CEREBRAS_API_KEY", "");
+  if (!apiKey) {
+    return undefined;
+  }
+
+  for (const model of getCerebrasModels()) {
+    try {
+      const content = await postChatCompletion(CEREBRAS_API_URL, apiKey, model, messages, options);
+      if (content) {
+        console.log(`[agent] cerebras/${model} responded`);
+        return content;
+      }
+      console.warn(`[agent] cerebras/${model} returned empty, trying next...`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`[agent] cerebras/${model} failed (${message}), trying next...`);
+    }
+  }
+
+  return undefined;
+}
+
+async function callOpenRouter(
+  messages: LlmMessage[],
+  options: {
+    maxTokens: number;
+    temperature: number;
+  }
+): Promise<string | undefined> {
+  const apiKey = getEnv("OPENROUTER_API_KEY", "");
+  if (!apiKey) {
+    return undefined;
+  }
+
+  for (const model of getOpenRouterModels()) {
+    try {
+      const content = await postChatCompletion(OPENROUTER_API_URL, apiKey, model, messages, {
+        ...options,
+        headers: {
+          "HTTP-Referer": "https://poidh-sentinel.neynar.app",
+          "X-Title": "poidh-sentinel"
+        }
+      });
+      if (content) {
+        console.log(`[agent] openrouter/${model} responded`);
+        return content;
+      }
+      console.warn(`[agent] openrouter/${model} returned empty, trying next...`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`[agent] openrouter/${model} failed (${message}), trying next...`);
+    }
+  }
+
+  return undefined;
+}
+
+async function callAssistantModel(
+  messages: LlmMessage[],
+  options: {
+    maxTokens: number;
+    temperature: number;
+  }
+): Promise<string | undefined> {
+  const cerebrasReply = await callCerebras(messages, options);
+  if (cerebrasReply) {
+    return cerebrasReply;
+  }
+
+  return callOpenRouter(messages, options);
+}
+
+export async function fetchCastThreadContext(castHash: string): Promise<string | undefined> {
+  const apiKey = getEnv("NEYNAR_API_KEY", "");
+  const trimmedHash = castHash.trim();
+  if (!apiKey || !trimmedHash) {
+    return undefined;
+  }
+
+  try {
+    const response = await fetch(
+      `https://api.neynar.com/v2/farcaster/cast/conversation?identifier=${encodeURIComponent(trimmedHash)}&type=hash&reply_depth=2&include_chronological_parent_casts=true&limit=10`,
+      {
+        headers: {
+          "x-api-key": apiKey
+        }
+      }
+    );
+    if (!response.ok) {
+      return undefined;
+    }
+
+    const payload = (await response.json()) as {
+      conversation?: {
+        cast?: {
+          text?: string;
+          author?: { username?: string };
+          direct_replies?: Array<{ text?: string; author?: { username?: string } }>;
+          chronological_parent_casts?: Array<{ text?: string; author?: { username?: string } }>;
+          parent_casts?: Array<{ text?: string; author?: { username?: string } }>;
+          chronological_replies?: Array<{ text?: string; author?: { username?: string } }>;
+        };
+      };
+    };
+
+    const cast = payload.conversation?.cast;
+    if (!cast) {
+      return undefined;
+    }
+
+    const lines: string[] = [];
+    const pushLine = (username: string | undefined, text: string | undefined) => {
+      const cleanedText = text?.trim().replace(/\s+/g, " ");
+      if (!cleanedText) {
+        return;
+      }
+      const prefix = username?.trim() ? `@${username.trim()}: ` : "";
+      lines.push(`${prefix}${cleanedText}`);
+    };
+
+    pushLine(cast.author?.username, cast.text);
+    for (const item of cast.chronological_parent_casts ?? cast.parent_casts ?? []) {
+      pushLine(item.author?.username, item.text);
+    }
+    for (const item of cast.direct_replies ?? cast.chronological_replies ?? []) {
+      pushLine(item.author?.username, item.text);
+    }
+
+    const context = stringifyThreadContext(lines.join("\n"));
+    return context.length > 0 ? context : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export function buildDecisionMessage(post: DecisionPost, author?: string): string {
@@ -124,59 +456,37 @@ export async function polishDecisionCopy(
   }> = buildFollowUpAnswers(post.reason),
   author?: string
 ): Promise<{ main: string; reply: string } | undefined> {
-  const apiKey = getEnv("OPENROUTER_API_KEY", "");
-  const model = getEnv("OPENROUTER_MODEL", "openrouter/free");
-  if (!apiKey) {
+  const aiReply = await callAssistantModel(
+    [
+      {
+        role: "system",
+        content:
+          "You write concise, friendly Farcaster casts. Return only strict JSON with keys main and reply. Keep main under 200 characters and reply under 220 characters. Use a natural Farcaster tone. Do not repeat the reason verbatim. Do not add markdown fences."
+      },
+      {
+        role: "user",
+        content: JSON.stringify(
+          {
+            author,
+            bountyTitle: post.bountyTitle,
+            winningClaimId: post.winningClaimId.toString(),
+            bountyUrl: post.url,
+            reason: post.reason,
+            followUpAnswers
+          },
+          null,
+          2
+        )
+      }
+    ],
+    { temperature: 0.2, maxTokens: 180 }
+  );
+
+  if (!aiReply) {
     return undefined;
   }
 
-  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${apiKey}`,
-      "content-type": "application/json"
-    },
-    body: JSON.stringify({
-      model,
-      temperature: 0.2,
-      max_tokens: 180,
-      messages: [
-        {
-          role: "system",
-          content:
-            "You write concise, friendly Farcaster casts. Return only strict JSON with keys main and reply. Keep main under 200 characters and reply under 220 characters. Use a natural Farcaster tone. Do not repeat the reason verbatim. Do not add markdown fences."
-        },
-        {
-          role: "user",
-          content: JSON.stringify(
-            {
-              author,
-              bountyTitle: post.bountyTitle,
-              winningClaimId: post.winningClaimId.toString(),
-              bountyUrl: post.url,
-              reason: post.reason,
-              followUpAnswers
-            },
-            null,
-            2
-          )
-        }
-      ]
-    })
-  });
-
-  if (!response.ok) {
-    return undefined;
-  }
-
-  const payload = (await response.json()) as {
-    choices?: Array<{
-      message?: {
-        content?: string;
-      };
-    }>;
-  };
-  const rawText = payload.choices?.[0]?.message?.content?.trim() ?? "";
+  const rawText = aiReply.trim();
   if (!rawText) {
     return undefined;
   }
@@ -209,63 +519,45 @@ export async function generateAssistantReply(
     minBountyEth?: string;
     mentionsEnabled?: boolean;
     freeTierMode?: boolean;
+    intent?: AssistantIntent;
+    threadContext?: string;
   }
 ): Promise<string | undefined> {
-  const apiKey = getEnv("OPENROUTER_API_KEY", "");
-  const model = getEnv("OPENROUTER_MODEL", "openrouter/free");
-  if (!apiKey) {
-    return undefined;
-  }
+  const rawText = await callAssistantModel(
+    [
+      {
+        role: "system",
+        content: `${ASSISTANT_SYSTEM_PROMPT}
 
-  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${apiKey}`,
-      "content-type": "application/json"
-    },
-    body: JSON.stringify({
-      model,
-      temperature: 0.3,
-      max_tokens: 220,
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are a concise, friendly Farcaster bot. Answer the user's question directly in lowercase, without mentioning policy or being verbose. If they ask about open bounty ideas, suggest one real-world bounty. If they ask how to chat, mention the thread reply or mention flow. If they ask about funding, give the bot wallet address if available. Return plain text only."
-        },
-        {
-          role: "user",
-          content: JSON.stringify(
-            {
-              botHandle: context.botHandle,
-              botWalletAddress: context.botWalletAddress,
-              minBountyEth: context.minBountyEth ?? "0.001",
-              mentionsEnabled: context.mentionsEnabled ?? false,
-              freeTierMode: context.freeTierMode ?? false,
-              question
-            },
-            null,
-            2
-          )
-        }
-      ]
-    })
-  });
+current intent: ${assistantIntentLabel(context.intent ?? classifyAssistantIntent(question))}
 
-  if (!response.ok) {
-    return undefined;
-  }
+if thread context is provided, use it to answer the user's question precisely.
+if they ask how to chat, mention the thread reply or mention flow.
+if they ask about funding, give the bot wallet address if available.
+return plain text only.`
+      },
+      {
+        role: "user",
+        content: JSON.stringify(
+          {
+            botHandle: context.botHandle,
+            botWalletAddress: context.botWalletAddress,
+            minBountyEth: context.minBountyEth ?? "0.001",
+            mentionsEnabled: context.mentionsEnabled ?? false,
+            freeTierMode: context.freeTierMode ?? false,
+            intent: context.intent ?? classifyAssistantIntent(question),
+            threadContext: context.threadContext ?? undefined,
+            question
+          },
+          null,
+          2
+        )
+      }
+    ],
+    { temperature: 0.3, maxTokens: 220 }
+  );
 
-  const payload = (await response.json()) as {
-    choices?: Array<{
-      message?: {
-        content?: string;
-      };
-    }>;
-  };
-
-  const rawText = payload.choices?.[0]?.message?.content?.trim() ?? "";
-  return rawText.length > 0 ? rawText : undefined;
+  return rawText?.length ? rawText : undefined;
 }
 
 export function buildFollowUpAnswers(reason: string) {
@@ -285,14 +577,6 @@ export function buildFollowUpAnswers(reason: string) {
         "Yes. The winner is selected automatically using deterministic scoring with optional AI evidence checks."
     }
   ];
-}
-
-function normalizeQuestion(question: string): string {
-  return question
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
 }
 
 export function answerFollowUpQuestion(
@@ -410,23 +694,44 @@ export function answerAssistantQuestion(
     mentionsEnabled?: boolean;
     freeTierMode?: boolean;
     minBountyEth?: string;
+    intent?: AssistantIntent;
   } = {}
 ): string {
   const normalizedQuestion = normalizeQuestion(question);
+  const intent = context.intent ?? classifyAssistantIntent(question);
   const minBountyEth = context.minBountyEth ?? "0.001";
 
-  if (
-    normalizedQuestion.includes("idea") ||
-    normalizedQuestion.includes("open bounty") ||
-    normalizedQuestion.includes("crowdfund")
-  ) {
+  if (intent === "suggest_bounty") {
     return "good open bounty idea: upload a clear outdoor photo of a handwritten note with today’s full date, your username, and `poidh`, then keep it open for at least 2 participants before finalizing.";
   }
 
   if (
-    normalizedQuestion.includes("chat") ||
-    normalizedQuestion.includes("talk") ||
-    normalizedQuestion.includes("best way")
+    intent === "evaluate_submission" ||
+    normalizedQuestion.includes("evaluate") ||
+    normalizedQuestion.includes("review") ||
+    normalizedQuestion.includes("submit") ||
+    normalizedQuestion.includes("proof") ||
+    normalizedQuestion.includes("claim")
+  ) {
+    return "send the claim text, the proof link, and the bounty prompt, and i can help judge it against the requirements.";
+  }
+
+  if (
+    intent === "pick_winner" ||
+    normalizedQuestion.includes("winner") ||
+    normalizedQuestion.includes("finalize") ||
+    normalizedQuestion.includes("finalise") ||
+    normalizedQuestion.includes("accepted") ||
+    normalizedQuestion.includes("choose")
+  ) {
+    return "once the submissions are in, i can pick the highest-scoring valid claim, explain why it won, and post the reasoning in-thread.";
+  }
+
+  if (
+    intent === "general_reply" &&
+    (normalizedQuestion.includes("chat") ||
+      normalizedQuestion.includes("talk") ||
+      normalizedQuestion.includes("best way"))
   ) {
     if (context.mentionsEnabled) {
       return "you can mention the bot in-thread and it can reply there. if needed, you can also use relay follow-up for manual fallback.";
@@ -438,9 +743,10 @@ export function answerAssistantQuestion(
   }
 
   if (
-    normalizedQuestion.includes("wallet") ||
-    normalizedQuestion.includes("fund") ||
-    normalizedQuestion.includes("address")
+    intent === "general_reply" &&
+    (normalizedQuestion.includes("wallet") ||
+      normalizedQuestion.includes("fund") ||
+      normalizedQuestion.includes("address"))
   ) {
     if (context.botWalletAddress) {
       return `funding wallet: ${context.botWalletAddress}. send at least ${minBountyEth} ETH plus gas buffer, then i can create an open bounty from that wallet.`;
@@ -449,6 +755,7 @@ export function answerAssistantQuestion(
   }
 
   if (
+    intent === "create_bounty" ||
     normalizedQuestion.includes("create") ||
     normalizedQuestion.includes("make bounty") ||
     normalizedQuestion.includes("post bounty")

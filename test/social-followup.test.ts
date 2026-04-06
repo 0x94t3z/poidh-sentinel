@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  classifyAssistantIntent,
   answerAssistantQuestion,
   answerFollowUpQuestion,
   summarizeReasonForSocial
@@ -43,4 +44,12 @@ test("answerAssistantQuestion returns open bounty idea", () => {
   const answer = answerAssistantQuestion("any open bounty idea we can crowdfund?");
   assert.match(answer, /open bounty idea/i);
   assert.match(answer, /handwritten/i);
+});
+
+test("classifyAssistantIntent routes bounty questions into intent buckets", () => {
+  assert.equal(classifyAssistantIntent("can you create this bounty?"), "create_bounty");
+  assert.equal(classifyAssistantIntent("can you evaluate this submission?"), "evaluate_submission");
+  assert.equal(classifyAssistantIntent("who should win this bounty?"), "pick_winner");
+  assert.equal(classifyAssistantIntent("got any open bounty ideas?"), "suggest_bounty");
+  assert.equal(classifyAssistantIntent("what's the best way to chat with you?"), "general_reply");
 });

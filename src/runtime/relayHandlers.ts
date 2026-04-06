@@ -3,11 +3,13 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { parseEther } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import {
+  classifyAssistantIntent,
   answerAssistantQuestion,
   answerFollowUpQuestion,
   buildDecisionMessage,
   buildDecisionReply,
   buildFollowUpAnswers,
+  fetchCastThreadContext,
   generateAssistantReply,
   postCastViaNeynar,
   polishDecisionCopy,
@@ -174,17 +176,28 @@ function isExplicitBotMention(event: NeynarWebhookEvent): boolean {
   });
 }
 
-async function buildAssistantReply(question: string): Promise<string> {
+async function buildAssistantReply(
+  question: string,
+  options: {
+    replyToCastHash?: string;
+    parentCastHash?: string;
+  } = {}
+): Promise<string> {
   const botHandle = getBotHandle();
   const botWalletAddress = getBotWalletAddress();
   const minBountyEth = getEnv("BOUNTY_REWARD_ETH", "0.001");
+  const threadContextHash = options.replyToCastHash?.trim() || options.parentCastHash?.trim();
+  const threadContext = threadContextHash ? await fetchCastThreadContext(threadContextHash) : undefined;
+  const intent = classifyAssistantIntent(question);
 
   const aiReply = await generateAssistantReply(question, {
     botHandle,
     botWalletAddress,
     minBountyEth,
     mentionsEnabled: mentionsAreEnabled(),
-    freeTierMode: !mentionsAreEnabled()
+    freeTierMode: !mentionsAreEnabled(),
+    intent,
+    threadContext
   });
 
   if (aiReply) {
@@ -195,7 +208,8 @@ async function buildAssistantReply(question: string): Promise<string> {
     botWalletAddress,
     mentionsEnabled: mentionsAreEnabled(),
     freeTierMode: !mentionsAreEnabled(),
-    minBountyEth
+    minBountyEth,
+    intent
   });
 }
 
@@ -398,7 +412,10 @@ export async function handleFollowUp(request: IncomingMessage, response: ServerR
 
     if (!bountyId) {
       const parentCastHash = body.replyToCastHash?.trim() || body.parentCastHash?.trim();
-      const answer = await buildAssistantReply(question);
+      const answer = await buildAssistantReply(question, {
+        replyToCastHash: body.replyToCastHash,
+        parentCastHash: body.parentCastHash
+      });
       let farcasterCastHash: string | undefined;
       let farcasterError: string | undefined;
 
@@ -544,11 +561,9 @@ export async function handleAssistant(request: IncomingMessage, response: Server
     const fallbackRewardEth = getEnv("BOUNTY_REWARD_ETH", "0.001");
     let answer =
       question && question.length > 0
-        ? answerAssistantQuestion(question, {
-            botWalletAddress,
-            mentionsEnabled: mentionsAreEnabled(),
-            freeTierMode: !mentionsAreEnabled(),
-            minBountyEth: fallbackRewardEth
+        ? await buildAssistantReply(question, {
+            replyToCastHash: body.replyToCastHash,
+            parentCastHash: body.parentCastHash
           })
         : "ready to create an open bounty.";
 
@@ -689,11 +704,11 @@ export async function handleNeynarWebhook(request: IncomingMessage, response: Se
     }
 
     if (!relayState) {
-      if (!mentionsAreEnabled() || !isExplicitBotMention(event)) {
+      if (!mentionsAreEnabled()) {
         jsonResponse(response, 200, {
           ok: true,
           ignored: true,
-          reason: "No matching bounty thread or explicit bot mention."
+          reason: "No matching bounty thread and mention replies are disabled."
         });
         return;
       }
@@ -707,7 +722,11 @@ export async function handleNeynarWebhook(request: IncomingMessage, response: Se
         return;
       }
 
-      const answer = await buildAssistantReply(event.data.text);
+      const explicitMention = isExplicitBotMention(event);
+      const answer = await buildAssistantReply(event.data.text, {
+        replyToCastHash: event.data.hash,
+        parentCastHash: parentCastHash || threadCastHash
+      });
       const replyParentHash = event.data.hash?.trim();
       if (!replyParentHash) {
         jsonResponse(response, 200, { ok: true, ignored: true, reason: "Missing parent hash for mention reply." });
@@ -732,6 +751,7 @@ export async function handleNeynarWebhook(request: IncomingMessage, response: Se
       jsonResponse(response, 200, {
         ok: true,
         mode: "assistant-general",
+        matchedExplicitMention: explicitMention,
         question: event.data.text,
         answer,
         postedToFarcaster: Boolean(farcasterCastHash),

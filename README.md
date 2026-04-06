@@ -45,7 +45,8 @@ cp .env.example .env
 - Optionally set `BOT_FID` so the relay can ignore self-authored mention webhooks
 - Set `ENABLE_GENERAL_MENTION_REPLIES=true` only if you want the relay to answer direct @mentions outside tracked bounty threads
 - Set `ASSISTANT_ENABLE_CREATE_OPEN_BOUNTY=true` only when you want `/assistant` to be allowed to create open bounties on-chain
-- Set `OPENROUTER_API_KEY` and `OPENROUTER_MODEL=openrouter/free` for one shared model used by both Farcaster copy polish and AI winner evaluation
+- Set `CEREBRAS_API_KEY` first if you want the relay to try Cerebras before OpenRouter for assistant-style replies and Farcaster copy polish
+- Set `OPENROUTER_API_KEY` as the fallback model path used by both Farcaster copy polish and AI winner evaluation
 - Install local `tesseract` CLI if you want OCR-first winner checks on image proofs
 - Winner evaluation mode is controlled by `WINNER_EVALUATION_MODE`:
   - `deterministic`: deterministic scoring only
@@ -72,7 +73,7 @@ https://github.com/picsoritdidnthappen/poidh-app/blob/prod/SKILL.md
 This project is designed to run on free-tier tools where possible:
 
 - Runtime: Node.js + TypeScript (`npm`/`tsx`)
-- AI evaluation and copy polish: OpenRouter with `openrouter/free` plus local OCR-first evidence extraction
+- AI assistant copy polish: Cerebras first, OpenRouter fallback, plus local OCR-first evidence extraction
 - Social channel: Farcaster via Neynar API key + signer UUID
 
 Notes:
@@ -178,7 +179,8 @@ That free path is enough for local testing: the bot still creates the bounty, mo
 
 This repo is intentionally Farcaster-first. The relay posts one concise decision cast, then one concise thread reply with the winner reasoning. It also skips reposting the same bounty ID once a decision thread is already published, which keeps the free-tier flow from spamming duplicates. Live auto-replies to other people’s questions work when Neynar webhook access is available. Without webhook access, you can still use `POST /follow-up` as a manual fallback.
 
-Mention replies are intentionally separate from bounty-thread replies. They only activate for explicit `@bot` mentions when `ENABLE_GENERAL_MENTION_REPLIES=true`, and they can be filtered to ignore self-authored casts when `BOT_FID` is set. When `OPENROUTER_API_KEY` is configured, those replies use the shared OpenRouter model first and fall back to the deterministic assistant reply if the free model is missing or rate-limited.
+Mention replies are intentionally separate from bounty-thread replies. They only activate for explicit `@bot` mentions when `ENABLE_GENERAL_MENTION_REPLIES=true`, and they can be filtered to ignore self-authored casts when `BOT_FID` is set. When `CEREBRAS_API_KEY` is configured, those replies try Cerebras first and then fall back to OpenRouter or the deterministic assistant reply if the free model is missing or rate-limited.
+The assistant path now also classifies requests into a small intent bucket (`suggest_bounty`, `evaluate_submission`, `pick_winner`, `general_reply`, `create_bounty`) and, when a thread hash is available, fetches nearby Farcaster thread context before replying.
 
 ### Live webhook wiring
 
