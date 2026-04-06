@@ -201,6 +201,73 @@ export async function polishDecisionCopy(
   return undefined;
 }
 
+export async function generateAssistantReply(
+  question: string,
+  context: {
+    botHandle: string;
+    botWalletAddress?: string;
+    minBountyEth?: string;
+    mentionsEnabled?: boolean;
+    freeTierMode?: boolean;
+  }
+): Promise<string | undefined> {
+  const apiKey = getEnv("OPENROUTER_API_KEY", "");
+  const model = getEnv("OPENROUTER_MODEL", "openrouter/free");
+  if (!apiKey) {
+    return undefined;
+  }
+
+  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${apiKey}`,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      model,
+      temperature: 0.3,
+      max_tokens: 220,
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are a concise, friendly Farcaster bot. Answer the user's question directly in lowercase, without mentioning policy or being verbose. If they ask about open bounty ideas, suggest one real-world bounty. If they ask how to chat, mention the thread reply or mention flow. If they ask about funding, give the bot wallet address if available. Return plain text only."
+        },
+        {
+          role: "user",
+          content: JSON.stringify(
+            {
+              botHandle: context.botHandle,
+              botWalletAddress: context.botWalletAddress,
+              minBountyEth: context.minBountyEth ?? "0.001",
+              mentionsEnabled: context.mentionsEnabled ?? false,
+              freeTierMode: context.freeTierMode ?? false,
+              question
+            },
+            null,
+            2
+          )
+        }
+      ]
+    })
+  });
+
+  if (!response.ok) {
+    return undefined;
+  }
+
+  const payload = (await response.json()) as {
+    choices?: Array<{
+      message?: {
+        content?: string;
+      };
+    }>;
+  };
+
+  const rawText = payload.choices?.[0]?.message?.content?.trim() ?? "";
+  return rawText.length > 0 ? rawText : undefined;
+}
+
 export function buildFollowUpAnswers(reason: string) {
   const conciseReason = summarizeReasonForSocial(reason, 300);
   return [

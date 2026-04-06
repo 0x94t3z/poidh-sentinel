@@ -8,6 +8,7 @@ import {
   buildDecisionMessage,
   buildDecisionReply,
   buildFollowUpAnswers,
+  generateAssistantReply,
   postCastViaNeynar,
   polishDecisionCopy,
   type DecisionRelayEnvelope
@@ -170,6 +171,31 @@ function isExplicitBotMention(event: NeynarWebhookEvent): boolean {
       return true;
     }
     return false;
+  });
+}
+
+async function buildAssistantReply(question: string): Promise<string> {
+  const botHandle = getBotHandle();
+  const botWalletAddress = getBotWalletAddress();
+  const minBountyEth = getEnv("BOUNTY_REWARD_ETH", "0.001");
+
+  const aiReply = await generateAssistantReply(question, {
+    botHandle,
+    botWalletAddress,
+    minBountyEth,
+    mentionsEnabled: mentionsAreEnabled(),
+    freeTierMode: !mentionsAreEnabled()
+  });
+
+  if (aiReply) {
+    return aiReply;
+  }
+
+  return answerAssistantQuestion(question, {
+    botWalletAddress,
+    mentionsEnabled: mentionsAreEnabled(),
+    freeTierMode: !mentionsAreEnabled(),
+    minBountyEth
   });
 }
 
@@ -372,11 +398,7 @@ export async function handleFollowUp(request: IncomingMessage, response: ServerR
 
     if (!bountyId) {
       const parentCastHash = body.replyToCastHash?.trim() || body.parentCastHash?.trim();
-      const answer = answerAssistantQuestion(question, {
-        botWalletAddress: getBotWalletAddress(),
-        mentionsEnabled: mentionsAreEnabled(),
-        freeTierMode: !mentionsAreEnabled()
-      });
+      const answer = await buildAssistantReply(question);
       let farcasterCastHash: string | undefined;
       let farcasterError: string | undefined;
 
@@ -685,12 +707,7 @@ export async function handleNeynarWebhook(request: IncomingMessage, response: Se
         return;
       }
 
-      const answer = answerAssistantQuestion(event.data.text, {
-        botWalletAddress: getBotWalletAddress(),
-        mentionsEnabled: true,
-        freeTierMode: false,
-        minBountyEth: getEnv("BOUNTY_REWARD_ETH", "0.001")
-      });
+      const answer = await buildAssistantReply(event.data.text);
       const replyParentHash = event.data.hash?.trim();
       if (!replyParentHash) {
         jsonResponse(response, 200, { ok: true, ignored: true, reason: "Missing parent hash for mention reply." });

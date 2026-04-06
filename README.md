@@ -178,7 +178,7 @@ That free path is enough for local testing: the bot still creates the bounty, mo
 
 This repo is intentionally Farcaster-first. The relay posts one concise decision cast, then one concise thread reply with the winner reasoning. It also skips reposting the same bounty ID once a decision thread is already published, which keeps the free-tier flow from spamming duplicates. Live auto-replies to other people’s questions work when Neynar webhook access is available. Without webhook access, you can still use `POST /follow-up` as a manual fallback.
 
-Mention replies are intentionally separate from bounty-thread replies. They only activate for explicit `@bot` mentions when `ENABLE_GENERAL_MENTION_REPLIES=true`, and they can be filtered to ignore self-authored casts when `BOT_FID` is set.
+Mention replies are intentionally separate from bounty-thread replies. They only activate for explicit `@bot` mentions when `ENABLE_GENERAL_MENTION_REPLIES=true`, and they can be filtered to ignore self-authored casts when `BOT_FID` is set. When `OPENROUTER_API_KEY` is configured, those replies use the shared OpenRouter model first and fall back to the deterministic assistant reply if the free model is missing or rate-limited.
 
 ### Live webhook wiring
 
