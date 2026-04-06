@@ -180,6 +180,25 @@ This repo is intentionally Farcaster-first. The relay posts one concise decision
 
 Mention replies are intentionally separate from bounty-thread replies. They only activate for explicit `@bot` mentions when `ENABLE_GENERAL_MENTION_REPLIES=true`, and they can be filtered to ignore self-authored casts when `BOT_FID` is set.
 
+### Live webhook wiring
+
+To enable real mention replies on Farcaster:
+
+1. Create a webhook in the Neynar dashboard.
+2. Point the target URL at `https://your-domain/webhooks/neynar` or your local tunnel URL while testing.
+3. Subscribe it to cast-created events for the bot mention flow you want to receive.
+4. Set `WEBHOOK_SIGNATURE_SECRET` if your Neynar plan supports signed webhook verification.
+5. Set `ENABLE_GENERAL_MENTION_REPLIES=true`.
+6. Set `BOT_FARCASTER_HANDLE` to the bot username and `BOT_FID` to the bot FID so self-authored casts are ignored.
+
+If you do not have webhook access yet, keep this disabled and use the free manual fallback:
+
+```bash
+curl -sS -X POST http://127.0.0.1:8787/assistant \
+  -H 'content-type: application/json' \
+  -d '{"question":"what open bounty idea should we crowdfund?"}'
+```
+
 For general bot chat (not tied to one bounty), use:
 
 ```bash
