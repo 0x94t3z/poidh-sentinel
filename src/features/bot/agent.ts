@@ -100,6 +100,13 @@ async function fetchLivePotValue(bountyId: string, chain: string): Promise<strin
 // Try to find the most relevant active bounty for a context (bountyContext or most recent open bounty)
 async function resolveActiveBounty(ctx: AgentContext): Promise<{ bountyId: string; chain: string } | null> {
   try {
+    if (ctx.bountyContext?.bountyId && !ctx.bountyContext.bountyId.startsWith("pending-")) {
+      console.log(
+        `[agent] resolveActiveBounty: using thread bountyId=${ctx.bountyContext.bountyId} chain=${ctx.bountyContext.chain}`,
+      );
+      return { bountyId: ctx.bountyContext.bountyId, chain: ctx.bountyContext.chain };
+    }
+
     const all = await getActiveBounties(); // already ordered newest first
     const open = all.filter((b) => !b.bountyId.startsWith("pending-"));
 
@@ -533,7 +540,9 @@ function buildUserMessage(
 
   const bountyCtx = bountyContext
     ? "\nthis is a reply in the announcement thread for the bounty \"" + bountyContext.name +
-      "\" on " + bountyContext.chain + ".\nbounty description: " + bountyContext.description +
+      "\" on " + bountyContext.chain + "." +
+      (bountyContext.bountyId ? "\nraw bounty id: " + bountyContext.bountyId : "") +
+      "\nbounty description: " + bountyContext.description +
       (bountyContext.poidhUrl ? "\nbounty link: " + bountyContext.poidhUrl : "") + "\n" +
       winnerCtx
     : "";

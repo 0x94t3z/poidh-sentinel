@@ -36,6 +36,7 @@ export interface AgentContext {
   action: BountyAction;
   replyToBot?: boolean;
   bountyContext?: {
+    bountyId?: string;
     name: string;
     description: string;
     chain: string;

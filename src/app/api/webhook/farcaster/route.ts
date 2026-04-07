@@ -285,6 +285,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         action: "general_reply",
         replyToBot,
         bountyContext: bountyThread ? {
+          bountyId: bountyThread.bountyId,
           name: bountyThread.bountyName,
           description: bountyThread.bountyDescription,
           chain: bountyThread.chain,
