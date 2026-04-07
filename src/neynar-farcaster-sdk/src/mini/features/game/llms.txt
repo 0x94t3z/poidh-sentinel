@@ -1,0 +1,478 @@
+# Game Development SDK - LLM Implementation Guide
+
+Comprehensive game development primitives for Farcaster mini apps. This catalog provides AI assistants with the complete feature set and implementation patterns.
+
+## Import Path
+
+**CRITICAL**: All game features must be imported from:
+
+```tsx
+import {
+  useGameScore,
+  useGameTimer,
+  useGameControls,
+  GameMiniLayout,
+  // ... all other game features
+} from '@/neynar-farcaster-sdk/game';
+```
+
+**NOT** from `@/neynar-farcaster-sdk/mini/game` or `@/neynar-farcaster-sdk/mini/games`
+
+## For LLMs: Navigation Protocol
+
+When implementing game functionality:
+
+**STEP 1**: Feature Identification
+- Scan Feature Catalog below to identify relevant APIs
+- Map user requirements to available systems
+- Note: Features are designed for combination (scoring + effects + timers)
+
+**STEP 2**: Pattern Research
+- Read applicable implementation guides in `.llm/guides/`
+- Understand state management patterns (Jotai atoms)
+- Check integration requirements and dependencies
+
+**STEP 3**: API Verification
+- Reference auto-generated API docs in `.llm/api-reference/`
+- Verify exact signatures, parameters, return types
+- Note configuration options and defaults
+
+**STEP 4**: Template Integration
+- Check template-level rules at `/.llm/rules/game-development.md`
+- Follow feature-based architecture (code goes in `src/features/`)
+- Ensure audio system integration (mandatory for games)
+
+**STEP 5**: Implementation
+- Use discovered APIs with verified patterns
+- Combine multiple features as needed
+- Follow template file organization standards
+
+**Example Query**: "Implement score tracking with visual effects"
+→ Identify: `useScore`, `useCombo`, `ScoreDisplay`, `useScorePopup`
+→ Read: `guides/scoring-systems.md`, `guides/visual-effects.md`
+→ Verify: `api-reference/hooks.md` (check signatures)
+→ Integrate: Follow template feature-based structure
+→ Implement: Combine APIs per guide patterns
+
+---
+
+## Feature Catalog
+
+### 1. Initialization & Game Loop
+**APIs**: `useInitializeGame`, `useGameLoop`
+
+**Use when**: Setting up game architecture, implementing frame-based animation (60 FPS loops)
+
+**Implementation guide**: [guides/game-initialization.md](./. llm/guides/game-initialization.md)
+
+**Key concepts**:
+- Game config atoms (allowNegativeScore, custom settings)
+- Action handler registration (centralized input handling)
+- FPS-based game loops with delta time
+- Pause-aware animation frames
+
+**Typical implementation**:
+```tsx
+useInitializeGame({
+  config: { allowNegativeScore: false },
+  actions: {
+    action: handlePlayerAction,
+    left: handleMoveLeft,
+    right: handleMoveRight
+  },
+  debounceMs: 300
+});
+
+// Frame-based game loop (optional, for continuous animation)
+useGameLoop((deltaTime) => {
+  updatePhysics(deltaTime);
+  checkCollisions();
+  render();
+}, 60); // 60 FPS
+```
+
+---
+
+### 2. Game State Management
+**APIs**: `useGameState` exports:
+- `useGamePaused` / `useSetGamePaused`
+- `useGameOver` / `useSetGameOver`
+- `useGameLoading` / `useSetGameLoading`
+- `useGameControlsEnabled` / `useSetGameControlsEnabled`
+- `useActiveGameActions` / `useSetActiveGameActions`
+- `useGameActionHandlers` / `useSetGameActionHandlers`
+
+**Use when**: Managing global game state (pause, game over, loading screens, control states)
+
+**Implementation guide**: [guides/state-management.md](./.llm/guides/state-management.md)
+
+**Key concepts**:
+- Jotai atoms for global state (shared across all components)
+- Read/write hook pattern (`use{Name}` returns value, `useSet{Name}` returns setter)
+- Centralized state prevents prop drilling
+- Pause state integration with timers/loops
+
+**Typical implementation**:
+```tsx
+const paused = useGamePaused();
+const setPaused = useSetGamePaused();
+const gameOver = useGameOver();
+const setGameOver = useSetGameOver();
+
+// Timers automatically respect pause state
+// Game loops check pause state internally
+```
+
+---
+
+### 3. Scoring Systems
+**APIs**: `useScore`, `useCombo`, `useStreak`, `ScoreDisplay`, `ComboIndicator`
+
+**Use when**: Implementing point systems, multipliers, consecutive success tracking
+
+**Implementation guide**: [guides/scoring-systems.md](./.llm/guides/scoring-systems.md)
+
+**Key concepts**:
+- Global score atom (shared state)
+- Config-aware operations (respects `allowNegativeScore`)
+- Combo multipliers with time windows
+- Win streak tracking (resets on loss)
+- Visual feedback components with animations
+
+**Typical implementation**:
+```tsx
+const { score, addScore, subtractScore } = useScore();
+const { combo, multiplier, addCombo } = useCombo();
+const { streak, addWin, addLoss } = useStreak();
+
+// On success
+addCombo();
+addScore(10 * multiplier);
+
+// Display
+<ScoreDisplay value={score} />
+<ComboIndicator combo={combo} multiplier={multiplier} />
+```
+
+---
+
+### 4. Timer Systems
+**APIs**: `useCountdown`, `useStopwatch`, `Timer`, `ProgressTimer`
+
+**Use when**: Time-limited gameplay, speedrun tracking, temporal constraints
+
+**Implementation guide**: [guides/timers.md](./.llm/guides/timers.md)
+
+**Key concepts**:
+- Pause-aware timers (automatically pause when game paused)
+- Millisecond precision for accuracy
+- Visual display options (MM:SS, MM:SS.mmm, HH:MM:SS)
+- Progress visualization (linear/circular)
+
+**Typical implementation**:
+```tsx
+// Countdown (time-limited challenge)
+const { timeLeft, start, pause, reset } = useCountdown(60, {
+  onComplete: () => handleTimeUp()
+});
+
+// Stopwatch (speedrun tracking)
+const { elapsed, start, pause } = useStopwatch();
+
+// Display
+<Timer milliseconds={timeLeft} format="MM:SS" />
+<ProgressTimer current={timeLeft} total={60000} variant="circular" />
+```
+
+---
+
+### 5. State Persistence
+**APIs**: `useLocalStorageState`, `useCheckpoint`
+
+**Use when**: Saving game progress, high scores, user preferences, manual save points
+
+**Implementation guide**: [guides/persistence.md](./.llm/guides/persistence.md)
+
+**Key concepts**:
+- localStorage integration (automatic sync)
+- Namespaced keys (prevents conflicts)
+- Checkpoint labeling system
+- State serialization (JSON-based)
+
+**Typical implementation**:
+```tsx
+// Simple persistence (like useState but persisted)
+const [highScore, setHighScore] = useLocalStorageState('high-score', 0);
+
+// Checkpoint system (multiple labeled saves)
+const checkpoint = useCheckpoint<GameState>('my-game');
+checkpoint.saveCheckpoint({ level: 5, health: 100 }, 'before-boss');
+const saved = checkpoint.loadCheckpoint('before-boss');
+```
+
+---
+
+### 6. Visual Effects System (Wave 2)
+**APIs**: `useScreenShake`, `useParticles`, `useFlashEffect`, `usePulse`, `useScorePopup`
+
+**Components**: `ParticleEmitter`, `ScreenShakeContainer`, `FloatingText`, `FlashOverlay`
+
+**Use when**: Adding game juice, impact feedback, celebration effects, polish
+
+**Implementation guide**: [guides/visual-effects.md](./.llm/guides/visual-effects.md)
+
+**Key concepts**:
+- Zero-dependency animations (pure CSS + JS)
+- Particle physics (velocity, gravity, fade)
+- Easing functions for smooth animations
+- Performance considerations (particle limits)
+
+**Typical implementation**:
+```tsx
+const { shake } = useScreenShake();
+const { particles, emit } = useParticles();
+const { flash } = useFlashEffect();
+const { scale } = usePulse(score);
+const { popups, show } = useScorePopup();
+
+// On impact
+shake(8, 500);
+flash('rgba(255, 0, 0, 0.5)', 300);
+
+// On score
+emit({ x: 100, y: 100, count: 30, colors: ['#FFD700'] });
+show(x, y, 100);
+```
+
+---
+
+### 7. Tutorial & Onboarding (Wave 2)
+**APIs**: `useTutorial`
+
+**Components**: `TutorialOverlay`, `ControlsHelper`
+
+**Use when**: Implementing multi-step tutorials, contextual hints, first-time user experiences
+
+**Implementation guide**: [guides/tutorials.md](./.llm/guides/tutorials.md)
+
+**Key concepts**:
+- Step progression (next/prev/skip)
+- Target highlighting (CSS selector-based)
+- Tutorial overlay with darkened background
+- Persistence (mark steps as completed)
+
+**Typical implementation**:
+```tsx
+const tutorial = useTutorial([
+  { id: 'welcome', title: 'Welcome', description: 'Click to start' },
+  { id: 'controls', title: 'Controls', description: 'Use arrows', target: '#controls' }
+]);
+
+<TutorialOverlay {...tutorial} />
+```
+
+---
+
+### 8. Power-up Systems (Wave 2)
+**APIs**: `usePowerUps`, `useInventory`, `useBuffs`
+
+**Components**: `PowerUpIndicator`, `InventoryGrid`, `BuffIcon`
+
+**Use when**: Implementing temporary abilities, collectible items, stat modifiers
+
+**Implementation guide**: [guides/powerups.md](./.llm/guides/powerups.md)
+
+**Key concepts**:
+- Duration-based effects (auto-expiration)
+- Inventory management (deduplicated by ID)
+- Stacking buffs (multiple modifiers)
+- Visual indicators with progress rings
+
+**Typical implementation**:
+```tsx
+const powerUps = usePowerUps([
+  { id: 'shield', name: 'Shield', duration: 10000 }
+]);
+
+powerUps.activate('shield');
+if (powerUps.isActive('shield')) {
+  // Player is invincible
+}
+
+<PowerUpIndicator powerUps={powerUps.activePowerUps} />
+```
+
+---
+
+### 9. UI Components
+**Layout**: `GameMiniLayout`, `GameBoard`
+
+**Controls**: `DirectionalPad`, `ActionButtons`
+
+**Display**: `ScoreDisplay`, `ComboIndicator`, `ProgressBar`, `Timer`, `ProgressTimer`, `CountdownAnimation`
+
+**Use when**: Building game layouts, implementing dual-input controls (touch + keyboard)
+
+**Implementation guide**: [guides/ui-components.md](./.llm/guides/ui-components.md)
+
+**Key concepts**:
+- Mobile-first design (touch targets 48x48px minimum)
+- Dual input support (touch and keyboard automatic)
+- Component composition patterns
+- Responsive layout strategies
+
+**Typical implementation**:
+```tsx
+<GameMiniLayout
+  tabs={[
+    {
+      label: "Play",
+      content: (
+        <GameBoard
+          controls={
+            <div className="flex items-center gap-4">
+              <MuteButton />
+              <DirectionalPad
+                layout="horizontal"
+                onLeft={handlers.left}
+                onRight={handlers.right}
+              />
+              <ActionButtons
+                onAction={handlers.action}
+                actionLabel="Jump"
+              />
+            </div>
+          }
+        >
+          {/* Game content */}
+        </GameBoard>
+      )
+    }
+  ]}
+/>
+```
+
+---
+
+### 10. Utility Functions
+**Math**: `clamp`, `lerp`, `distance`, `degreesToRadians`, `radiansToDegrees`
+
+**Random**: `randomInt`, `randomChoice`, `shuffle`, `weightedRandom`
+
+**Use when**: Game calculations, collision detection, procedural generation, movement interpolation
+
+**Implementation guide**: [guides/utilities.md](./.llm/guides/utilities.md)
+
+**Key concepts**:
+- Pure functions (no side effects)
+- Common game math patterns
+- Performance-optimized implementations
+- Type-safe APIs
+
+**Typical implementation**:
+```tsx
+import { clamp, lerp, distance, randomInt, randomChoice } from '@/neynar-farcaster-sdk/mini';
+
+// Constrain values
+const health = clamp(newHealth, 0, 100);
+
+// Smooth camera movement
+const cameraX = lerp(currentX, targetX, 0.1);
+
+// Collision detection
+if (distance(playerX, playerY, enemyX, enemyY) < 50) {
+  handleCollision();
+}
+
+// Random generation
+const damage = randomInt(10, 20);
+const enemy = randomChoice(['goblin', 'orc', 'troll']);
+```
+
+---
+
+## Auto-Generated API Reference
+
+Complete TypeScript API documentation (generated from TSDoc):
+
+- **[Hooks API](./.llm/api-reference/hooks.md)** - All game hooks with signatures
+- **[Components API](./.llm/api-reference/components.md)** - UI components with props
+- **[Utilities API](./.llm/api-reference/utilities.md)** - Helper functions
+- **[Types API](./.llm/api-reference/types.md)** - TypeScript type definitions
+
+---
+
+## Integration Examples
+
+Multi-feature implementation patterns demonstrating real-world combinations:
+
+- **[Platformer Integration](./.llm/examples/platformer-integration.md)** - Game loop + controls + physics
+- **[Puzzle Game Integration](./.llm/examples/puzzle-integration.md)** - State + scoring + timers
+- **[Action Game with Effects](./.llm/examples/action-effects-integration.md)** - Scoring + combos + particles + shake
+
+---
+
+## Implementation Guides
+
+Detailed patterns for each feature category:
+
+1. [Game Initialization](./.llm/guides/game-initialization.md) - Setup patterns
+2. [State Management](./.llm/guides/state-management.md) - Global state architecture
+3. [Scoring Systems](./.llm/guides/scoring-systems.md) - Points, combos, streaks
+4. [Timers](./.llm/guides/timers.md) - Countdown and stopwatch patterns
+5. [Persistence](./.llm/guides/persistence.md) - Save systems
+6. [Visual Effects](./.llm/guides/visual-effects.md) - Juice and polish
+7. [Tutorials](./.llm/guides/tutorials.md) - Onboarding systems
+8. [Power-ups](./.llm/guides/powerups.md) - Temporary abilities
+9. [UI Components](./.llm/guides/ui-components.md) - Layout and controls
+10. [Utilities](./.llm/guides/utilities.md) - Helper functions
+11. [Quickstart Implementation](./.llm/guides/quickstart-implementation.md) - Minimal viable game
+12. [Integration Examples](./.llm/guides/integration-examples.md) - Multi-feature patterns
+
+---
+
+## Architecture Notes
+
+**State Management**: All game state uses Jotai atoms for global sharing
+
+**Mobile-First**: Components designed for touch input, keyboard support added
+
+**Zero Dependencies**: Visual effects use pure CSS + JavaScript (no animation libraries)
+
+**Pause Integration**: Timers and loops automatically respect pause state
+
+**Performance**: RequestAnimationFrame for smooth 60 FPS, optimized re-renders
+
+---
+
+## Quick Reference: Common Patterns
+
+**Basic game setup**:
+```tsx
+useInitializeGame({ config, actions });
+const { score, addScore } = useScore();
+```
+
+**Time-limited challenge**:
+```tsx
+const { timeLeft, start } = useCountdown(60, { onComplete: handleTimeUp });
+```
+
+**Combo system**:
+```tsx
+const { combo, multiplier, addCombo } = useCombo();
+addScore(basePoints * multiplier);
+```
+
+**Visual feedback**:
+```tsx
+const { shake } = useScreenShake();
+const { emit } = useParticles();
+shake(8, 500);
+emit({ x, y, count: 30 });
+```
+
+**Persistence**:
+```tsx
+const [highScore, setHighScore] = useLocalStorageState('high-score', 0);
+```

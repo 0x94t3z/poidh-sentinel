@@ -1,0 +1,13 @@
+{
+  "name": "poidh sentinel",
+  "shortName": "poidh-bot",
+  "subtitle": "Autonomous bounty agent",
+  "description": "An autonomous poidh bounty agent that suggests open bounties, evaluates submissions, and picks winners in-thread on Farcaster.",
+  "shortDescription": "poidh autonomous bounty agent on Farcaster",
+  "primaryCategory": "utility",
+  "tags": ["bounty", "autonomous", "agent", "poidh", "farcaster"],
+  "splashBackgroundColor": "#0a0a0a",
+  "tagline": "Bounties, automated",
+  "requiredChains": ["eip155:8453", "eip155:1"],
+  "shareButtonTitle": "Try the Bot"
+}

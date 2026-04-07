@@ -1,0 +1,13 @@
+{
+  "projectName": "Neynar Farcaster Mini App SDK - Core",
+  "description": "Core SDK for Farcaster mini app development - authentication, layouts, and essential components",
+  "tiers": [
+    {
+      "name": "mini-core",
+      "indexFilePath": "src/neynar-farcaster-sdk/src/mini/index.tsx",
+      "outputFolderPath": "src/neynar-farcaster-sdk/src/mini/.llm",
+      "importPrefix": "@/neynar-farcaster-sdk/mini",
+      "description": "Core Farcaster integration, layouts, and components"
+    }
+  ]
+}

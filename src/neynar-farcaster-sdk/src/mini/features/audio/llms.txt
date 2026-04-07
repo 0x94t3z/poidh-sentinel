@@ -1,0 +1,122 @@
+# Audio Features SDK
+
+Complete audio system for Farcaster mini apps - sound effects and music synthesis.
+
+## Import Path
+
+**CRITICAL**: All audio features must be imported from:
+
+```tsx
+import {
+  useSfx,
+  useSong,
+  MuteButton,
+  AudioControl,
+  sfx,
+  // ... all other audio features
+} from '@/neynar-farcaster-sdk/audio';
+```
+
+**NOT** from `@/neynar-farcaster-sdk/mini/audio` or `@/neynar-farcaster-sdk/mini`
+
+## Overview
+
+This audio system provides everything needed for game audio and music in your Farcaster mini app:
+
+- **Sound Effects**: 9 built-in effects (coin, jump, hit, powerup, explosion, click, success, failure, menuSelect)
+- **Music Synthesis**: Declarative music creation with 10 instruments
+- **Volume Controls**: Global mute and volume sliders for SFX and music
+- **State Management**: Jotai atoms for advanced audio state control
+
+## Documentation
+
+**Complete Audio System Guide**: `.llm/audio-system.llm.md`
+- Everything you need to know about the audio system
+- Sound effects and music synthesis
+- Custom sound creation
+- Musical reference and best practices
+
+**Auto-Generated API Reference**: Generated from TypeScript annotations
+- Hooks, components, types, and utilities
+- Will be in `.llm/` folder after running doc generator
+
+## Quick Start
+
+```tsx
+import { useSfx, useSong, MuteButton } from '@/neynar-farcaster-sdk/audio';
+
+function MyGame() {
+  // Sound effects
+  const { play } = useSfx();
+
+  // Background music
+  useSong({
+    melody: ['C4', 'E4', 'G4', 'C5'],
+    bassLine: ['C2', 'G2', 'C2', 'G2'],
+    chords: [
+      { notes: ['C3', 'E3', 'G3'], duration: '4n' }
+    ]
+  });
+
+  return (
+    <div>
+      <MuteButton />
+      <button onClick={() => play('coin')}>Collect Coin</button>
+    </div>
+  );
+}
+```
+
+## Core Features
+
+### Sound Effects (`useSfx`)
+- 9 built-in sound effects ready to use
+- Custom sound effect support
+- Volume control and muting
+- Non-blocking audio playback
+
+### Music System (`useSong`)
+- 10 instruments: melody, bassLine, chords, drums, arp, duo, am, fx, metal, noise
+- Musical note syntax (C4, D#4, etc.)
+- Note durations (4n, 8n, 16n, etc.)
+- Automatic looping and tempo control
+
+### UI Components
+- **AudioControl**: Volume sliders for SFX and music
+- **MuteButton**: Toggle mute state
+
+### State Management
+- **isMutedAtom**: Global mute state (persisted to localStorage)
+- **sfxVolumeAtom**: SFX volume 0.0-1.0 (persisted)
+- **musicVolumeAtom**: Music volume 0.0-1.0 (persisted)
+
+## Integration
+
+Audio works seamlessly with game features:
+
+```tsx
+import { useInitializeGame, useSfx } from '@/neynar-farcaster-sdk/mini';
+
+function Game() {
+  const { play } = useSfx();
+
+  useInitializeGame({
+    actions: {
+      action: () => {
+        play('jump');
+        // game logic...
+      }
+    }
+  });
+}
+```
+
+## Best Practices
+
+1. **Call useSong once** at the top level of your component
+2. **Use built-in sounds** when possible for consistency
+3. **Provide mute control** for user preference
+4. **Test on mobile devices** for audio timing and performance
+5. **Custom sounds go in** `src/features/audio/` folder of your app
+
+For complete documentation, see `.llm/audio-system.llm.md`.

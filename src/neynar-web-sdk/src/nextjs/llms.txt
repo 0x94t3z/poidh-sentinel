@@ -1,0 +1,108 @@
+# Next.js API Handlers - Server-Side Proxies
+
+This tier provides **server-side API route handlers** for proxying Neynar and CoinGecko APIs in your Next.js application.
+
+---
+
+## ⚠️ REQUIRED SETUP
+
+**You MUST set up these API proxy routes if you want to use any Neynar or CoinGecko React Query hooks in your app.**
+
+Without these routes:
+- ❌ All `useNeynar*` hooks will fail (e.g., `useUser`, `useCast`, `useChannel`)
+- ❌ All `useCoinGecko*` hooks will fail (e.g., `useCoin`, `useCoinsMarkets`)
+- ❌ Your API keys would be exposed to the client if you tried to call APIs directly
+
+With these routes:
+- ✅ All hooks work seamlessly
+- ✅ API keys stay server-side and secure
+- ✅ CORS is handled automatically
+
+---
+
+## Quick Setup Guide
+
+### 1. Neynar API Proxy Setup
+
+**File**: `app/api/neynar/[...route]/route.ts`
+
+```typescript
+import { NeynarAPIClient } from "@neynar/nodejs-sdk";
+import { createNeynarApiHandler } from "@/neynar-web-sdk/nextjs";
+import { privateConfig } from "@/config/private-config";
+
+const client = new NeynarAPIClient({
+  apiKey: privateConfig.neynarApiKey,
+});
+
+export const { GET, POST, PUT, DELETE, OPTIONS } = createNeynarApiHandler(client);
+```
+
+**What this does**:
+- Creates a catch-all proxy at `/api/neynar/*` that forwards to Neynar's API
+- Includes sensible CORS defaults (origin: true, all methods, standard headers)
+- Enables **all Neynar client hooks** to work without exposing your API key
+
+---
+
+### 2. CoinGecko API Proxy Setup
+
+**File**: `app/api/coingecko/[...route]/route.ts`
+
+```typescript
+import { Coingecko } from "@coingecko/coingecko-typescript";
+import { createCoinGeckoApiHandler } from "@/neynar-web-sdk/nextjs";
+import { privateConfig } from "@/config/private-config";
+
+const client = new Coingecko({
+  demoAPIKey: privateConfig.coingeckoApiKey,
+  environment: "demo",
+});
+
+export const { GET, POST, PUT, DELETE, OPTIONS } = createCoinGeckoApiHandler(client);
+```
+
+**What this does**:
+- Creates a catch-all proxy at `/api/coingecko/*` that forwards to CoinGecko's API
+- Includes sensible CORS defaults (origin: true, all methods, CoinGecko headers)
+- Enables **all CoinGecko client hooks** to work without exposing your API key
+
+---
+
+## Import Paths
+
+```typescript
+// Main exports (recommended)
+import { createNeynarApiHandler, createCoinGeckoApiHandler } from "@/neynar-web-sdk/nextjs";
+
+// Direct paths (if needed)
+import { createNeynarApiHandler } from "@/neynar-web-sdk/nextjs/neynar/api-handlers";
+import { createCoinGeckoApiHandler } from "@/neynar-web-sdk/nextjs/coingecko/api-handlers";
+```
+
+---
+
+## Why Use These Handlers?
+
+1. **Security**: Keep API keys server-side only
+2. **Simplicity**: One line of code to create a full API proxy
+3. **Type Safety**: Full TypeScript support with SDK types
+4. **CORS Handling**: Built-in CORS with sensible defaults
+5. **Client Hooks**: Enables all React Query hooks to work seamlessly
+
+---
+
+## Architecture Notes
+
+- **Server-only**: These handlers run only on the server (Next.js API routes)
+- **Never import in client components**: They will cause build errors
+- **Client hooks**: Use hooks from `@/neynar-web-sdk/neynar` and `@/neynar-web-sdk/coingecko` tiers
+- **Route structure**: Use `[...route]` catch-all segment to proxy all paths
+
+---
+
+## Detailed Documentation
+
+For advanced usage and internals:
+- Check registry: `src/neynar-web-sdk/src/nextjs/.llm/sdk-items-registry.json`
+- Read handler docs: `src/neynar-web-sdk/src/nextjs/.llm/*.llm.md`

@@ -1,0 +1,13 @@
+{
+  "projectName": "Neynar Database SDK",
+  "description": "PostgreSQL database utilities with Prisma for Neynar miniapps",
+  "tiers": [
+    {
+      "name": "main",
+      "indexFilePath": "src/neynar-db-sdk/src/index.ts",
+      "outputFolderPath": "src/neynar-db-sdk/llm-docs",
+      "importPrefix": "@/neynar-db-sdk",
+      "description": "Database client, schema management, and CRUD operations"
+    }
+  ]
+}

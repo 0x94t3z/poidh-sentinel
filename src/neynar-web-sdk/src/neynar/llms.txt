@@ -1,0 +1,255 @@
+# Neynar API Hooks
+
+TanStack Query-based React hooks for the Neynar social network API.
+
+---
+
+## ⚠️ CRITICAL: Mutation Hooks Not Ready for Use
+
+**DO NOT USE mutation hooks yet** - they exist and are documented but are **NOT ready for production**:
+
+❌ **DO NOT USE these mutation hooks:**
+- Social: `useFollowUser`, `useUnfollowUser`, `useFollowChannel`, `useUnfollowChannel`
+- Casts: `useLikeCast`, `useUnlikeCast`, `usePublishCast`, `useDeleteCast`
+- Reactions: `usePublishReaction`, `useDeleteReaction`
+- Blocks/Mutes: `useBlockUser`, `useUnblockUser`, `useMuteUser`, `useUnmuteUser`
+- All other mutation hooks
+
+✅ **ONLY use query hooks** (hooks that read data, not write/mutate data)
+
+**DO NOT delete mutation hooks** - they're part of the SDK. Just don't use them in app code yet.
+
+---
+
+## 🚀 Quick Start
+
+All hooks use 2 simple patterns - **read this first**: see Response Patterns section below.
+
+```tsx
+import { useUser, useFollowingFeed } from '@/neynar-web-sdk/neynar/hooks';
+
+// Pattern 1: Single item
+const { data: user } = useUser(123);
+console.log(user?.username);
+
+// Pattern 2: Array (works same for simple & paginated)
+const { data: followers } = useUserFollowers(123);
+followers?.map(f => f.user.username)
+```
+
+---
+
+## 📖 Response Patterns
+
+### Pattern 1: Single Item Queries
+Returns object directly: `User | undefined`, `Cast | undefined`, `Channel | undefined`
+
+```tsx
+const { data: user } = useUser(123);
+console.log(user?.username); // Direct access
+```
+
+**Hooks**: `useUser`, `useUserByUsername`, `useCast`, `useChannel`
+
+### Pattern 2: Regular Array Queries (Non-Paginated)
+Returns array directly: `User[]`, `Cast[]`, `Channel[]`
+
+```tsx
+// Simple array - direct access
+const { data: users } = useBulkUsers([123, 456]);
+users?.map(u => u.username)
+```
+
+**Hooks**: `useBulkUsers`, `useBulkCasts`, `useBulkChannels`
+
+### Pattern 3: Infinite Query Arrays (Paginated)
+Returns structured pages that MUST be flattened: `InfiniteData<InfiniteQueryPage<T>>`
+
+```tsx
+// Paginated arrays - MUST flatten pages!
+const { data, fetchNextPage, hasNextPage } = useUserFollowers(123);
+const followers = data?.pages.flatMap(page => page.items) || [];
+followers.map(f => f.user.username) // Now a flat array
+```
+
+**Key insight**: Infinite queries return `data.pages` structure for pagination control. You must flatten with `data?.pages.flatMap(page => page.items)` to get a flat array.
+
+**Infinite Query Hooks**: All feeds (`useFollowingFeed`, `useChannelFeed`, etc.), `useUserFollowers`, `useUserFollowing`, `useUserSearch`, `useUserActiveChannels`, `useChannelSearch`, `useNotifications`, etc.
+
+---
+
+## 🎯 Common Use Cases
+
+### Get User Profile
+```tsx
+const { data: user, isLoading } = useUser(fid);
+// Access: user?.display_name, user?.pfp_url, user?.follower_count
+```
+
+### Search Users
+```tsx
+const { data: users } = useUserSearch("vitalik");
+// Returns: User[] - direct array access
+```
+
+### Get User's Feed
+```tsx
+const { data, fetchNextPage, hasNextPage } = useFollowingFeed(fid);
+const casts = data?.pages.flatMap(page => page.items) || [];
+// Returns: Cast[] after flattening - grows as you call fetchNextPage()
+```
+
+### Get Channel Feed
+```tsx
+const { data } = useChannelFeed("pokemon");
+const casts = data?.pages.flatMap(page => page.items) || [];
+// Returns: Cast[] after flattening - use camelCase for all parameters!
+```
+
+### Multi-Channel Feed
+```tsx
+const { data } = useMultiChannelFeed(["pokemon", "javascript"]);
+const casts = data?.pages.flatMap(page => page.items) || [];
+// Pass array of channel IDs - parameter is channelIds (camelCase)
+```
+
+---
+
+## 📚 Hook Categories
+
+**Users**: `useUser`, `useBulkUsers`, `useUserByUsername`, `useUserSearch`, `useUserFollowers`, `useUserFollowing`, `useUserActiveChannels`, `useBulkUsersByAddress`, `useFollowUser`, `useUnfollowUser`
+
+**Casts**: `useCast`, `useBulkCasts`, `useCastsByUser`, `usePopularCastsByUser`, `useCastConversation`, `useCastSearch`, `usePublishCast`, `useDeleteCast`, `useLikeCast`, `useUnlikeCast`
+
+**Feeds**: `useFollowingFeed`, `useForYouFeed`, `useTrendingFeed`, `useChannelFeed`, `useChannelAndChildFeed`, `useMultiChannelFeed`, `useFilteredFeed`
+
+**Channels**: `useChannels`, `useChannel`, `useChannelSearch`, ~~`useTrendingChannels`~~ (deprecated - not working), `useChannelMembers`, `useChannelFollowers`, `useFollowChannel`, `useUnfollowChannel`
+
+**Notifications**: `useNotifications`, `useNotificationsByParentUrl`, `useMarkNotificationsAsSeen`, `useNotificationTokens`, `usePublishFrameNotifications`
+
+**Frames**: `usePostFrameAction`, `useValidateFrameAction`, `useFrameCatalog`, `useRelevantFrames`, `useFrameSearch`, `usePublishNeynarFrame`, `useUpdateNeynarFrame`
+
+**Auth/Signers**: `useAuthorizationUrl`, `useDeveloperManagedAuth`, `useRegisterAccount`, `useSigners`, `useRegisterSignedKey`
+
+**Social**: `useBanList`, `usePublishBans`, `useBlockList`, `useBlockUser`, `useUnblockUser`, `useMuteList`, `useMuteUser`, `useUnmuteUser`
+
+**On-chain**: `useDeployFungible`, `useSendFungibles`, `useMintNft`, `useSimulateNftMint`, `useNftMint`, `useNftPreview`, `useNftPrice`, `useCreateTransactionPayFrame`
+
+**Storage**: `useBuyStorage`, `useStorageAllocations`, `useStorageUsage`, `useStorageStatus`
+
+**Full list**: See [root index](../../llms.txt) for all 113 hooks
+
+---
+
+## 🔑 Query Keys
+
+Use `neynarQueryKeys` for cache management:
+
+```tsx
+import { neynarQueryKeys, useApiQueryClient } from '@/neynar-web-sdk/neynar/hooks';
+
+const queryClient = useApiQueryClient();
+
+// Invalidate specific user
+queryClient.invalidateQueries({ queryKey: neynarQueryKeys.users.byFid(123) });
+
+// Invalidate all users
+queryClient.invalidateQueries({ queryKey: neynarQueryKeys.users.all() });
+```
+
+---
+
+## 🎨 Common Patterns
+
+### Infinite Scroll with Auto-Load
+```tsx
+import { useInView } from 'react-intersection-observer';
+
+const { ref, inView } = useInView();
+const { data, fetchNextPage, hasNextPage } = useFollowingFeed(fid);
+const casts = data?.pages.flatMap(page => page.items) || [];
+
+useEffect(() => {
+  if (inView && hasNextPage) fetchNextPage();
+}, [inView, hasNextPage]);
+
+return (
+  <div>
+    {casts.map(cast => <div key={cast.hash}>{cast.text}</div>)}
+    {hasNextPage && <div ref={ref}>Loading...</div>}
+  </div>
+);
+```
+
+### Conditional Fetching
+```tsx
+const { data: users } = useUserSearch(query, {}, {
+  enabled: query.length > 2 // Only fetch when query is 3+ chars
+});
+```
+
+### Loading States
+```tsx
+const { data, isLoading, isFetching, error } = useUser(fid);
+
+if (isLoading) return <div>Loading...</div>;
+if (error) return <div>Error: {error.message}</div>;
+if (!data) return <div>Not found</div>;
+
+return <div>{isFetching && <span>Refreshing...</span>}</div>;
+```
+
+---
+
+## ⚠️ Common Mistakes
+
+❌ **Wrong**: Using incorrect hook names
+```tsx
+useNeynarUserSearch() // ❌ Wrong
+useNeynarUser() // ❌ Wrong
+```
+
+✅ **Correct**: Use actual hook names
+```tsx
+useUserSearch() // ✅ Correct
+useUser() // ✅ Correct
+```
+
+❌ **Wrong**: Treating infinite query data as flat array
+```tsx
+const { data: followers } = useUserFollowers(123);
+followers?.map(f => f.user); // ❌ Wrong - data.pages exists, not flat array!
+```
+
+✅ **Correct**: Flatten pages first
+```tsx
+const { data } = useUserFollowers(123);
+const followers = data?.pages.flatMap(page => page.items) || [];
+followers.map(f => f.user); // ✅ Now it's a flat array!
+```
+
+❌ **Wrong**: Using snake_case for parameters
+```tsx
+useChannelFeed("pokemon", { channel_ids: ["pokemon"] }); // ❌ Wrong
+useMultiChannelFeed({ channel_ids: ["pokemon", "base"] }); // ❌ Wrong
+useParentUrlFeed("https://...", { parent_urls: ["..."] }); // ❌ Wrong
+```
+
+✅ **Correct**: Always use camelCase for parameters
+```tsx
+useChannelFeed("pokemon"); // ✅ Correct - channelId in function signature
+useMultiChannelFeed(["pokemon", "base"]); // ✅ Correct - channelIds parameter
+useParentUrlFeed("https://..."); // ✅ Correct - parentUrls handled internally
+```
+
+**Rule**: ALL hook parameters use camelCase (e.g., `channelIds`, `parentUrls`, `appDomain`). The SDK handles conversion to snake_case for API calls internally.
+
+---
+
+## 📝 Detailed Documentation
+
+For complete type definitions, parameters, and examples:
+- **Hook details**: See `.llm/` folder - each hook has a dedicated `.llm.md` file
+- **Index**: [`sdk-items-registry.json`](.llm/sdk-items-registry.json)
+
+**Navigation**: Found your hook above? Check `.llm/use-{hook-name}.llm.md` for full docs.

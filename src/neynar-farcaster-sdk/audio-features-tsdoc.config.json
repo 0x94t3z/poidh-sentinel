@@ -1,0 +1,15 @@
+{
+  "projectName": "Neynar Audio Features SDK",
+  "description": "Complete audio system for Farcaster mini apps - sound effects and music synthesis",
+  "tiers": [
+    {
+      "name": "audio",
+      "indexFilePath": "src/neynar-farcaster-sdk/src/mini/features/audio/index.tsx",
+      "outputFolderPath": "src/neynar-farcaster-sdk/src/mini/features/audio/.llm",
+      "importPrefix": "@/neynar-farcaster-sdk/audio",
+      "description": "Audio hooks, components, and sound effects",
+      "cleanupStrategy": "preserveManual",
+      "preservePatterns": ["audio-system.llm.md"]
+    }
+  ]
+}

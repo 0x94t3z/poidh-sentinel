@@ -1,0 +1,14 @@
+{
+  "projectName": "Neynar Game Features SDK",
+  "description": "Comprehensive game development primitives for Farcaster mini apps",
+  "tiers": [
+    {
+      "name": "game",
+      "indexFilePath": "src/neynar-farcaster-sdk/src/mini/features/game/index.tsx",
+      "outputFolderPath": "src/neynar-farcaster-sdk/src/mini/features/game/.llm/api-reference",
+      "importPrefix": "@/neynar-farcaster-sdk/game",
+      "description": "Game development hooks, components, and utilities",
+      "cleanupStrategy": "full"
+    }
+  ]
+}

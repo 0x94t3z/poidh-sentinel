@@ -1,0 +1,35 @@
+{
+  "projectName": "Neynar Web SDK",
+  "description": "TypeScript SDK for Neynar web applications with client, server, and shared utilities",
+  "tiers": [
+    {
+      "name": "shared",
+      "indexFilePath": "src/neynar-web-sdk/src/shared/index.ts",
+      "outputFolderPath": "src/neynar-web-sdk/src/shared/.llm",
+      "importPrefix": "@/neynar-web-sdk",
+      "description": "Shared isomorphic utilities, components, and providers"
+    },
+    {
+      "name": "neynar",
+      "indexFilePath": "src/neynar-web-sdk/src/neynar/index.ts",
+      "outputFolderPath": "src/neynar-web-sdk/src/neynar/.llm",
+      "importPrefix": "@/neynar-web-sdk/neynar",
+      "description": "Neynar API hooks and components for Farcaster social network",
+      "sdkResponseTypesFilePath": "src/neynar-web-sdk/src/neynar/api-hooks/sdk-response-types.ts"
+    },
+    {
+      "name": "coingecko",
+      "indexFilePath": "src/neynar-web-sdk/src/coingecko/index.ts",
+      "outputFolderPath": "src/neynar-web-sdk/src/coingecko/.llm",
+      "importPrefix": "@/neynar-web-sdk/coingecko",
+      "description": "CoinGecko API hooks for cryptocurrency market data"
+    },
+    {
+      "name": "nextjs",
+      "indexFilePath": "src/neynar-web-sdk/src/nextjs/index.ts",
+      "outputFolderPath": "src/neynar-web-sdk/src/nextjs/.llm",
+      "importPrefix": "@/neynar-web-sdk/nextjs",
+      "description": "Next.js server-side API handlers and utilities"
+    }
+  ]
+}

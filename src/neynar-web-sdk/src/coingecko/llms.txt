@@ -1,0 +1,242 @@
+# CoinGecko API Hooks
+
+This directory contains TanStack Query-based React hooks for the CoinGecko cryptocurrency API.
+
+## Architecture Overview
+
+All API hooks follow consistent patterns:
+- **Query Hooks**: Use `useQuery` and `useInfiniteQuery` for data fetching
+- **Mutation Hooks**: Use `useMutation` for data modifications
+- **Proxy API Pattern**: All requests go through `/api/coingecko/[...route]` for CORS and security
+- **Automatic Caching**: Smart cache keys with hierarchical invalidation
+- **Error Handling**: Comprehensive error types and retry logic
+- **TypeScript Support**: Full type safety with parameter and response types
+
+## 📚 CRITICAL: READ DOCUMENTATION BEFORE USING
+
+**BEFORE using ANY hook from this tier, you MUST consult the documentation:**
+
+1. **Start here**: Read this llms.txt for overview of available hooks
+2. **Check the registry**: `src/neynar-web-sdk/src/coingecko/hooks/.llm/sdk-items-registry.json`
+   - Complete index of all 50+ CoinGecko hooks
+3. **Read detailed docs**: `src/neynar-web-sdk/src/coingecko/hooks/.llm/*.llm.md`
+   - Each hook has a dedicated .llm.md file with:
+     - Complete TypeScript signatures
+     - Parameter descriptions and types
+     - Usage examples and patterns
+     - Return type information
+     - Error handling patterns
+
+**Never guess how to use a hook - always check its .llm.md file first.**
+
+## Import Pattern
+
+All hooks are available from the main import:
+
+```typescript
+import { usePing, useCoinsMarkets, useCoin, coinGeckoQueryKeys } from '@/neynar-web-sdk/coingecko/hooks';
+```
+
+**CRITICAL**: Always import from `@/neynar-web-sdk/coingecko/hooks` NEVER from `@/neynar-web-sdk/coingecko/hooks/coingecko`
+
+## Available Hooks
+
+### API Health & Info
+- `usePing()` - Test API connectivity
+- `useKeyInfo()` - Get API key information
+
+### Cryptocurrency Data
+- `useCoinsList()` - Get all supported coins
+- `useCoinsMarkets()` - Get market data (infinite query)
+- `useCoin(id)` - Get detailed coin information
+- `useCoinMarketChart(id)` - Get price chart data
+- `useCoinOHLC(id)` - Get OHLC price data
+
+### Market Categories
+- `useCoinsCategories()` - Get market categories
+- `useCoinsCategoriesList()` - Get category list
+
+### Exchanges
+- `useExchanges()` - Get all exchanges
+- `useExchange(id)` - Get exchange details
+- `useExchangesList()` - Get exchanges list
+- `useExchangeTickers(id)` - Get exchange tickers
+- `useExchangeVolumeChart(id)` - Get exchange volume chart
+
+### Global Market Data
+- `useGlobal()` - Get global market statistics
+- `useGlobalMarketCapChart()` - Get global market cap chart
+- `useGlobalDefi()` - Get DeFi market data
+
+### Simple Price Data
+- `useSimplePrice(ids, vs_currencies)` - Get simple price data
+- `useTokenPrice(contract_address)` - Get token price by contract
+- `useSupportedVsCurrencies()` - Get supported currencies
+
+### Search & Discovery
+- `useSearch(query)` - Search coins, exchanges, categories
+- `useAssetPlatforms()` - Get supported asset platforms
+
+### Derivatives
+- `useDerivatives()` - Get derivatives data
+- `useDerivativesExchanges()` - Get derivatives exchanges
+- `useDerivativesExchange(id)` - Get derivatives exchange details
+
+### NFTs
+- `useNFT(id)` - Get NFT data
+- `useNFTsList()` - Get NFTs list
+- `useNFTsMarkets()` - Get NFT market data
+
+### On-Chain Data
+- `useOnchainCategories()` - Get on-chain categories
+- `useOnchainNetworks()` - Get supported networks
+- `useOnchainNetworkPools(network)` - Get network pools
+- `useOnchainSimpleTokenPrices()` - Get on-chain token prices
+
+### Companies & Treasury
+- `useCompaniesPublicTreasury()` - Get public company crypto holdings
+
+### Exchange Rates
+- `useExchangeRates()` - Get BTC exchange rates
+
+## Query Keys
+
+All hooks use hierarchical query keys from `coinGeckoQueryKeys` for consistent cache management:
+
+```typescript
+import { coinGeckoQueryKeys } from '@/neynar-web-sdk/coingecko/hooks';
+
+// Invalidate all coin queries
+queryClient.invalidateQueries({ queryKey: coinGeckoQueryKeys.coins.all });
+
+// Invalidate specific coin
+queryClient.invalidateQueries({ queryKey: coinGeckoQueryKeys.coins.detail(coinId) });
+```
+
+## Documentation
+
+Detailed TSDoc documentation for all hooks is available in the `.llm/` directory.
+Each hook includes:
+- Complete TypeScript signatures
+- Parameter descriptions
+- Usage examples
+- Return type information
+- Error handling patterns
+
+## Error Handling
+
+All hooks use standardized error handling with `ApiError` type providing:
+- HTTP status codes
+- Structured error messages
+- Request/response context
+- Network failure detection
+
+## Examples
+
+### Basic Usage
+```typescript
+function CoinPrice({ coinId }: { coinId: string }) {
+  const { data: coin, isLoading, error } = useCoin(coinId);
+  
+  if (isLoading) return <div>Loading...</div>;
+  if (error) return <div>Error: {error.message}</div>;
+  if (!coin) return <div>Coin not found</div>;
+  
+  return (
+    <div>
+      {coin.name}: ${coin.market_data?.current_price?.usd?.toLocaleString()}
+    </div>
+  );
+}
+```
+
+### Infinite Query
+```typescript
+function CoinsList() {
+  const {
+    data,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage
+  } = useCoinsMarkets({ vs_currency: 'usd', per_page: 20 });
+  
+  const coins = data?.pages.flatMap(page => page.items) || [];
+  
+  return (
+    <div>
+      {coins.map(coin => (
+        <div key={coin.id}>
+          {coin.name} ({coin.symbol?.toUpperCase()}): ${coin.current_price}
+        </div>
+      ))}
+      {hasNextPage && (
+        <button onClick={() => fetchNextPage()} disabled={isFetchingNextPage}>
+          Load More
+        </button>
+      )}
+    </div>
+  );
+}
+```
+
+### Simple Price Query
+```typescript
+function PriceDisplay() {
+  const { data: prices, isLoading } = useSimplePrice(
+    ['bitcoin', 'ethereum'],
+    ['usd', 'eur']
+  );
+  
+  if (isLoading) return <div>Loading prices...</div>;
+  
+  return (
+    <div>
+      <div>Bitcoin: ${prices?.bitcoin?.usd}</div>
+      <div>Ethereum: ${prices?.ethereum?.usd}</div>
+    </div>
+  );
+}
+```
+
+### API Health Check
+```typescript
+function APIStatus() {
+  const { data: ping, isLoading } = usePing();
+
+  return (
+    <div>
+      API Status: {isLoading ? 'Checking...' : ping?.gecko_says || 'Unknown'}
+    </div>
+  );
+}
+```
+
+## Advanced Features
+
+### Shared Base Hooks
+Common functionality is provided by base hooks in `shared/base-hooks.ts`:
+- `useApiQuery` - Universal query hook
+- `useApiMutation` - Universal mutation hook
+- `useApiInfiniteQuery` - Universal infinite query hook
+- `useApiQueryClient` - Query client access
+
+### Custom Options
+All hooks accept extended options for:
+- Custom cache behavior
+- Request configuration
+- Error retry logic
+- Background refetch settings
+
+### TypeScript Integration
+- Full type inference for parameters and responses
+- Comprehensive type exports for all API interfaces
+- Generic hooks with proper type constraints
+- Runtime type validation for critical paths
+
+## Performance Considerations
+
+- **Automatic Deduplication**: Multiple components using same query share requests
+- **Background Updates**: Stale data updates automatically in background
+- **Optimistic Updates**: Mutations can update cache immediately
+- **Selective Invalidation**: Hierarchical cache keys enable precise updates
+- **Memory Management**: Automatic cleanup of unused query data

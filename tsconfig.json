@@ -1,16 +1,82 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
-    "types": ["node"],
-    "outDir": "dist",
-    "rootDir": "src",
-    "strict": true,
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
+    "allowJs": true,
     "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
     "resolveJsonModule": true,
-    "forceConsistentCasingInFileNames": true,
-    "noEmitOnError": true
+    "isolatedModules": true,
+    "jsx": "preserve",
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "paths": {
+      "@/*": [
+        "./src/*"
+      ],
+      "@/config": [
+        "./src/config/*"
+      ],
+      "@/neynar-db-sdk": [
+        "./src/neynar-db-sdk/src"
+      ],
+      "@/neynar-db-sdk/db": [
+        "./src/neynar-db-sdk/src/db"
+      ],
+      "@/neynar-farcaster-sdk/mini": [
+        "./src/neynar-farcaster-sdk/src/mini"
+      ],
+      "@/neynar-farcaster-sdk/game": [
+        "./src/neynar-farcaster-sdk/src/mini/features/game"
+      ],
+      "@/neynar-farcaster-sdk/audio": [
+        "./src/neynar-farcaster-sdk/src/mini/features/audio"
+      ],
+      "@/neynar-farcaster-sdk/nextjs": [
+        "./src/neynar-farcaster-sdk/src/nextjs"
+      ],
+      "@/neynar-web-sdk": [
+        "./src/neynar-web-sdk/src/shared"
+      ],
+      "@/neynar-web-sdk/blockchain": [
+        "./src/neynar-web-sdk/src/blockchain"
+      ],
+      "@/neynar-web-sdk/neynar": [
+        "./src/neynar-web-sdk/src/neynar"
+      ],
+      "@/neynar-web-sdk/nextjs": [
+        "./src/neynar-web-sdk/src/nextjs"
+      ],
+      "@/neynar-scripts": [
+        "./scripts"
+      ],
+      "@/scripts": [
+        "./scripts"
+      ]
+    }
   },
-  "include": ["src/**/*.ts"]
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "src/neynar-web-sdk/src/coingecko/**/*",
+    "src/neynar-web-sdk/src/nextjs/coingecko/**/*"
+  ]
 }

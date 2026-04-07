@@ -1,0 +1,257 @@
+# Neynar Database SDK
+
+Database utilities for PostgreSQL with Drizzle ORM in Neynar miniapps.
+
+## When to Use This SDK
+
+**⚠️ CRITICAL: Read `.llm/rules/database-persistence.md` for complete guidance before using database features.**
+
+**Use this SDK when your app needs to:**
+- Store data that survives page refresh (game scores, user preferences, form submissions)
+- Share data across users (leaderboards, public content)
+- Query/filter/sort data (top 10 scores, user lists)
+- Persist user-generated content (posts, comments, bookmarks)
+
+**⚠️ REQUIRED FIRST STEP: Plan Your Data Model**
+
+BEFORE editing schema.ts or writing any database code:
+1. Read `.llm/rules/database-persistence.md` - it contains the data model planning guide
+2. Ask clarifying questions to understand data requirements (see database-persistence.md for examples)
+3. Propose your data model in plain English to the user
+4. Get user confirmation before proceeding to implementation
+
+**Decision: KV Store vs Custom Tables** (make this AFTER planning with user)
+- **KV Store** (built-in): Simple key-value data, single user preferences → Use `kvGet/kvSet` server actions immediately
+- **Custom Tables**: Structured data with multiple fields, queryable data → Edit schema.ts first, create server actions, run `npm run db:push`
+
+## Server Actions Pattern (REQUIRED)
+
+**All database operations use Next.js server actions.**
+
+Server actions are functions with `"use server"` that can be called from ANY component (client or server).
+
+### Built-in KV Store (Ready to Use)
+
+```typescript
+import { kvGet, kvSet } from '@/neynar-db-sdk';
+import { useState } from 'react';
+
+// Use in client components
+'use client';
+function MyComponent({ fid }: { fid: number }) {
+  const [theme, setTheme] = useState<string | null>(null);
+
+  const handleSave = async () => {
+    await kvSet(`user:${fid}:theme`, 'dark');
+    const savedTheme = await kvGet(`user:${fid}:theme`);
+    setTheme(savedTheme);
+  };
+
+  return <button onClick={handleSave}>Save Theme</button>;
+}
+
+// Use in server components
+async function MyServerComponent({ fid }: { fid: number }) {
+  const theme = await kvGet(`user:${fid}:theme`);
+  return <div>Theme: {theme ?? 'default'}</div>;
+}
+```
+
+## Adding Custom Tables
+
+⚠️ CRITICAL: Base schema only has `kv` table. To add custom tables, you MUST create server actions.
+
+**STEP 1: Edit schema.ts**
+Add your table to `src/db/schema.ts`:
+
+```typescript
+import { pgTable, uuid, integer, text, timestamp } from "drizzle-orm/pg-core";
+
+// Example: Game leaderboard table
+export const gameScores = pgTable("game_scores", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  fid: integer("fid").notNull(),
+  score: integer("score").notNull(),
+  username: text("username").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+```
+
+**STEP 2: Push to database and restart (IMMEDIATELY)**
+```bash
+npm run db:push
+```
+
+Then restart the dev server:
+```bash
+/dev-restart
+```
+
+**Why restart?** The database client is cached to prevent connection spam. After pushing schema changes, restart the dev server to reload the client with the new schema.
+
+The `npm run db:push` command:
+- Creates tables in PostgreSQL
+- Handles conflicts with --force (may lose data in dev)
+
+**STEP 3: Create server actions**
+Create `src/db/actions/game-actions.ts`:
+
+```typescript
+"use server";
+
+import { db } from "@/neynar-db-sdk/db";
+import { gameScores } from "@/db/schema";
+import { desc, eq } from "drizzle-orm";
+
+export async function saveGameScore(fid: number, score: number, username: string) {
+  await db.insert(gameScores).values({ fid, score, username });
+}
+
+export async function getTopScores(limit: number = 10) {
+  return db.select().from(gameScores).orderBy(desc(gameScores.score)).limit(limit);
+}
+
+export async function getUserBestScore(fid: number) {
+  const result = await db
+    .select()
+    .from(gameScores)
+    .where(eq(gameScores.fid, fid))
+    .orderBy(desc(gameScores.score))
+    .limit(1);
+  return result[0] ?? null;
+}
+```
+
+**STEP 4: Use in your app**
+
+```typescript
+'use client';
+import { saveGameScore, getTopScores } from "@/db/actions/game-actions"
+import { useState, useEffect } from 'react';
+
+function GameComponent({ fid, username }: { fid: number, username: string }) {
+  const [scores, setScores] = useState([]);
+
+  useEffect(() => {
+    getTopScores(10).then(setScores);
+  }, []);
+
+  const handleGameEnd = async (score: number) => {
+    await saveGameScore(fid, score, username);
+    const topScores = await getTopScores(10);
+    setScores(topScores);
+  };
+
+  return (
+    <div>
+      <button onClick={() => handleGameEnd(100)}>Save Score</button>
+      <ul>
+        {scores.map((s) => (
+          <li key={s.id}>{s.username}: {s.score}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+```
+
+## Migration Workflow
+
+**Every time you add/modify tables:**
+
+1. Edit `src/db/schema.ts`
+2. Run `npm run db:push`
+3. Run `/dev-restart` to reload database client
+4. Create server actions in `src/db/actions/`
+5. Use your server actions in components (import from @/db/actions/)
+
+## Available Built-in Server Actions
+
+**KV Store (Ready to use):**
+
+All KV functions are exported from `@/neynar-db-sdk` and can be used in any component (client or server).
+
+```typescript
+import { kvGet, kvSet, kvDelete, kvKeys, kvGetAll } from '@/neynar-db-sdk';
+```
+
+**Function Signatures:**
+
+```typescript
+/**
+ * Get a value from the KV store
+ * @param key - The key to retrieve
+ * @returns The stored value as a string, or null if not found
+ */
+kvGet(key: string): Promise<string | null>
+
+/**
+ * Set or update a value in the KV store
+ * @param key - The key to set
+ * @param value - The value to store (must be a string)
+ * @returns void
+ */
+kvSet(key: string, value: string): Promise<void>
+
+/**
+ * Delete a key from the KV store
+ * @param key - The key to delete
+ * @returns void
+ */
+kvDelete(key: string): Promise<void>
+
+/**
+ * Get all keys in the KV store
+ * @returns Array of all keys
+ */
+kvKeys(): Promise<string[]>
+
+/**
+ * Get all key-value pairs in the KV store
+ * @returns Array of objects with key and value properties
+ */
+kvGetAll(): Promise<Array<{ key: string; value: string }>>
+```
+
+**Usage Examples:**
+
+```typescript
+// Storing user preferences
+await kvSet(`user:${fid}:theme`, 'dark');
+const theme = await kvGet(`user:${fid}:theme`); // Returns 'dark' or null
+
+// Storing JSON data (stringify first)
+await kvSet(`user:${fid}:settings`, JSON.stringify({ notifications: true }));
+const settings = await kvGet(`user:${fid}:settings`);
+const parsed = settings ? JSON.parse(settings) : null;
+
+// Deleting data
+await kvDelete(`user:${fid}:theme`);
+
+// Getting all keys
+const allKeys = await kvKeys(); // ['user:123:theme', 'user:456:theme', ...]
+
+// Getting all data
+const allData = await kvGetAll(); // [{ key: 'user:123:theme', value: 'dark' }, ...]
+```
+
+**Key Naming Conventions:**
+
+- Use colons to namespace keys: `user:${fid}:preference`
+- Include FID for user-specific data: `user:${fid}:theme`
+- Use descriptive names: `app:featureFlag:newUI` not `flag1`
+
+**Limitations:**
+
+- Values must be strings (use JSON.stringify/parse for objects)
+- No built-in expiration (use timestamp in key name if needed)
+- No transactions (use custom tables for complex operations)
+
+**For Custom Tables:**
+- Create your own server actions in `src/db/actions/`
+- Use `db` from `@/neynar-db-sdk/db`, tables from `@/db/schema`
+- Import directly from `@/db/actions/*` in your components
+
+## Environment
+
+Requires DATABASE_URL (auto-provided). If not set, database operations are skipped.

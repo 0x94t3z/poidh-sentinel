@@ -1,0 +1,28 @@
+# Build outputs
+.next/
+out/
+build/
+dist/
+
+# Dependencies
+node_modules/
+
+# Generated docs
+src/neynar-web-sdk/src/*/llm-docs/
+src/neynar-farcaster-sdk/src/*/llm-docs/
+
+# Package files
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Logs
+*.log
+
+# IDEs
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

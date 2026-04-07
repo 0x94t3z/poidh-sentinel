@@ -1,0 +1,397 @@
+# Neynar Farcaster Mini App SDK - Core
+
+Core SDK for Farcaster mini app development - authentication, layouts, and essential components.
+
+## Import Path
+
+```tsx
+import {
+  useInitializeFarcasterApp,
+  useFarcasterUser,
+  useSDKReady,
+  MiniappHeader,
+  StandardMiniLayout,
+  UserAvatar,
+  ShareButton,
+  useShare,
+  getMiniAppMetadata
+} from '@/neynar-farcaster-sdk/mini';
+```
+
+## Overview
+
+This is the **core SDK** containing only the essential Farcaster integration and UI components. For feature-specific functionality (game development, audio system), see the feature SDKs below.
+
+## Documentation
+
+**API Reference Catalog**: `.llm/sdk-items-registry.json`
+
+This JSON file contains a searchable catalog of all core SDK exports. Each entry includes:
+- Import path and usage examples
+- Description and category
+- Link to detailed `.llm.md` file with full TSDoc documentation
+- Keywords for searching
+
+Navigate the registry to find hooks, components, and utilities, then reference the linked `.llm.md` files for complete API documentation.
+
+## Architecture
+
+The SDK uses **atom-based state management** (Jotai) with **manual initialization via hook**:
+
+1. **State Management**: Jotai atoms store Farcaster user state globally
+2. **Initialization**: Call `useInitializeFarcasterApp()` once at app root to populate atoms
+3. **Access**: Use hooks like `useFarcasterUser()` to access state
+
+**Key Points:**
+- No provider wrapper needed (just use the hook)
+- Atoms are internal - only hooks are public API
+- Initialization is explicit and controlled by user
+- State is global and accessible from any component
+
+## Core Features
+
+### Farcaster Integration
+
+**`useInitializeFarcasterApp()`** - Initialize SDK (call once in your providers wrapper component)
+
+What it does:
+- Calls `sdk.actions.ready()` to signal app is ready
+- Sets up back button navigation (if creator context exists)
+- Loads user context from Farcaster SDK
+- Populates internal atoms with user data
+- Handles errors gracefully (e.g., guest users)
+
+Usage:
+```tsx
+"use client";
+
+import { ReactNode } from "react";
+import { Provider as JotaiProvider } from "jotai";
+import { useInitializeFarcasterApp } from "@/neynar-farcaster-sdk/mini";
+
+export function AppInitializationAndProviders({ children }: { children: ReactNode }) {
+  useInitializeFarcasterApp();
+
+  return (
+    <JotaiProvider>
+      <YourOtherProviders>
+        {children}
+      </YourOtherProviders>
+    </JotaiProvider>
+  );
+}
+```
+
+**`useFarcasterUser()`** - Access current user data, loading state, errors
+
+Returns:
+```tsx
+{
+  data: Context.UserContext | null;  // User data or null for guests
+  isLoading: boolean;                // Loading state
+  error: string | null;              // Error message if any
+}
+```
+
+User context structure:
+```tsx
+type UserContext = {
+  fid: number;           // Farcaster ID
+  username: string;      // Username (e.g., "alice")
+  displayName: string;   // Display name (e.g., "Alice Smith")
+  pfpUrl: string;        // Profile picture URL
+  bio?: string;          // User bio
+};
+```
+
+Usage patterns:
+```tsx
+const { data: user, isLoading, error } = useFarcasterUser();
+
+// Always handle all states
+if (isLoading) return <Skeleton />;
+if (error) return <ErrorMessage error={error} />;
+if (!user) return <GuestView />;  // Guest users are valid!
+return <AuthenticatedView user={user} />;
+```
+
+**`useSDKReady()`** - Check if Farcaster SDK is ready
+
+Returns: `boolean` - true when SDK is initialized
+
+### Layout Components
+
+**`MiniappHeader`** - Consistent header with navigation
+- See `.llm/miniapp-header.llm.md` for full API
+
+**`StandardMiniLayout`** - Standard mini app layout wrapper
+- Fixed floating header with backdrop blur
+- Scrollable content area
+- Full width with padding
+
+### User Components
+
+**`UserAvatar`** - Farcaster user avatar display
+- Supports both Farcaster SDK and Neynar API user formats
+- Falls back to initials if no profile picture
+- Size variants: `size-6` (24px), `size-8` (32px), `size-12` (48px), `size-16` (64px)
+
+Usage:
+```tsx
+const { data: user } = useFarcasterUser();
+if (user) {
+  return <UserAvatar user={user} className="size-12" />;
+}
+```
+
+### Social Sharing
+
+**CRITICAL**: Share functionality uses `publicConfig.homeUrl` internally to ensure share URLs always point to the production domain (*.neynar.app) rather than dev/preview URLs.
+
+**`ShareButton`** - Pre-built button for sharing on Farcaster
+- Opens cast composer with app link embedded
+- Automatic production URL construction
+- Loading state handling
+- See `.llm/share-button.llm.md` for full API
+
+Usage:
+```tsx
+// Basic share
+<ShareButton text="Check out this app!" />
+
+// Share with custom path and callbacks
+<ShareButton
+  text="I scored 1000 points!"
+  path="/leaderboard"
+  onSuccess={(hash) => console.log("Shared!", hash)}
+>
+  Share Score
+</ShareButton>
+```
+
+**`useShare`** - Hook for custom share implementations
+- Returns `share()` function for cast composition
+- Uses production URL from `publicConfig.homeUrl`
+- See `.llm/use-share.llm.md` for full API
+
+Usage:
+```tsx
+const { share } = useShare();
+
+async function handleShare() {
+  const result = await share({
+    text: "Check out my score!",
+    path: "/leaderboard",
+  });
+  if (result.castHash) {
+    console.log("Cast created:", result.castHash);
+  }
+}
+```
+
+### Utilities
+
+**`getMiniAppMetadata()`** - Generate mini app metadata for Farcaster manifest
+- See `.llm/get-mini-app-metadata.llm.md` for full API
+
+## Feature SDKs
+
+For additional functionality, import from feature-specific paths:
+
+**Game Development**: `@/neynar-farcaster-sdk/game` (NOT `/mini/game`)
+- See: `features/game/llms.txt` for complete catalog
+- Comprehensive game primitives including scoring, timers, persistence, effects, power-ups, UI controls, animations, physics helpers, and more
+
+**Audio System**: `@/neynar-farcaster-sdk/audio` (NOT `/mini/audio`)
+- See: `features/audio/llms.txt` for complete catalog
+- Complete audio system including sound effects, music synthesis, volume controls, and more
+
+## Setup and Quick Start
+
+**Peer Dependencies:**
+- `jotai` - State management (used by SDK internally)
+- `@farcaster/miniapp-sdk` - Farcaster client SDK
+- `@neynar/ui` - UI components
+
+**Application Setup:**
+
+Your app must provide `JotaiProvider` (required by SDK) and any other providers your app needs:
+
+```tsx
+// src/components/app-initialization-and-providers.tsx
+"use client";
+
+import { ReactNode } from "react";
+import { Provider as JotaiProvider } from "jotai";
+import { useInitializeFarcasterApp } from "@/neynar-farcaster-sdk/mini";
+
+export function AppInitializationAndProviders({ children }: { children: ReactNode }) {
+  useInitializeFarcasterApp(); // Initialize SDK inside provider wrapper
+
+  return (
+    <JotaiProvider>
+      <YourOtherProvider1>
+        <YourOtherProvider2>
+          {children}
+        </YourOtherProvider2>
+      </YourOtherProvider1>
+    </JotaiProvider>
+  );
+}
+```
+
+**Why this pattern?**
+- `JotaiProvider` is required for SDK's internal atom state management
+- `useInitializeFarcasterApp()` must be called inside a client component with access to Jotai atoms
+- Nest any other providers your app needs (e.g., QueryClientProvider, ThemeProvider, etc.)
+
+**Complete Example:**
+
+```tsx
+// app/layout.tsx
+import { AppInitializationAndProviders } from "@/components/app-initialization-and-providers";
+
+export default function RootLayout({ children }) {
+  return (
+    <html>
+      <body>
+        <AppInitializationAndProviders>{children}</AppInitializationAndProviders>
+      </body>
+    </html>
+  );
+}
+```
+
+```tsx
+// src/features/app.tsx
+"use client";
+
+import {
+  useFarcasterUser,
+  StandardMiniLayout,
+  UserAvatar
+} from "@/neynar-farcaster-sdk/mini";
+
+export function App() {
+  const { data: user, isLoading, error } = useFarcasterUser();
+
+  return (
+    <StandardMiniLayout>
+      {isLoading ? (
+        <div>Loading...</div>
+      ) : error ? (
+        <div>Error: {error}</div>
+      ) : user ? (
+        <div className="flex items-center gap-3">
+          <UserAvatar user={user} className="size-12" />
+          <div>
+            <p className="font-semibold">{user.displayName}</p>
+            <p className="text-sm text-muted-foreground">@{user.username}</p>
+          </div>
+        </div>
+      ) : (
+        <div>Welcome, guest!</div>
+      )}
+      <YourAppContent />
+    </StandardMiniLayout>
+  );
+}
+```
+
+**Note:** `StandardMiniLayout` includes the header, so you don't need to add `MiniappHeader` separately.
+
+## Common Patterns
+
+### Pattern: Handle All User States
+
+Always handle loading, error, guest, and authenticated states:
+
+```tsx
+const { data, isLoading, error } = useFarcasterUser();
+
+if (isLoading) return <Skeleton />;
+if (error) return <Alert variant="destructive">{error}</Alert>;
+if (!data) return <GuestExperience />;  // Provide fallback for guests
+return <AuthenticatedExperience user={data} />;
+```
+
+### Pattern: Guest User Detection
+
+Provide alternative experience for guests instead of blocking them:
+
+```tsx
+const { data: user } = useFarcasterUser();
+
+if (!user) {
+  return (
+    <div>
+      <h2>Public Demo</h2>
+      <p>Open in Farcaster to save your progress and unlock full features!</p>
+      <PublicDemo />
+    </div>
+  );
+}
+
+return <PersonalizedContent user={user} />;
+```
+
+### Pattern: Safe Property Access
+
+Always use optional chaining when accessing user properties:
+
+```tsx
+const { data } = useFarcasterUser();
+const fid = data?.fid;
+const username = data?.username;
+const pfpUrl = data?.pfpUrl;
+```
+
+### Pattern: Loading States with Skeleton UI
+
+Provide proper loading states:
+
+```tsx
+const { data, isLoading } = useFarcasterUser();
+
+if (isLoading) {
+  return (
+    <div className="flex gap-4 p-4">
+      <Skeleton className="size-12 rounded-full" />
+      <div className="space-y-2">
+        <Skeleton className="h-4 w-32" />
+        <Skeleton className="h-3 w-24" />
+      </div>
+    </div>
+  );
+}
+
+return <UserProfile user={data} />;
+```
+
+## Best Practices
+
+1. **Call useInitializeFarcasterApp() Once**: Only in your providers/initialization wrapper component (client component with "use client"), never in child components
+2. **Handle All User States**: Loading, error, guest (null), and authenticated
+3. **Use Optional Chaining**: Always use `data?.property` when accessing user properties
+4. **Prefer Hooks**: Use `useFarcasterUser()` instead of direct atom access
+5. **Provide Guest Experience**: Don't block guest users - offer alternative experience
+6. **Separate Concerns**: Keep initialization in providers wrapper, use user data in components
+
+## Troubleshooting
+
+**User data is null:**
+- User opened app outside Farcaster client (as guest) - this is expected and valid, provide guest experience
+- `useInitializeFarcasterApp()` not called - ensure it's called in your providers/initialization wrapper component
+- Check error state with `useFarcasterUser().error` for additional context
+
+**SDK not ready:**
+- Use `useSDKReady()` to check if SDK is initialized before rendering
+- Combine with `isLoading` from `useFarcasterUser()` for complete loading state
+
+**TypeScript errors:**
+- Farcaster SDK user type: `Context.UserContext` from `@farcaster/miniapp-sdk`
+- UserAvatar supports both Farcaster SDK and Neynar API user formats
+
+**Back button not working:**
+- Back button only works if `publicConfig.fid` exists (creator context)
+- Automatically configured by `useInitializeFarcasterApp()` - no manual setup needed

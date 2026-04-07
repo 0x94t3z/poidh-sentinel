@@ -1,0 +1,117 @@
+# Neynar Web SDK - Shared (Isomorphic)
+
+Core utilities, components, and providers that work on both client and server.
+
+**Import Path**: `@/neynar-web-sdk`
+
+---
+
+## 📚 CRITICAL: READ DOCUMENTATION BEFORE USING
+
+**BEFORE using ANY utility, component, or provider from this tier, you MUST consult the documentation:**
+
+1. **Start here**: Read this llms.txt for overview
+2. **Check the registry**: `src/neynar-web-sdk/src/shared/.llm/sdk-items-registry.json`
+3. **Read detailed docs**: `src/neynar-web-sdk/src/shared/.llm/*.llm.md`
+
+**Never guess how to use something - always check its .llm.md file first.**
+
+---
+
+## Available Exports
+
+### UI Components
+
+**Experimental components (⚠️ API may change):**
+- `ExperimentalCastCard` - Full-featured Farcaster cast display component
+  - See: `.llm/experimental-cast-card.llm.md`
+
+### Utility Functions
+
+**Text formatting:**
+- `truncateEmail(email, maxLength?)` - Truncate email addresses for display
+  - See: `.llm/truncate-email.llm.md`
+- `truncateText(text, maxLength)` - Truncate any text to maximum length
+  - See: `.llm/truncate-text.llm.md`
+
+### Base Hooks (Advanced)
+
+These are low-level hooks used internally by the SDK. Most developers won't need them directly.
+
+- `useApiQuery` - Universal query hook wrapper
+- `useApiMutation` - Universal mutation hook wrapper
+- `useApiInfiniteQuery` - Universal infinite query hook wrapper
+- `useApiQueryClient` - Query client access
+
+### Types
+
+- `NeynarUser` - Re-exported Neynar user type for convenience
+  - See: `.llm/neynar-user.llm.md`
+
+---
+
+## Quick Import Reference
+
+```tsx
+// Components
+import { ExperimentalCastCard } from '@/neynar-web-sdk';
+
+// Utilities
+import {
+  truncateEmail,
+  truncateText
+} from '@/neynar-web-sdk';
+
+// Base hooks (advanced)
+import {
+  useApiQuery,
+  useApiMutation,
+  useApiInfiniteQuery,
+  useApiQueryClient
+} from '@/neynar-web-sdk';
+
+// Types
+import type { NeynarUser } from '@/neynar-web-sdk';
+```
+
+---
+
+## Usage Examples
+
+### Using Utilities
+
+```tsx
+import { truncateEmail, truncateText } from '@/neynar-web-sdk';
+
+function UserProfile({ email, bio }: Props) {
+  return (
+    <div>
+      <p>Email: {truncateEmail(email, 30)}</p>
+      <p>Bio: {truncateText(bio, 100)}</p>
+    </div>
+  );
+}
+```
+
+---
+
+## Documentation
+
+Detailed TSDoc documentation for all exports is available in the `.llm/` directory.
+Each item includes:
+- Complete TypeScript signatures
+- Parameter descriptions
+- Usage examples
+- Implementation patterns
+
+---
+
+## Architecture
+
+This shared tier is **isomorphic** - it works on both client and server:
+- ✅ Components render in React Server Components
+- ✅ Utilities work in server actions
+- ✅ Base hooks provide foundation for API hooks
+
+For server-only code, see `@/neynar-web-sdk/*/handlers` exports.
+For API hooks, see `@/neynar-web-sdk/*/hooks` exports.
