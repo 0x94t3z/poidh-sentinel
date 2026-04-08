@@ -19,6 +19,7 @@ export interface WebhookCastData {
   text: string;
   timestamp: string;
   mentioned_profiles?: Array<{ fid: number; username: string }>;
+  embeds?: Array<{ url?: string; cast_id?: { fid: number; hash: string } }>;
 }
 
 export interface WebhookPayload {
@@ -35,6 +36,7 @@ export interface AgentContext {
   castText: string;
   action: BountyAction;
   replyToBot?: boolean;
+  imageUrls?: string[];   // image embeds found in the cast or its parent
   bountyContext?: {
     bountyId?: string;
     name: string;

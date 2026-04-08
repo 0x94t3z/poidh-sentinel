@@ -71,19 +71,19 @@ async function _checkDeposits(): Promise<void> {
     const chain = state.chain ?? "arbitrum";
     if (chain === "degen") continue;
 
-    const requestedAmount = state.amountEth ?? CHAIN_CONFIG[chain].minAmount;
-    const matchingAmount = state.uniqueAmount ?? requestedAmount;
-
     const balanceKey = `${chain}:${walletAddress}`;
     const currentBalance = chainBalances.get(chain) ?? BigInt(0);
     const lastBalance = await getWalletBalance(balanceKey);
     const alreadyClaimed = claimedThisRun.get(chain) ?? BigInt(0);
     const availableBalance = currentBalance - alreadyClaimed;
+
+    // requestedAmount = intended bounty size (used for on-chain creation + announcement)
+    // matchingAmount  = what we expect to receive (uniqueAmount if set, else requestedAmount)
+    const requestedAmount = state.amountEth ?? CHAIN_CONFIG[chain].minAmount;
+    const matchingAmount = state.uniqueAmount ?? requestedAmount;
     const requiredWei = parseEther(matchingAmount);
 
-    console.log(
-      `[deposit-checker] thread=${threadHash.slice(0, 10)} balance=${formatEther(currentBalance)} last=${formatEther(lastBalance)} available=${formatEther(availableBalance)} required=${formatEther(requiredWei)} target=${matchingAmount}`,
-    );
+    console.log(`[deposit-checker] thread=${threadHash.slice(0,10)} balance=${formatEther(currentBalance)} last=${formatEther(lastBalance)} available=${formatEther(availableBalance)} required=${formatEther(requiredWei)} matching=${matchingAmount} requested=${requestedAmount}`);
 
     const sufficient = availableBalance >= requiredWei * 95n / 100n;
 
@@ -94,8 +94,9 @@ async function _checkDeposits(): Promise<void> {
         // If balance increased but still not enough, notify user
         if (currentBalance > lastBalance) {
           const depositEth = formatEther(currentBalance - lastBalance);
+          const baseNote = matchingAmount !== requestedAmount ? ` (base bounty amount ${requestedAmount} ETH)` : "";
           await publishReply({
-            text: `received ${depositEth} ETH — target for this request is ${matchingAmount} ETH${matchingAmount !== requestedAmount ? ` (base bounty amount ${requestedAmount} ETH)` : ""}. send the rest and i'll create the bounty.`,
+            text: `received ${depositEth} ETH — target for this request is ${matchingAmount} ETH${baseNote}. send the rest and i'll create the bounty.`,
             parentHash: castHash,
             signerUuid,
           });
