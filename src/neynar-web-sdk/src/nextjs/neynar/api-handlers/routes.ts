@@ -16,7 +16,11 @@ import type { NeynarAPIClient } from "@neynar/nodejs-sdk";
  * @param client - Instantiated NeynarAPIClient to bind to the routes
  * @returns RouteMap with all handlers bound to the client
  */
-export function buildNeynarRoutes(client: NeynarAPIClient): RouteMap {
+export function buildNeynarRoutes(
+  client: NeynarAPIClient,
+): RouteMap {
+  const clientAny = client as NeynarAPIClient &
+    Record<string, (...args: any[]) => any>;
   return {
     // Actions API
     "POST /actions/farcaster": async ({ body }) =>
@@ -76,7 +80,7 @@ export function buildNeynarRoutes(client: NeynarAPIClient): RouteMap {
     "POST /casts": async ({ body }) => client.publishCast(body as any),
     "GET /casts/search": async ({ query }) => client.searchCasts(query as any),
     "GET /casts/composer-actions": async ({ query }) =>
-      client.fetchComposerActions(query as any),
+      clientAny.fetchComposerActions(query as any),
     "GET /casts/embedded-url-metadata": async ({ query }) =>
       client.fetchEmbeddedUrlMetadata(query as any),
 
@@ -122,7 +126,7 @@ export function buildNeynarRoutes(client: NeynarAPIClient): RouteMap {
     "GET /feed/by-parent-urls": async ({ query }) =>
       client.fetchFeedByParentUrls(query as any),
     "GET /feed/frames-only": async ({ query }) =>
-      client.fetchFramesOnlyFeed(query as any),
+      clientAny.fetchFramesOnlyFeed(query as any),
 
     // Fname API
     "GET /fname/availability": async ({ query }) =>
@@ -130,29 +134,29 @@ export function buildNeynarRoutes(client: NeynarAPIClient): RouteMap {
 
     // Frames API
     "POST /frames/action": async ({ body }) =>
-      client.postFrameAction(body as any),
+      clientAny.postFrameAction(body as any),
     "POST /frames/action/developer-managed": async ({ body }) =>
-      client.postFrameActionDeveloperManaged(body as any),
+      clientAny.postFrameActionDeveloperManaged(body as any),
     "POST /frames/validate": async ({ body }) =>
-      client.validateFrameAction(body as any),
+      clientAny.validateFrameAction(body as any),
     "GET /frames/catalog": async ({ query }) =>
       client.fetchFrameCatalog(query as any),
     "GET /frames/meta-tags": async ({ query }) =>
-      client.fetchFrameMetaTagsFromUrl(query as any),
+      clientAny.fetchFrameMetaTagsFromUrl(query as any),
     "GET /frames/relevant": async ({ query }) =>
       client.fetchRelevantFrames(query as any),
     "GET /frames/search": async ({ query }) =>
       client.searchFrames(query as any),
     "GET /frames/analytics": async ({ query }) =>
-      client.fetchValidateFrameAnalytics(query as any),
+      clientAny.fetchValidateFrameAnalytics(query as any),
     "POST /frames/neynar": async ({ body }) =>
-      client.publishNeynarFrame(body as any),
+      clientAny.publishNeynarFrame(body as any),
     "PUT /frames/neynar": async ({ body }) =>
-      client.updateNeynarFrame(body as any),
+      clientAny.updateNeynarFrame(body as any),
     "DELETE /frames/neynar": async ({ body }) =>
-      client.deleteNeynarFrame(body as any),
+      clientAny.deleteNeynarFrame(body as any),
     "GET /frames/neynar/lookup": async ({ query }) =>
-      client.lookupNeynarFrame(query as any),
+      clientAny.lookupNeynarFrame(query as any),
     "GET /frames/notification-tokens": async ({ query }) =>
       client.fetchNotificationTokens(query as any),
     "POST /frames/notifications": async ({ body }) =>

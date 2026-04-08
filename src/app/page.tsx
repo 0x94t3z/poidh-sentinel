@@ -3,9 +3,13 @@ import { MiniApp } from "@/features/app/mini-app";
 import { getFarcasterPageMetadata } from "@/neynar-farcaster-sdk/nextjs";
 import { Metadata } from "next";
 
+type HomePageProps = {
+  searchParams: Record<string, string | string[] | undefined>;
+};
+
 export async function generateMetadata({
   searchParams,
-}: PageProps<"/">): Promise<Metadata> {
+}: HomePageProps): Promise<Metadata> {
   return getFarcasterPageMetadata({
     title: publicConfig.name,
     description: publicConfig.description,
@@ -14,7 +18,7 @@ export async function generateMetadata({
     splashImageUrl: publicConfig.splashImageUrl,
     splashBackgroundColor: publicConfig.splashBackgroundColor,
     buttonTitle: publicConfig.shareButtonTitle,
-    searchParams,
+    searchParams: Promise.resolve(searchParams),
   });
 }
 

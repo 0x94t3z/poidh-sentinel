@@ -52,3 +52,5 @@ core.[0-9]*
 .claude
 .llm
 .env*.local
+
+key.txt

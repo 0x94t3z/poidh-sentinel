@@ -422,10 +422,19 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
       const result = await pickWinner(bounty.name, bounty.description, claimData, details.createdAt);
 
       if (!result) {
-        await postReply(
-          getReplyTarget(bounty),
-          `reviewed ${claims.length} submission${claims.length !== 1 ? "s" : ""}, none met the criteria yet. keep trying!`,
-        );
+        // Avoid spamming the same "none met criteria" reply every cron cycle.
+        // Only post when claim count changed since the last stored snapshot.
+        const claimCountChanged = bounty.claimCount !== claims.length;
+        if (claimCountChanged) {
+          await postReply(
+            getReplyTarget(bounty),
+            `reviewed ${claims.length} submission${claims.length !== 1 ? "s" : ""}, none met the criteria yet. keep trying!`,
+          );
+        } else {
+          console.log(
+            `[bounty-loop] skipped no-valid reply for ${bounty.bountyId} (claim count unchanged: ${claims.length})`,
+          );
+        }
         await updateBounty(bounty.bountyId, { status: "open" });
         continue;
       }
