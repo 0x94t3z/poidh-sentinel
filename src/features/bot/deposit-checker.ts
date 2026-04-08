@@ -71,14 +71,19 @@ async function _checkDeposits(): Promise<void> {
     const chain = state.chain ?? "arbitrum";
     if (chain === "degen") continue;
 
+    const requestedAmount = state.amountEth ?? CHAIN_CONFIG[chain].minAmount;
+    const matchingAmount = state.uniqueAmount ?? requestedAmount;
+
     const balanceKey = `${chain}:${walletAddress}`;
     const currentBalance = chainBalances.get(chain) ?? BigInt(0);
     const lastBalance = await getWalletBalance(balanceKey);
     const alreadyClaimed = claimedThisRun.get(chain) ?? BigInt(0);
     const availableBalance = currentBalance - alreadyClaimed;
-    const requiredWei = parseEther(state.amountEth ?? CHAIN_CONFIG[chain].minAmount);
+    const requiredWei = parseEther(matchingAmount);
 
-    console.log(`[deposit-checker] thread=${threadHash.slice(0,10)} balance=${formatEther(currentBalance)} last=${formatEther(lastBalance)} available=${formatEther(availableBalance)} required=${formatEther(requiredWei)}`);
+    console.log(
+      `[deposit-checker] thread=${threadHash.slice(0, 10)} balance=${formatEther(currentBalance)} last=${formatEther(lastBalance)} available=${formatEther(availableBalance)} required=${formatEther(requiredWei)} target=${matchingAmount}`,
+    );
 
     const sufficient = availableBalance >= requiredWei * 95n / 100n;
 
@@ -90,7 +95,7 @@ async function _checkDeposits(): Promise<void> {
         if (currentBalance > lastBalance) {
           const depositEth = formatEther(currentBalance - lastBalance);
           await publishReply({
-            text: `received ${depositEth} ETH — still need ${state.amountEth ?? CHAIN_CONFIG[chain].minAmount} ETH total. send the rest and i'll create the bounty.`,
+            text: `received ${depositEth} ETH — target for this request is ${matchingAmount} ETH${matchingAmount !== requestedAmount ? ` (base bounty amount ${requestedAmount} ETH)` : ""}. send the rest and i'll create the bounty.`,
             parentHash: castHash,
             signerUuid,
           });
@@ -112,7 +117,7 @@ async function _checkDeposits(): Promise<void> {
       const { txHash, bountyId } = await createBountyOnChain(
         idea.name,
         idea.description,
-        state.amountEth ?? CHAIN_CONFIG[chain].minAmount,
+        requestedAmount,
         chain,
       );
 
@@ -123,7 +128,7 @@ async function _checkDeposits(): Promise<void> {
         txHash,
         name: idea.name,
         description: idea.description,
-        amountEth: state.amountEth ?? CHAIN_CONFIG[chain].minAmount,
+        amountEth: requestedAmount,
         chain,
         createdAt: new Date().toISOString(),
         castHash,
@@ -147,7 +152,7 @@ async function _checkDeposits(): Promise<void> {
           signerUuid,
         });
 
-        const channelAnnouncement = `new open bounty: "${idea.name}"\n\n${idea.description}\n\nreward: ${state.amountEth} ${config.currency} on ${config.label}. open bounty — anyone can add funds and vote on the winner.`;
+        const channelAnnouncement = `new open bounty: "${idea.name}"\n\n${idea.description}\n\nreward: ${requestedAmount} ${config.currency} on ${config.label}. open bounty — anyone can add funds and vote on the winner.`;
         const announcementHash = await publishCast({
           text: channelAnnouncement.slice(0, 1024),
           signerUuid,
@@ -176,7 +181,7 @@ async function _checkDeposits(): Promise<void> {
           signerUuid,
         });
 
-        const channelAnnouncement = `new open bounty: "${idea.name}"\n\n${idea.description}\n\nreward: ${state.amountEth} ${config.currency} on ${config.label}. tx: ${explorerUrl}`;
+        const channelAnnouncement = `new open bounty: "${idea.name}"\n\n${idea.description}\n\nreward: ${requestedAmount} ${config.currency} on ${config.label}. tx: ${explorerUrl}`;
         const announcementHash = await publishCast({
           text: channelAnnouncement.slice(0, 1024),
           signerUuid,
