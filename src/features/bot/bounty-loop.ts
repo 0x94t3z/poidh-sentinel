@@ -538,7 +538,7 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
           const creatorMention = bounty.creatorFid ? (await resolveFidToUsername(bounty.creatorFid)) : null;
           const tag = creatorMention ? `${creatorMention} ` : "";
           const daysOpen = Math.floor(age / (24 * 60 * 60 * 1000));
-          const nudgeText = `${tag}${daysOpen > 3 ? `${daysOpen} days` : "72h"} in — no submissions yet. bounty stays open until someone submits proof or you cancel it. to cancel and get your deposit back, reply "cancel bounty" and tag @${botUsername} in this thread.`;
+          const nudgeText = `${tag}${daysOpen > 3 ? `${daysOpen} days` : "72h"} in — no submissions yet. bounty stays open until someone submits proof or you cancel it. to cancel and get your deposit back, reply "cancel bounty" in this thread.`;
           // Only post in the announcement thread — the @mention notifies the creator
           await postReply(getReplyTarget(bounty), nudgeText, bountyLink);
           await updateBounty(bounty.bountyId, { lastCheckedAt: new Date().toISOString() });
@@ -547,7 +547,7 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
           const creatorMention = bounty.creatorFid ? (await resolveFidToUsername(bounty.creatorFid)) : null;
           const tag = creatorMention ? `${creatorMention} ` : "";
           const daysOpen = Math.floor(age / (24 * 60 * 60 * 1000));
-          const nudgeText = `${tag}${daysOpen} days open, still no submissions. share the link to attract submitters — or reply "cancel bounty" and tag @${botUsername} to cancel and get your deposit back.`;
+          const nudgeText = `${tag}${daysOpen} days open, still no submissions. share the link to attract submitters — or reply "cancel bounty" in this thread to cancel and get your deposit back.`;
           // Only post in the announcement thread — the @mention notifies the creator
           await postReply(getReplyTarget(bounty), nudgeText, bountyLink);
           await updateBounty(bounty.bountyId, { lastCheckedAt: new Date().toISOString() });
@@ -619,6 +619,7 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
         await updateBounty(bounty.bountyId, {
           status: "evaluating",
           winnerClaimId: result.winnerClaimId,
+          winnerIssuer,
           winnerTxHash: txHash,
           winnerReasoning: result.reasoning,
           allEvalResults: annotatedResults,
@@ -646,6 +647,7 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
         await updateBounty(bounty.bountyId, {
           status: "closed",
           winnerClaimId: result.winnerClaimId,
+          winnerIssuer,
           winnerTxHash: txHash,
           winnerReasoning: result.reasoning,
           allEvalResults: annotatedResults,
@@ -678,6 +680,7 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
         await updateBounty(bounty.bountyId, {
           status: "closed",
           winnerClaimId: result.winnerClaimId,
+          winnerIssuer,
           winnerTxHash: txHash,
           winnerReasoning: result.reasoning,
           allEvalResults: annotatedResults,

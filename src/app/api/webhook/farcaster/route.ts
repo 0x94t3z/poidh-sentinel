@@ -20,7 +20,7 @@ import {
 } from "@/features/bot/conversation-state";
 import { registerPendingPayment, getAllAwaitingPayment } from "@/features/bot/conversation-state-registry";
 import { markCastProcessed, pruneProcessedCasts, getBountyThread, updateBounty, getActiveBounty } from "@/db/actions/bot-actions";
-import { cancelBounty } from "@/features/bot/poidh-contract";
+import { cancelBounty, getTxExplorerUrl } from "@/features/bot/poidh-contract";
 import { resolveAddressesToUsernames, MIN_OPEN_DURATION_HOURS } from "@/features/bot/bounty-loop";
 import type { WebhookPayload, BotLogEntry } from "@/features/bot/types";
 
@@ -116,21 +116,48 @@ function extractImageUrls(embeds: Array<{ url?: string }>): string[] {
 async function reply(text: string, parentHash: string): Promise<void> {
   const signerUuid = process.env.BOT_SIGNER_UUID ?? "";
   if (!signerUuid) return;
-  const trimmed = text.slice(0, 400);
+  const trimmed = text.slice(0, 1024);
   await publishReply({ text: trimmed, parentHash, signerUuid });
 }
+
+// Resolve a FID to the best available ETH address for refunds.
+// Prefers first verified ETH address, falls back to custody address.
+// Returns null if neither is available — caller must block the operation.
+async function resolveFidToRefundAddress(fid: number): Promise<string | null> {
+  const apiKey = process.env.NEYNAR_API_KEY;
+  if (!apiKey) return null;
+  try {
+    const res = await fetch(`https://api.neynar.com/v2/farcaster/user/bulk?fids=${fid}`, {
+      headers: { "x-api-key": apiKey },
+    });
+    if (!res.ok) return null;
+    const data = await res.json() as {
+      users?: Array<{
+        custody_address?: string;
+        verified_addresses?: { eth_addresses?: string[] };
+      }>;
+    };
+    const user = data.users?.[0];
+    if (!user) return null;
+    return user.verified_addresses?.eth_addresses?.[0] ?? user.custody_address ?? null;
+  } catch {
+    return null;
+  }
+}
+
 
 // Detect cancel intent — must be explicit to avoid accidental triggers
 function isCancelRequest(text: string): boolean {
   const lower = text.toLowerCase().trim();
+  // Must mention both "cancel" and "bounty", OR use explicit cancel phrases
   return (
     lower.includes("cancel bounty") ||
     lower.includes("cancel this bounty") ||
     lower.includes("cancel the bounty") ||
-    lower.includes("cancel it") ||
-    lower.includes("cancell") || // common typo
+    lower.includes("cancell bounty") || // common typo
     (lower.includes("cancel") && lower.includes("refund")) ||
-    (lower.includes("cancel") && lower.includes("bounty"))
+    (lower.startsWith("cancel") && lower.includes("bounty")) ||
+    (lower.includes("bounty") && lower.includes("cancel"))
   );
 }
 
@@ -293,27 +320,29 @@ async function handleConversationFlow(
     }
 
     try {
-      // Look up creator FID so we can refund to their wallet
-      // Also guard against double-execution: if already closed, don't cancel again
+      // Guard against double-execution: if already closed, don't cancel again
       const bountyRecord = await getActiveBounty(bountyId);
       if (bountyRecord?.status === "closed") {
         await clearConversation(threadHash);
         return `"${bountyName}" is already closed — nothing to cancel.`;
       }
-      const creatorFid = bountyRecord?.creatorFid;
+      // Use the pre-resolved refund address stored during the confirmation prompt.
+      // This was already validated — if it was missing we blocked the cancel earlier.
+      const preResolvedAddress = state.cancelRefundAddress ?? null;
       // Use the stored bounty amount as the exact refund — this is what the creator put up
       // (bounty reward only, no fee). parseEther handles the string → wei conversion.
       const bountyAmountWei = bountyRecord?.amountEth ? parseEther(bountyRecord.amountEth) : undefined;
 
-      const { cancelTxHash, refundTxHash, method, refundAddress, externalContributors } = await cancelBounty(BigInt(bountyId), bountyChain, creatorFid, bountyAmountWei);
-      await updateBounty(bountyId, { status: "closed", winnerReasoning: "bounty cancelled by issuer" });
+      const { cancelTxHash, refundTxHash, method, refundAddress, externalContributors } = await cancelBounty(BigInt(bountyId), bountyChain, preResolvedAddress, bountyAmountWei);
+      await updateBounty(bountyId, { status: "closed", winnerReasoning: `bounty cancelled by @${state.authorUsername}` });
       await clearConversation(threadHash);
 
       const shortRefund = `${refundAddress.slice(0, 6)}...${refundAddress.slice(-4)}`;
       const chainCurrency = bountyChain === "degen" ? "DEGEN" : "ETH";
+      const cancelExplorerUrl = getTxExplorerUrl(bountyChain, cancelTxHash);
       const refundLine = refundTxHash
         ? `bounty amount sent to ${shortRefund}.`
-        : `couldn't resolve your wallet — ${chainCurrency} is held safely in the bot wallet. DM to arrange your refund.`;
+        : `${chainCurrency} held in bot wallet — DM to arrange refund.`;
 
       if (method === "cancelOpenBounty" && externalContributors.length > 0) {
         // Resolve contributor addresses to @usernames and post a follow-up ping
@@ -332,10 +361,10 @@ async function handleConversationFlow(
           }
         })();
 
-        return `"${bountyName}" cancelled — ${refundLine} pinging contributors to claim their refunds on poidh.xyz. cancel tx: ${cancelTxHash.slice(0, 18)}...`;
+        return `"${bountyName}" cancelled — ${refundLine} pinging contributors to claim their refunds on poidh.xyz.\n\n${cancelExplorerUrl}`;
       }
 
-      return `"${bountyName}" cancelled — ${refundLine} tx: ${cancelTxHash.slice(0, 18)}...`;
+      return `"${bountyName}" cancelled — ${refundLine}\n\n${cancelExplorerUrl}`;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       await clearConversation(threadHash);
@@ -459,8 +488,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     // --- Priority 2: direct reply to one of the bot's casts OR bounty thread ---
-    // Cancel request: user explicitly mentions bot + "cancel bounty" in the bounty thread
-    if (inBountyThread && bountyThread && mentioned && isCancelRequest(text)) {
+    // Cancel request: creator says "cancel bounty" in the bounty thread — @mention not required
+    // since the bot is already monitoring all replies in bounty threads
+    if (inBountyThread && bountyThread && isCancelRequest(text)) {
       // Check if already closed before starting the confirmation flow
       const existingBounty = await getActiveBounty(bountyThread.bountyId);
       if (existingBounty?.status === "closed") {
@@ -491,6 +521,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         return NextResponse.json({ ok: true });
       }
 
+      // Resolve refund address NOW — before asking for confirmation.
+      // If we can't resolve it we block the cancel rather than risk sending to the bot wallet.
+      const resolvedRefundAddress = await resolveFidToRefundAddress(author.fid);
+      if (!resolvedRefundAddress) {
+        const ownerHandle = process.env.BOT_OWNER_HANDLE ?? "0x94t3z.eth";
+        logEntry.action = "cancel_no_refund_address";
+        logEntry.replyText = "could not resolve refund address";
+        await reply(`couldn't resolve your wallet address — can't safely send the refund. DM @${ownerHandle} to arrange a manual cancel and refund.`, hash);
+        await appendLog(logEntry);
+        return NextResponse.json({ ok: true });
+      }
+
+      const shortRefund = `${resolvedRefundAddress.slice(0, 6)}...${resolvedRefundAddress.slice(-4)}`;
       const cancelState = {
         step: "awaiting_cancel_confirmation" as const,
         authorFid: author.fid,
@@ -498,12 +541,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         cancelBountyId: bountyThread.bountyId,
         cancelBountyChain: bountyThread.chain,
         cancelBountyName: bountyThread.bountyName,
+        cancelRefundAddress: resolvedRefundAddress,
         lastUpdated: new Date().toISOString(),
       };
       await setConversation(thread_hash, cancelState);
       if (hash !== thread_hash) await setConversation(hash, cancelState);
 
-      const cancelReply = `you want to cancel "${bountyThread.bountyName}"? this will close the bounty and refund the bounty amount to your wallet. reply "yes cancel" to confirm or "no" to keep it open.`;
+      const cancelReply = `you want to cancel "${bountyThread.bountyName}"? refund will go to ${shortRefund}. reply "yes cancel" to confirm or "no" to keep it open.`;
       logEntry.action = "cancel_bounty_confirmation";
       logEntry.replyText = cancelReply;
       await reply(cancelReply, hash);

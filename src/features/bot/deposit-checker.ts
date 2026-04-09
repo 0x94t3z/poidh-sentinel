@@ -1,21 +1,13 @@
 import "server-only";
 import { createPublicClient, http, formatEther, parseEther } from "viem";
 import { arbitrum, base, degen } from "viem/chains";
-import { getBotWalletAddress, createBountyOnChain, resolvePoidhUrl } from "@/features/bot/poidh-contract";
+import { getBotWalletAddress, createBountyOnChain, resolvePoidhUrl, getTxExplorerUrl } from "@/features/bot/poidh-contract";
 import { MIN_OPEN_DURATION_HOURS } from "@/features/bot/constants";
 import { setConversation, clearConversation, CHAIN_CONFIG, PLATFORM_FEE_PCT } from "@/features/bot/conversation-state";
 import { addActiveBounty } from "@/features/bot/bounty-store";
 import { publishReply, publishCast } from "@/features/bot/cast-reply";
 import { getWalletBalance, setWalletBalance, getAllAwaitingPayment, unregisterPendingPayment, registerBountyThread, updateBounty } from "@/db/actions/bot-actions";
 
-function buildExplorerUrl(chain: string, txHash: string): string {
-  const explorerMap: Record<string, string> = {
-    arbitrum: "https://arbiscan.io/tx",
-    base: "https://basescan.org/tx",
-    degen: "https://explorer.degen.tips/tx",
-  };
-  return `${explorerMap[chain] ?? "https://arbiscan.io/tx"}/${txHash}`;
-}
 
 function getViemChainConfig(chain: string) {
   if (chain === "base") return { viemChain: base, rpcUrl: process.env.BASE_RPC_URL ?? "https://mainnet.base.org" };
@@ -166,7 +158,7 @@ async function _checkDeposits(): Promise<void> {
         const submissionNote = isSolo
           ? `submissions open for ${MIN_OPEN_DURATION_HOURS}h — winner chosen directly by the creator.`
           : `submissions open for ${MIN_OPEN_DURATION_HOURS}h — anyone can submit proof or add funds. winner chosen by vote.`;
-        const channelAnnouncement = `new ${bountyLabel}: "${idea.name}"\n\n${idea.description}\n\nreward: ${requestedAmount} ${config.currency} on ${config.label}. ${submissionNote}\n\nto cancel this bounty, reply "cancel bounty" and tag @${process.env.BOT_USERNAME ?? "poidh-sentinel"}.`;
+        const channelAnnouncement = `new ${bountyLabel}: "${idea.name}"\n\n${idea.description}\n\nreward: ${requestedAmount} ${config.currency} on ${config.label}. ${submissionNote}\n\nto cancel this bounty, reply "cancel bounty" in this thread.`;
         const announcementHash = await publishCast({
           text: channelAnnouncement.slice(0, 1024),
           signerUuid,
@@ -188,7 +180,7 @@ async function _checkDeposits(): Promise<void> {
         });
       } else {
         // bountyId not resolved yet — post plain text with tx hash, no embed
-        const explorerUrl = buildExplorerUrl(chain, txHash);
+        const explorerUrl = getTxExplorerUrl(chain, txHash);
         await publishReply({
           text: `bounty tx confirmed — waiting for id to resolve. tx: ${explorerUrl}`,
           parentHash: castHash,
@@ -200,7 +192,7 @@ async function _checkDeposits(): Promise<void> {
         const submissionNoteFallback = isSoloFallback
           ? `submissions open for ${MIN_OPEN_DURATION_HOURS}h — winner chosen directly by the creator.`
           : `submissions open for ${MIN_OPEN_DURATION_HOURS}h — anyone can submit proof or add funds. winner chosen by vote.`;
-        const channelAnnouncement = `new ${bountyLabelFallback}: "${idea.name}"\n\n${idea.description}\n\nreward: ${requestedAmount} ${config.currency} on ${config.label}. ${submissionNoteFallback}\n\nto cancel this bounty, reply "cancel bounty" and tag @${process.env.BOT_USERNAME ?? "poidh-sentinel"}. tx: ${explorerUrl}`;
+        const channelAnnouncement = `new ${bountyLabelFallback}: "${idea.name}"\n\n${idea.description}\n\nreward: ${requestedAmount} ${config.currency} on ${config.label}. ${submissionNoteFallback}\n\nto cancel this bounty, reply "cancel bounty" in this thread. tx: ${explorerUrl}`;
         const announcementHash = await publishCast({
           text: channelAnnouncement.slice(0, 1024),
           signerUuid,

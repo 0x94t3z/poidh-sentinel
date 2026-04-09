@@ -267,6 +267,13 @@ async function getPoidhNftAddress(chain: string): Promise<`0x${string}` | null> 
   }
 }
 
+// Shared block explorer URL builder — used by webhook, deposit-checker, and bounty-loop
+export function getTxExplorerUrl(chain: string, txHash: string): string {
+  if (chain === "base") return `https://basescan.org/tx/${txHash}`;
+  if (chain === "degen") return `https://explorer.degen.tips/tx/${txHash}`;
+  return `https://arbiscan.io/tx/${txHash}`;
+}
+
 function getViemChain(chain: string) {
   if (chain === "base") return base;
   if (chain === "degen") return degen;
@@ -427,6 +434,32 @@ export async function getClaimsForBounty(bountyId: bigint, chain = "arbitrum") {
   return enriched;
 }
 
+// Fetch the issuer address of a specific claim by scanning getClaimsByBountyId pages.
+// Used to backfill winnerIssuer for old bounties that were closed before we persisted it.
+export async function getClaimIssuer(bountyId: bigint, claimId: bigint, chain = "arbitrum"): Promise<string | null> {
+  const publicClient = getPublicClient(chain);
+  const contractAddress = POIDH_CONTRACTS[chain] ?? POIDH_CONTRACT;
+  const ZERO_ADDR = "0x0000000000000000000000000000000000000000";
+  for (let page = 0; page < 10; page++) {
+    const cursor = BigInt(page * 10);
+    try {
+      const claims = await publicClient.readContract({
+        address: contractAddress,
+        abi: POIDH_ABI,
+        functionName: "getClaimsByBountyId",
+        args: [bountyId, cursor],
+      }) as unknown as Array<{ id: bigint; issuer: string }>;
+      const real = claims.filter((c) => c.id > BigInt(0) && c.issuer !== ZERO_ADDR);
+      const match = real.find((c) => c.id === claimId);
+      if (match) return match.issuer;
+      if (real.length < 10) break; // no more pages
+    } catch {
+      break;
+    }
+  }
+  return null;
+}
+
 export async function resolveBountyWinner(
   bountyId: bigint,
   claimId: bigint,
@@ -505,25 +538,6 @@ export async function resolveBountyWinner(
   throw new Error(`vote in progress, ${hoursLeft}h remaining until resolution`);
 }
 
-// Resolve a Farcaster FID to a verified custody address via Neynar
-async function resolveFidToCustodyAddress(fid: number): Promise<string | null> {
-  const apiKey = process.env.NEYNAR_API_KEY;
-  if (!apiKey) return null;
-  try {
-    const res = await fetch(`https://api.neynar.com/v2/farcaster/user/bulk?fids=${fid}`, {
-      headers: { "x-api-key": apiKey },
-    });
-    if (!res.ok) return null;
-    const data = await res.json() as { users?: Array<{ custody_address?: string; verified_addresses?: { eth_addresses?: string[] } }> };
-    const user = data.users?.[0];
-    if (!user) return null;
-    // Prefer first verified ETH address, fall back to custody address
-    return user.verified_addresses?.eth_addresses?.[0] ?? user.custody_address ?? null;
-  } catch {
-    return null;
-  }
-}
-
 // Cancel a bounty the bot created — uses cancelSoloBounty or cancelOpenBounty.
 //
 // REFUND MECHANICS (verified from contract ABI):
@@ -546,7 +560,7 @@ async function resolveFidToCustodyAddress(fid: number): Promise<string | null> {
 export async function cancelBounty(
   bountyId: bigint,
   chain = "arbitrum",
-  creatorFid?: number,
+  creatorRefundAddress?: string | null, // pre-resolved creator wallet — caller must validate before passing
   bountyAmountWei?: bigint, // exact bounty reward from DB — preferred over pendingWithdrawals delta
 ): Promise<{ cancelTxHash: string; withdrawTxHash: string; refundTxHash?: string; method: "cancelSoloBounty" | "cancelOpenBounty"; refundAddress: string; externalContributors: string[] }> {
   const publicClient = getPublicClient(chain);
@@ -643,23 +657,45 @@ export async function cancelBounty(
   // Step 2: plain native token transfer from bot wallet → creator wallet for exactly bountyRefundAmount.
   // ETH on arbitrum/base, DEGEN on degen chain. The poidh contract has no record of the original
   // depositor — refund is a direct sendTransaction outside the contract.
-  const creatorAddress = creatorFid ? await resolveFidToCustodyAddress(creatorFid) : null;
-  const refundAddress = creatorAddress ?? account.address;
+  //
+  // SAFETY INVARIANT: we NEVER send to the bot wallet address as a "refund".
+  // creatorRefundAddress is pre-resolved by the webhook before the confirmation prompt.
+  // If it was null/empty the cancel is blocked upstream — but we guard here too just in case.
+  const nativeCurrency = chain === "degen" ? "DEGEN" : "ETH";
 
-  let refundTxHash: string | undefined;
-  if (creatorAddress && creatorAddress.toLowerCase() !== account.address.toLowerCase()) {
-    refundTxHash = await client.sendTransaction({
-      to: creatorAddress as `0x${string}`,
-      value: bountyRefundAmount,
-      account,
-    });
-    await publicClient.waitForTransactionReceipt({ hash: refundTxHash as `0x${string}`, timeout: 60_000 });
-    const nativeCurrency = chain === "degen" ? "DEGEN" : "ETH";
-    console.log(`[poidh-contract] refund ${formatEther(bountyRefundAmount)} ${nativeCurrency} sent to creator ${creatorAddress} (FID ${creatorFid}): ${refundTxHash}`);
-  } else {
-    const nativeCurrency = chain === "degen" ? "DEGEN" : "ETH";
-    console.warn(`[poidh-contract] no creator address resolved for FID ${creatorFid} — ${formatEther(bountyRefundAmount)} ${nativeCurrency} stays in bot wallet`);
+  const isValidRefundTarget =
+    creatorRefundAddress &&
+    creatorRefundAddress.startsWith("0x") &&
+    creatorRefundAddress.length === 42 &&
+    creatorRefundAddress.toLowerCase() !== account.address.toLowerCase();
+
+  if (!isValidRefundTarget) {
+    // This should never happen in normal flow — means the caller didn't validate upfront.
+    // Do NOT send to bot wallet. Hold the funds and surface the error clearly.
+    console.error(
+      `[poidh-contract] SAFETY BLOCK: refusing to send refund — invalid or bot-wallet address: "${creatorRefundAddress}". ` +
+      `${formatEther(bountyRefundAmount)} ${nativeCurrency} stays in bot wallet pending manual resolution.`
+    );
+    return {
+      cancelTxHash,
+      withdrawTxHash,
+      refundTxHash: undefined,
+      method: functionName,
+      refundAddress: creatorRefundAddress ?? account.address,
+      externalContributors: [],
+    };
   }
+
+  const refundAddress = creatorRefundAddress;
+  let refundTxHash: string | undefined;
+
+  refundTxHash = await client.sendTransaction({
+    to: refundAddress as `0x${string}`,
+    value: bountyRefundAmount,
+    account,
+  });
+  await publicClient.waitForTransactionReceipt({ hash: refundTxHash as `0x${string}`, timeout: 60_000 });
+  console.log(`[poidh-contract] refund ${formatEther(bountyRefundAmount)} ${nativeCurrency} sent to ${refundAddress}: ${refundTxHash}`);
 
   // Collect external contributor addresses (all participants except the bot itself)
   // These must claim their own refund on poidh.xyz via claimRefundFromCancelledOpenBounty

@@ -47,15 +47,9 @@ export interface AgentContext {
     winnerClaimId?: string;
     winnerIssuer?: string;
     winnerReasoning?: string;
-    // Per-claim evaluation results used for follow-up explanations in thread replies
-    allEvalResults?: Array<{
-      claimId: string;
-      score: number;
-      valid: boolean;
-      reasoning: string;
-      issuer?: string;
-      issuerUsername?: string;
-    }>;
+    // Per-claim evaluation results — used to explain rejections in thread replies
+    // issuer = EVM wallet address of submitter; issuerUsername = resolved @farcaster handle
+    allEvalResults?: Array<{ claimId: string; score: number; valid: boolean; reasoning: string; issuer?: string; issuerUsername?: string }>;
   };
 }
 

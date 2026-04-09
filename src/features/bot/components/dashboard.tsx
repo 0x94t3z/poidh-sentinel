@@ -17,12 +17,15 @@ interface ActiveBounty {
   status: "open" | "evaluating" | "closed";
   claimCount: number;
   winnerClaimId?: string;
+  winnerIssuer?: string;
+  winnerUsername?: string | null;
   winnerTxHash?: string;
   winnerReasoning?: string;
 }
 
 interface LogsResponse {
   logs: BotLogEntry[];
+  total: number;
   stats: {
     total: number;
     success: number;
@@ -73,7 +76,7 @@ export function Dashboard({ botUsername }: { botUsername: string }) {
   const fetchAll = useCallback(async () => {
     try {
       const [logsRes, bountiesRes] = await Promise.all([
-        fetch("/api/bot/logs"),
+        fetch("/api/bot/logs?limit=10"),
         fetch("/api/bot/bounties"),
       ]);
       const logsJson = (await logsRes.json()) as LogsResponse;
@@ -96,6 +99,18 @@ export function Dashboard({ botUsername }: { botUsername: string }) {
 
   const openBounties = bounties.filter((b) => b.status === "open").length;
   const currency = (b: ActiveBounty) => CHAIN_CURRENCY[b.chain] ?? "ETH";
+
+  const STATUS_ORDER: Record<string, number> = { open: 0, evaluating: 1, closed: 2 };
+  const sortedBounties = [...bounties].sort((a, b) => {
+    const aOrder = a.winnerReasoning?.startsWith("bounty cancelled by") ? 3 : (STATUS_ORDER[a.status] ?? 2);
+    const bOrder = b.winnerReasoning?.startsWith("bounty cancelled by") ? 3 : (STATUS_ORDER[b.status] ?? 2);
+    return aOrder - bOrder;
+  });
+
+  const [showAllBounties, setShowAllBounties] = useState(false);
+  const BOUNTIES_INITIAL = 5;
+  const visibleBounties = showAllBounties ? sortedBounties : sortedBounties.slice(0, BOUNTIES_INITIAL);
+  const hasMoreBounties = sortedBounties.length > BOUNTIES_INITIAL;
 
   return (
     <div className="min-h-dvh bg-[#0a0a0a] text-white font-mono">
@@ -150,16 +165,16 @@ export function Dashboard({ botUsername }: { botUsername: string }) {
                 <p className="text-gray-600 text-[10px] mt-1">mention @{botUsername} to create one</p>
               </div>
             ) : (
-              bounties.map((b) => {
+              visibleBounties.map((b) => {
                 const isPending = b.bountyId.startsWith("pending-");
                 return (
                   <div key={b.bountyId} className="px-4 py-3">
                     <div className="flex items-start justify-between gap-2 mb-1">
                       <p className="text-white text-xs font-bold leading-snug flex-1">{b.name}</p>
                       <div className="flex items-center gap-1.5 shrink-0">
-                        <span className={`inline-block w-1.5 h-1.5 rounded-full mt-0.5 ${STATUS_DOT[b.winnerReasoning === "bounty cancelled by issuer" ? "cancelled" : b.status] ?? "bg-gray-600"}`} />
-                        <span className={`text-[10px] font-bold ${STATUS_COLOR[b.winnerReasoning === "bounty cancelled by issuer" ? "cancelled" : b.status] ?? "text-gray-500"}`}>
-                          {b.winnerReasoning === "bounty cancelled by issuer" ? "CANCELLED" : b.status.toUpperCase()}
+                        <span className={`inline-block w-1.5 h-1.5 rounded-full mt-0.5 ${STATUS_DOT[b.winnerReasoning?.startsWith("bounty cancelled by") ? "cancelled" : b.status] ?? "bg-gray-600"}`} />
+                        <span className={`text-[10px] font-bold ${STATUS_COLOR[b.winnerReasoning?.startsWith("bounty cancelled by") ? "cancelled" : b.status] ?? "text-gray-500"}`}>
+                          {b.winnerReasoning?.startsWith("bounty cancelled by") ? "CANCELLED" : b.status.toUpperCase()}
                         </span>
                       </div>
                     </div>
@@ -189,12 +204,41 @@ export function Dashboard({ botUsername }: { botUsername: string }) {
                         </a>
                       )}
                     </div>
-                    {b.winnerReasoning && (
-                      <p className="text-amber-400 text-[10px] mt-1.5 italic leading-relaxed">{b.winnerReasoning}</p>
+                    {/* Winner row — show on closed non-cancelled bounties */}
+                    {b.status === "closed" && b.winnerIssuer && !b.winnerReasoning?.startsWith("bounty cancelled by") && (
+                      <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                        <span className="text-[10px]">🏆</span>
+                        <span className="text-amber-400 text-[10px] font-mono">
+                          {b.winnerUsername ? `@${b.winnerUsername}` : `${b.winnerIssuer.slice(0, 6)}…${b.winnerIssuer.slice(-4)}`}
+                        </span>
+                        {b.winnerReasoning && (
+                          <>
+                            <span className="text-amber-600 text-[10px]">·</span>
+                            <span className="text-amber-400 text-[10px] italic">{b.winnerReasoning}</span>
+                          </>
+                        )}
+                      </div>
+                    )}
+                    {/* Cancelled reason */}
+                    {b.winnerReasoning?.startsWith("bounty cancelled by") && (
+                      <div className="flex items-center gap-1.5 mt-1.5">
+                        <span className="text-[10px]">✕</span>
+                        <span className="text-red-400 text-[10px] font-mono italic">{b.winnerReasoning}</span>
+                      </div>
                     )}
                   </div>
                 );
               })
+            )}
+            {hasMoreBounties && (
+              <button
+                onClick={() => setShowAllBounties((v) => !v)}
+                className="w-full px-4 py-2.5 text-[11px] font-mono text-gray-500 hover:text-green-400 transition-colors border-t border-white/5"
+              >
+                {showAllBounties
+                  ? "show less ↑"
+                  : `show ${sortedBounties.length - BOUNTIES_INITIAL} more ↓`}
+              </button>
             )}
           </div>
         </section>
@@ -249,7 +293,7 @@ export function Dashboard({ botUsername }: { botUsername: string }) {
                 ))}
               </div>
             ) : (
-              <ActivityFeed logs={data?.logs ?? []} botUsername={botUsername} />
+              <ActivityFeed logs={data?.logs ?? []} total={data?.total ?? 0} totalErrors={data?.stats?.errors ?? 0} botUsername={botUsername} />
             )}
           </div>
         </section>
@@ -259,7 +303,7 @@ export function Dashboard({ botUsername }: { botUsername: string }) {
           <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-4 space-y-2">
             <p className="text-amber-400 text-xs font-bold">fund the bot wallet</p>
             <p className="text-gray-400 text-xs leading-relaxed">
-              set <span className="text-amber-300">BOT_WALLET_PRIVATE_KEY</span> in deployment env. fund with at least 0.005 ETH on arbitrum or base for gas.
+              send gas to the bot wallet address shown above — ETH on arbitrum/base, DEGEN on degen chain. 0.005 ETH or ~500 DEGEN is enough for hundreds of transactions.
             </p>
             <p className="text-gray-500 text-xs leading-relaxed">
               anyone can top up an open bounty directly on poidh.xyz — just find the bounty and add funds.

@@ -39,18 +39,12 @@ function formatBountyDate(unixSeconds: bigint | number | undefined): string | nu
 
 export interface EvaluationResult {
   claimId: string;
+  issuer?: string;      // EVM wallet address of the submitter
   score: number;        // 0-100
   valid: boolean;
   reasoning: string;
   deterministicScore?: number;  // pre-filter score for transparency
-  issuer?: string;
-  issuerUsername?: string;
-  openaiVisionCost?: {
-    model: string;
-    inputTokens: number;
-    outputTokens: number;
-    estimatedCostUsd: number;
-  } | null;
+  openaiVisionCost?: { promptTokens: number; completionTokens: number; estimatedCostUsd: number };
 }
 
 // ---------------------------------------------------------------------------
@@ -303,7 +297,12 @@ async function describeImageWithGroq(imageData: { dataUrl: string; mimeType: str
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) return null;
 
-  const textPrompt = `you are verifying a submission for a real-world bounty. bounty: "${bountyName}". requirements: "${bountyDescription}". describe what you see in this image in 1-2 sentences. be specific about: what text is visible, what action is happening, where it is, whether it looks real/unedited, and whether it matches the bounty requirements.`;
+  const textPrompt = `you are verifying a submission for a real-world bounty.
+
+bounty: "${bountyName}"
+requirements: "${bountyDescription}"
+
+describe what you see in this image in 2-3 sentences. you MUST specifically address each requirement from the bounty description above — check each one explicitly. mention: every word or piece of text visible in the image, whether it is indoors or outdoors, what action or scene is depicted, and whether the image appears real/unedited. be as specific as possible about what text is written and what is missing.`;
 
   const groqModels = [
     "meta-llama/llama-4-scout-17b-16e-instruct",
@@ -355,11 +354,16 @@ async function describeImageWithGroq(imageData: { dataUrl: string; mimeType: str
 }
 
 
-async function describeImageWithOpenAI(imageData: { dataUrl: string }, bountyName: string, bountyDescription: string): Promise<string | null> {
+async function describeImageWithOpenAI(imageData: { dataUrl: string }, bountyName: string, bountyDescription: string): Promise<{ content: string; promptTokens: number; completionTokens: number; estimatedCostUsd: number } | null> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return null;
 
-  const textPrompt = `you are verifying a submission for a real-world bounty. bounty: "${bountyName}". requirements: "${bountyDescription}". describe what you see in this image in 1-2 sentences. be specific about: what text is visible, what action is happening, where it is, whether it looks real/unedited, and whether it matches the bounty requirements.`;
+  const textPrompt = `you are verifying a submission for a real-world bounty.
+
+bounty: "${bountyName}"
+requirements: "${bountyDescription}"
+
+describe what you see in this image in 2-3 sentences. you MUST specifically address each requirement from the bounty description above — check each one explicitly. mention: every word or piece of text visible in the image, whether it is indoors or outdoors, what action or scene is depicted, and whether the image appears real/unedited. be as specific as possible about what text is written and what is missing.`;
 
   try {
     const res = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -369,7 +373,7 @@ async function describeImageWithOpenAI(imageData: { dataUrl: string }, bountyNam
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
+        model: "gpt-4o",
         messages: [{
           role: "user",
           content: [
@@ -384,11 +388,18 @@ async function describeImageWithOpenAI(imageData: { dataUrl: string }, bountyNam
     });
 
     if (res.ok) {
-      const data = (await res.json()) as { choices: Array<{ message: { content: string } }> };
+      const data = (await res.json()) as {
+        choices: Array<{ message: { content: string } }>;
+        usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+      };
       const content = data.choices?.[0]?.message?.content?.trim();
       if (content) {
-        console.log(`[evaluator] openai vision (gpt-4o-mini): ${content.slice(0, 100)}`);
-        return content;
+        const promptTokens = data.usage?.prompt_tokens ?? 0;
+        const completionTokens = data.usage?.completion_tokens ?? 0;
+        // gpt-4o pricing: $2.50/1M input, $10/1M output
+        const estimatedCostUsd = (promptTokens * 0.0000025) + (completionTokens * 0.00001);
+        console.log(`[evaluator] openai vision (gpt-4o): ${content.slice(0, 100)} | tokens=${promptTokens}+${completionTokens} cost=$${estimatedCostUsd.toFixed(4)}`);
+        return { content, promptTokens, completionTokens, estimatedCostUsd };
       }
     } else {
       console.warn(`[evaluator] openai vision returned ${res.status}: ${await res.text().catch(() => "")}`);
@@ -399,7 +410,11 @@ async function describeImageWithOpenAI(imageData: { dataUrl: string }, bountyNam
   return null;
 }
 
+// Tracks OpenAI vision cost for the current evaluation (reset per claim)
+let _lastOpenAIVisionCost: { promptTokens: number; completionTokens: number; estimatedCostUsd: number } | null = null;
+
 async function describeImageWithVision(imageUrl: string, bountyName: string, bountyDescription: string): Promise<string | null> {
+  _lastOpenAIVisionCost = null;
   const imageData = await fetchImageAsBase64(imageUrl);
   if (!imageData) {
     console.warn(`[evaluator] could not fetch image as base64: ${imageUrl.slice(0, 60)}`);
@@ -410,16 +425,28 @@ async function describeImageWithVision(imageUrl: string, bountyName: string, bou
   const groqResult = await describeImageWithGroq(imageData, bountyName, bountyDescription);
   if (groqResult) return groqResult;
 
-  // Tier 2: OpenAI gpt-4o-mini (reliable, excellent text reading)
+  // Tier 2: OpenAI gpt-4o (reliable, best vision quality)
   const openaiResult = await describeImageWithOpenAI(imageData, bountyName, bountyDescription);
-  if (openaiResult) return openaiResult;
+  if (openaiResult) {
+    _lastOpenAIVisionCost = {
+      promptTokens: openaiResult.promptTokens,
+      completionTokens: openaiResult.completionTokens,
+      estimatedCostUsd: openaiResult.estimatedCostUsd,
+    };
+    return openaiResult.content;
+  }
 
   // Tier 3: OpenRouter free models fallback
   const openrouterKey = process.env.OPENROUTER_API_KEY;
   if (!openrouterKey) return null;
 
   const imageContent = { type: "image_url" as const, image_url: { url: imageData.dataUrl } };
-  const textPrompt = `you are verifying a submission for a real-world bounty. bounty: "${bountyName}". requirements: "${bountyDescription}". describe what you see in this image in 1-2 sentences. be specific about: what text is visible, what action is happening, where it is, whether it looks real/unedited, and whether it matches the bounty requirements.`;
+  const textPrompt = `you are verifying a submission for a real-world bounty.
+
+bounty: "${bountyName}"
+requirements: "${bountyDescription}"
+
+describe what you see in this image in 2-3 sentences. you MUST specifically address each requirement from the bounty description above — check each one explicitly. mention: every word or piece of text visible in the image, whether it is indoors or outdoors, what action or scene is depicted, and whether the image appears real/unedited. be as specific as possible about what text is written and what is missing.`;
 
   const visionModels = [
     "qwen/qwen3.6-plus:free",
@@ -590,6 +617,7 @@ export async function evaluateClaim(
     console.log(`[evaluator] claim ${claim.id} rejected by deterministic pre-filter (score=${detScore})`);
     return {
       claimId: claim.id,
+      issuer: claim.issuer,
       score: 0,
       valid: false,
       reasoning: "submission doesn't match bounty requirements",
@@ -602,8 +630,16 @@ export async function evaluateClaim(
 
   // --- Step 3: LLM final evaluation ---
   const bountyDate = formatBountyDate(bountyCreatedAt);
+  // Compute the deadline date (creation + 72h) so we can accept submissions from any day in the window
+  const bountyDeadlineDate = bountyCreatedAt
+    ? formatBountyDate(
+        typeof bountyCreatedAt === "bigint"
+          ? bountyCreatedAt + BigInt(72 * 3600)
+          : Number(bountyCreatedAt) + 72 * 3600,
+      )
+    : null;
   const dateContext = bountyDate
-    ? `\nIMPORTANT: this bounty was created on ${bountyDate}. if the bounty requires "today's date", the correct date is ${bountyDate}. evaluate submissions against this date, not the current date.`
+    ? `\nIMPORTANT: this bounty was created on ${bountyDate} and is open for 72 hours (until ${bountyDeadlineDate ?? "72h later"}). if the bounty requires "today's date", any date from ${bountyDate} through ${bountyDeadlineDate ?? "72h after creation"} is valid — do NOT reject a submission just because it shows a date one or two days after the creation date. evaluate against this window, not the current date.`
     : "";
 
   const prompt = `you are evaluating a submission for a real-world bounty on poidh (pics or it didn't happen).
@@ -642,10 +678,12 @@ respond with ONLY a JSON object (no markdown, no explanation outside the JSON):
 
     return {
       claimId: claim.id,
+      issuer: claim.issuer,
       score: Math.max(0, Math.min(100, Number(parsed.score) || 0)),
       valid: Boolean(parsed.valid),
       reasoning: String(parsed.reasoning ?? "").slice(0, 150),
       deterministicScore: detScore,
+      openaiVisionCost: _lastOpenAIVisionCost ?? undefined,
     };
   } catch {
     // All LLMs exhausted — fall back to deterministic score as a proxy
@@ -655,6 +693,7 @@ respond with ONLY a JSON object (no markdown, no explanation outside the JSON):
     console.warn(`[evaluator] claim ${claim.id} — all LLMs failed, using deterministic fallback score=${fallbackScore}`);
     return {
       claimId: claim.id,
+      issuer: claim.issuer,
       score: fallbackScore,
       valid: fallbackValid,
       reasoning: proofSummary.startsWith("OCR TEXT") || proofSummary.startsWith("VISION")

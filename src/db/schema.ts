@@ -98,9 +98,9 @@ export const botLog = pgTable("bot_log", {
   status: text("status").notNull(),            // success | error
   errorMessage: text("error_message"),
   txHash: text("tx_hash"),
-}, (t) => ({
-  botLogTimestampIdx: index("bot_log_timestamp_idx").on(t.timestamp),
-}));
+}, (t) => [
+  index("bot_log_timestamp_idx").on(t.timestamp),
+]);
 
 // Processed webhook casts — prevents duplicate replies across serverless instances
 // Row inserted atomically on first receipt; duplicate deliveries fail the insert and are skipped

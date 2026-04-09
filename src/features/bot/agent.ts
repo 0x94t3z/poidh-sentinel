@@ -83,7 +83,7 @@ key facts about poidh:
 - bounty link format: poidh.xyz/{chain}/bounty/{id}
 - do NOT invent rules beyond what's above — if unsure, say "check poidh.xyz for details"
 - ALWAYS call bounties "open bounties" — NEVER use the word "single" to describe a bounty type. poidh only creates open bounties.
-- cancellation: only the bounty issuer (this bot) can cancel. if anyone asks how to cancel, tell them to reply "cancel bounty" and tag @${BOT_USERNAME} in the bounty announcement thread. the contract automatically refunds all contributors when an open bounty is cancelled. cancellation is blocked while a community vote is in progress — must wait for the vote to resolve first.
+- cancellation: only the bounty issuer (this bot) can cancel. if anyone asks how to cancel, tell them to reply "cancel bounty" in the bounty announcement thread — no @mention required. the contract automatically refunds all contributors when an open bounty is cancelled. cancellation is blocked while a community vote is in progress — must wait for the vote to resolve first.
 - no submissions after ${MIN_OPEN_DURATION_HOURS}h: the bounty stays open indefinitely — it does NOT auto-close or auto-refund. the creator can cancel at any time for a full deposit refund, or share the link to attract submitters. the bot posts a reminder at ${MIN_OPEN_DURATION_HOURS}h and again every 48h after 7 days with no submissions.`;
 
 // Fetch live pot value for a bounty from the contract (with 8s timeout)

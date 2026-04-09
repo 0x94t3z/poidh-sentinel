@@ -49,6 +49,8 @@ Built for the [poidh SKILL challenge](https://github.com/picsoritdidnthappen/poi
 │             | evaluate_submission | pick_winner | general_reply              │
 │  • "is this AI?" + image present -> detectAiImage() (two-pass gpt-4o)       │
 │  • In-context replies (bounty thread / reply-to-bot): skip detection        │
+│  • suggest_bounty detection via LLM classifier (not keywords) — only fires  │
+│    when someone explicitly asks to create a bounty, not in passing mentions  │
 │  • Thread history fetched from Neynar conversation API                      │
 │  • Live pot value fetched from contract for "how much is the pot?"          │
 │  • LLM tier: Cerebras -> Groq -> OpenRouter free models                     │
@@ -162,15 +164,15 @@ Built for the [poidh SKILL challenge](https://github.com/picsoritdidnthappen/poi
        -> bot posts in ANNOUNCEMENT thread only (never DM thread):
           "@kenny 72h in — no submissions yet. bounty stays open until someone
            submits proof or you cancel it. to cancel and get your deposit back,
-           reply "cancel bounty" and tag @poidh-sentinel in this thread."
+           reply 'cancel bounty' in this thread."
           [embed: poidh.xyz/arbitrum/bounty/268]
        (@kenny = creator's @username resolved from creatorFid via Neynar)
 
    5b. Still zero submissions after 7 days (NO_SUBMISSION_NUDGE_HOURS):
        -> bot posts every 48h in announcement thread:
           "@kenny 7 days open, still no submissions. share the link to attract
-           submitters — or reply "cancel bounty" and tag @poidh-sentinel to
-           cancel and get your deposit back."
+           submitters — or reply 'cancel bounty' in this thread to cancel and
+           get your deposit back."
           [embed: poidh.xyz/arbitrum/bounty/268]
 
    Bounty stays open indefinitely — does NOT auto-close or auto-refund.
@@ -239,18 +241,20 @@ Built for the [poidh SKILL challenge](https://github.com/picsoritdidnthappen/poi
 ### Cancel flow
 
 ```
-User replies in /poidh announcement thread: "cancel bounty @poidh-sentinel"
+User replies in /poidh announcement thread: "cancel bounty"
   |
   v
-webhook detects: inBountyThread + mentioned + isCancelRequest()
+webhook detects: inBountyThread + isCancelRequest()
   -> saves awaiting_cancel_confirmation conversation state
-  -> bot replies: "you want to cancel "[name]"? reply 'yes cancel' to confirm or 'no' to keep it open."
+  -> bot replies: "you want to cancel "[name]"? refund will go to 0xabc...def.
+                  reply yes to confirm or no to keep it open."
 
-User replies: "yes cancel"
+User confirms — any natural phrasing ("yes", "yes cancel", "go ahead", etc.)
+Intent detected via LLM.
   |
   v
 handleConversationFlow() (awaiting_cancel_confirmation step)
-  -> calls cancelBounty(bountyId, chain, creatorFid) in poidh-contract.ts:
+  -> calls cancelBounty(bountyId, chain, preResolvedAddress) in poidh-contract.ts:
 
   KEY INSIGHT: the original depositor (bounty creator) sent ETH directly to the bot
   wallet — the poidh contract has no record of them. refund is a plain native token transfer (ETH on arbitrum/base, DEGEN on degen chain)
@@ -290,7 +294,7 @@ handleConversationFlow() (awaiting_cancel_confirmation step)
        → cancel blocked: "DM @{BOT_OWNER_HANDLE} to arrange manually"
        → evaluation + winner selection still runs fully autonomous
 
-  -> updateBounty(bountyId, { status: "closed", winnerReasoning: "bounty cancelled by issuer" })
+  -> updateBounty(bountyId, { status: "closed", winnerReasoning: "bounty cancelled by @{authorUsername}" })
   -> bot replies: '"[name]" cancelled — your deposit refunded to 0x1a2b...5f6e. pinging contributors to claim their refunds.'
   -> clears conversation state
 
@@ -303,7 +307,7 @@ Edge cases:
 ```
 
 The cancel instructions are included in every bounty announcement cast posted to `/poidh`:
-`"to cancel this bounty, reply 'cancel bounty' and tag @poidh-sentinel."`
+`"to cancel this bounty, reply 'cancel bounty' in this thread — no @mention required."`
 
 ### AI image detection flow
 

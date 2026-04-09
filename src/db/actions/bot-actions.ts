@@ -10,7 +10,7 @@ import {
   walletBalances,
   processedCasts,
 } from "@/db/schema";
-import { eq, desc, lt } from "drizzle-orm";
+import { eq, desc, lt, count } from "drizzle-orm";
 
 // ─── Conversation State ───────────────────────────────────────────────────────
 
@@ -36,6 +36,7 @@ export interface ConversationState {
   cancelBountyId?: string;
   cancelBountyChain?: string;
   cancelBountyName?: string;
+  cancelRefundAddress?: string; // pre-resolved creator wallet, shown in confirmation
   lastUpdated: string;
 }
 
@@ -157,14 +158,6 @@ export interface EvaluationResult {
   valid: boolean;
   reasoning: string;
   deterministicScore?: number;
-  issuer?: string;
-  issuerUsername?: string;
-  openaiVisionCost?: {
-    model: string;
-    inputTokens: number;
-    outputTokens: number;
-    estimatedCostUsd: number;
-  } | null;
 }
 
 export interface ActiveBounty {
@@ -180,6 +173,7 @@ export interface ActiveBounty {
   bountyType: "open" | "solo"; // open = community vote; solo = creator picks winner on poidh.xyz
   status: "open" | "evaluating" | "closed";
   winnerClaimId?: string;
+  winnerIssuer?: string;
   winnerTxHash?: string;
   winnerReasoning?: string;
   allEvalResults?: EvaluationResult[];
@@ -295,6 +289,7 @@ export async function updateBounty(bountyId: string, updates: Partial<ActiveBoun
       ...(updates.newBountyId !== undefined && { bountyId: updates.newBountyId }),
       ...(updates.status !== undefined && { status: updates.status }),
       ...(updates.winnerClaimId !== undefined && { winnerClaimId: updates.winnerClaimId }),
+      ...(updates.winnerIssuer !== undefined && { winnerIssuer: updates.winnerIssuer }),
       ...(updates.winnerTxHash !== undefined && { winnerTxHash: updates.winnerTxHash }),
       ...(updates.winnerReasoning !== undefined && { winnerReasoning: updates.winnerReasoning }),
       ...(updates.allEvalResults !== undefined && { allEvalResults: updates.allEvalResults }),
@@ -371,12 +366,13 @@ export async function appendLog(entry: BotLogEntry): Promise<void> {
   }
 }
 
-export async function getLogs(): Promise<BotLogEntry[]> {
+export async function getLogs(limit = 30, offset = 0): Promise<BotLogEntry[]> {
   const rows = await db
     .select()
     .from(botLog)
     .orderBy(desc(botLog.timestamp))
-    .limit(50);
+    .limit(limit)
+    .offset(offset);
   return rows.map((r) => ({
     id: r.id,
     timestamp: r.timestamp.toISOString(),
@@ -391,8 +387,14 @@ export async function getLogs(): Promise<BotLogEntry[]> {
   }));
 }
 
+export async function getLogCount(): Promise<number> {
+  const rows = await db.select({ count: count() }).from(botLog);
+  return rows[0]?.count ?? 0;
+}
+
 export async function getStats() {
-  const rows = await getLogs();
+  // Stats use a wider window (last 500) so counts are meaningful
+  const rows = await getLogs(500, 0);
   return {
     total: rows.length,
     success: rows.filter((r) => r.status === "success").length,
