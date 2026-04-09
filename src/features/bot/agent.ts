@@ -58,6 +58,8 @@ your personality:
 - never use markdown, no bullet points, no bold, no headers
 - never say "as an ai", "i'm an ai", "i cannot", or any disclaimer
 - never start with "i'd love to", "great question", "sure!", or similar filler
+- NEVER fabricate outcomes — if you see a previous message saying "cancel failed" or an error, do NOT say the cancel succeeded. be honest: "the cancel failed — try again by replying 'cancel bounty' in the announcement thread."
+- if someone asks "what's that mean" or similar after an error message, explain the error plainly — do not invent a different outcome
 - NEVER introduce yourself mid-conversation ("i'm ${BOT_USERNAME}..." is banned unless someone literally asks who you are)
 - NEVER reset the conversation or ignore prior context — always read the thread history and stay on topic
 - if someone asks about a bounty's current value or status, tell them to check poidh.xyz — you don't have live contract data in this context
@@ -156,9 +158,10 @@ function isAskingAboutPot(text: string): boolean {
   );
 }
 
-function detectAction(text: string): BountyAction {
+async function detectAction(text: string): Promise<BountyAction> {
   const lower = text.toLowerCase();
 
+  // Deterministic shortcuts — these phrases are unambiguous, no LLM needed
   if (
     lower.includes("who wins") ||
     lower.includes("pick a winner") ||
@@ -206,28 +209,72 @@ function detectAction(text: string): BountyAction {
     return "create_bounty_onchain";
   }
 
-  // Broad suggest_bounty detection — catches "any ideas", "bounty idea", "what bounty", etc.
-  if (
-    lower.includes("suggest") ||
-    lower.includes("idea") ||
-    lower.includes("what bounty") ||
-    lower.includes("bounty idea") ||
-    lower.includes("give me a bounty") ||
-    lower.includes("create a bounty") ||
-    lower.includes("make a bounty") ||
-    lower.includes("draft a bounty") ||
-    lower.includes("what should") ||
-    lower.includes("come up with") ||
-    lower.includes("any bounty") ||
-    lower.includes("bounty for") ||
-    lower.includes("good bounty") ||
-    lower.includes("cool bounty") ||
-    lower.includes("fun bounty") ||
-    lower.includes("new bounty")
-  ) {
-    return "suggest_bounty";
+  // LLM-based intent classifier for suggest_bounty vs general_reply.
+  // Keyword matching was too broad — celebratory / ambient mentions could incorrectly
+  // trigger bounty-creation flow.
+  try {
+    const apiKey = process.env.CEREBRAS_API_KEY ?? process.env.GROQ_API_KEY ?? process.env.OPENROUTER_API_KEY;
+    if (apiKey) {
+      const endpoint = process.env.CEREBRAS_API_KEY
+        ? CEREBRAS_API_URL
+        : process.env.GROQ_API_KEY
+          ? "https://api.groq.com/openai/v1/chat/completions"
+          : OPENROUTER_API_URL;
+
+      const model = process.env.CEREBRAS_API_KEY
+        ? "llama3.1-8b"
+        : process.env.GROQ_API_KEY
+          ? "llama-3.1-8b-instant"
+          : "meta-llama/llama-3.3-70b-instruct:free";
+
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      };
+
+      if (!process.env.CEREBRAS_API_KEY && !process.env.GROQ_API_KEY) {
+        headers["HTTP-Referer"] = BOT_APP_URL;
+        headers["X-Title"] = BOT_USERNAME;
+      }
+
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          model,
+          messages: [
+            {
+              role: "system",
+              content:
+                'You classify Farcaster messages directed at a bounty bot. Reply with ONLY one word.\n\n' +
+                'Reply "suggest_bounty" ONLY if the person is explicitly asking the bot to help them create or suggest a NEW bounty right now — e.g. "suggest a bounty idea", "help me make a bounty", "what bounty should I create?".\n\n' +
+                'Reply "general_reply" for EVERYTHING else: announcements, celebrations, congratulations, questions about how things work, commenting on an existing bounty, tagging the bot in passing, sharing news, or anything ambiguous.\n\n' +
+                'When in doubt, reply "general_reply". Only use "suggest_bounty" when the intent to create a new bounty right now is crystal clear.',
+            },
+            { role: "user", content: text },
+          ],
+          max_tokens: 10,
+          temperature: 0,
+        }),
+        signal: AbortSignal.timeout(5000),
+      });
+
+      if (res.ok) {
+        const data = (await res.json()) as { choices: Array<{ message: { content: string } }> };
+        const answer = data.choices?.[0]?.message?.content?.trim().toLowerCase() ?? "";
+        if (answer.includes("suggest_bounty")) {
+          console.log("[agent] detectAction LLM -> suggest_bounty");
+          return "suggest_bounty";
+        }
+        console.log(`[agent] detectAction LLM -> general_reply (raw: "${answer}")`);
+        return "general_reply";
+      }
+    }
+  } catch (err) {
+    console.warn("[agent] detectAction LLM fallback failed:", err);
   }
 
+  // Safe default — if classifier is unavailable, don't assume bounty creation intent
   return "general_reply";
 }
 
@@ -583,7 +630,7 @@ export async function runAgent(ctx: AgentContext): Promise<AgentResponse> {
   // skip keyword detection entirely — just have a natural conversation.
   // Prevents "good bounty idea!" from triggering a new suggest_bounty flow.
   const inContext = !!(ctx.bountyContext ?? ctx.replyToBot);
-  const action = inContext ? "general_reply" : detectAction(ctx.castText);
+  const action = inContext ? "general_reply" : await detectAction(ctx.castText);
 
   // Wallet address — no LLM needed
   if (action === "wallet_address") {
