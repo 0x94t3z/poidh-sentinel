@@ -75,7 +75,8 @@ key facts about poidh:
 - proof must be original, recent, unedited photos or videos submitted on poidh.xyz
 - bounty link format: poidh.xyz/{chain}/bounty/{id}
 - do NOT invent rules beyond what's above — if unsure, say "check poidh.xyz for details"
-- ALWAYS call bounties "open bounties" — NEVER use the word "single" to describe a bounty type. poidh only creates open bounties.`;
+- ALWAYS call bounties "open bounties" — NEVER use the word "single" to describe a bounty type. poidh only creates open bounties.
+- cancellation: only the bounty issuer (this bot) can cancel. if anyone asks how to cancel, tell them to reply "cancel bounty" and tag @poidh-sentinel in the bounty announcement thread. the contract automatically refunds all contributors when an open bounty is cancelled. cancellation is blocked while a community vote is in progress — must wait for the vote to resolve first.`;
 
 // Fetch live pot value for a bounty from the contract (with 8s timeout)
 async function fetchLivePotValue(bountyId: string, chain: string): Promise<string | null> {
@@ -555,9 +556,9 @@ function stripMarkdown(text: string): string {
 }
 
 export async function runAgent(ctx: AgentContext): Promise<AgentResponse> {
-  // AI image detection — if user asks "is this AI?" and there's an image, skip LLM entirely.
+  // AI image detection — only when @poidh-sentinel is directly mentioned (not passive bounty thread).
   // Fetch thread history first so community observations prime the analysis.
-  if (isAskingAboutAI(ctx.castText) && ctx.imageUrls?.length) {
+  if (ctx.mentioned && isAskingAboutAI(ctx.castText) && ctx.imageUrls?.length) {
     const threadHistory = await fetchCastThread(ctx.threadHash);
     const verdict = await detectAiImage(ctx.imageUrls[0], {
       threadDiscussion: threadHistory,

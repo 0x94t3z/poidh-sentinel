@@ -7,16 +7,24 @@ import { registerBountyThread } from "@/db/actions/bot-actions";
 
 const BOT_SIGNER_UUID = process.env.BOT_SIGNER_UUID ?? "";
 
-// Minimum time a bounty must be open before evaluation (24h)
-const MIN_OPEN_DURATION_MS = 24 * 60 * 60 * 1000;
+// Minimum time a bounty must be open before evaluation (72h default, env-overridable)
+export const MIN_OPEN_DURATION_HOURS = parseInt(process.env.MIN_OPEN_DURATION_HOURS ?? "72");
+const MIN_OPEN_DURATION_MS = MIN_OPEN_DURATION_HOURS * 60 * 60 * 1000;
 const MIN_CLAIMS_TO_EVALUATE = 1;
+
+// After "none met criteria", wait this long before re-evaluating (prevents spam)
+const EVAL_COOLDOWN_MS = 6 * 60 * 60 * 1000; // 6 hours
+
+// If a bounty has been open this long with zero submissions, post a nudge reminder (168h = 7 days)
+const NO_SUBMISSION_NUDGE_MS = parseInt(process.env.NO_SUBMISSION_NUDGE_HOURS ?? "168") * 60 * 60 * 1000;
+const NO_SUBMISSION_NUDGE_INTERVAL_MS = 48 * 60 * 60 * 1000; // nudge at most once every 48h
 
 // ---------------------------------------------------------------------------
 // Neynar: resolve ETH addresses → Farcaster @usernames
 // Uses bulk-by-address endpoint — accepts up to 350 addresses at once.
 // Returns a map of lowercase address → "@username" (or shortened address fallback).
 // ---------------------------------------------------------------------------
-async function resolveAddressesToUsernames(addresses: string[]): Promise<Map<string, string>> {
+export async function resolveAddressesToUsernames(addresses: string[]): Promise<Map<string, string>> {
   const result = new Map<string, string>();
   if (addresses.length === 0) return result;
 
@@ -69,42 +77,42 @@ function shortenAddress(addr: string): string {
 // bountyContributions(bountyId) returns array of { contributor, amount }
 // Falls back to the bounty issuer when no external contributions exist.
 // ---------------------------------------------------------------------------
-async function getContributors(bountyId: string, chain: string, issuerFallback?: string): Promise<string[]> {
+export async function getContributors(bountyId: string, chain: string, issuerFallback?: string): Promise<string[]> {
+  // The contract stores participants as participants[bountyId][index] (individual slot reads).
+  // Probe indices 0..N until a revert, collecting all non-zero addresses.
   try {
     const publicClient = getPublicClient(chain);
     const contractAddress = POIDH_CONTRACTS[chain] ?? POIDH_CONTRACT;
-
-    // ABI for bountyContributions view — returns tuple[]
-    const contributionsAbi = [{
-      name: "bountyContributions",
+    const participantsAbi = [{
+      name: "participants",
       type: "function",
       stateMutability: "view",
-      inputs: [{ name: "bountyId", type: "uint256" }],
-      outputs: [{
-        name: "",
-        type: "tuple[]",
-        components: [
-          { name: "contributor", type: "address" },
-          { name: "amount", type: "uint256" },
-        ],
-      }],
+      inputs: [{ name: "bountyId", type: "uint256" }, { name: "index", type: "uint256" }],
+      outputs: [{ name: "", type: "address" }],
     }] as const;
 
-    const contributions = await publicClient.readContract({
-      address: contractAddress,
-      abi: contributionsAbi,
-      functionName: "bountyContributions",
-      args: [BigInt(bountyId)],
-    }) as Array<{ contributor: string; amount: bigint }>;
-
-    if (contributions.length > 0) {
-      return contributions.map((c) => c.contributor);
+    const ZERO_ADDR = "0x0000000000000000000000000000000000000000";
+    const addrs: string[] = [];
+    for (let i = 0; i < 50; i++) {
+      try {
+        const addr = await publicClient.readContract({
+          address: contractAddress,
+          abi: participantsAbi,
+          functionName: "participants",
+          args: [BigInt(bountyId), BigInt(i)],
+        }) as string;
+        if (addr && addr !== ZERO_ADDR) addrs.push(addr);
+        // address(0) means withdrawn slot — keep iterating (don't break)
+      } catch {
+        break; // out-of-bounds revert → no more participants
+      }
     }
+    if (addrs.length > 0) return addrs;
   } catch (err) {
     console.warn(`[bounty-loop] getContributors(${bountyId}) failed:`, err);
   }
 
-  // No external contributions — use the issuer (bounty creator) as the sole funder
+  // Solo bounty or probe failed — fall back to issuer address
   return issuerFallback ? [issuerFallback] : [];
 }
 
@@ -141,7 +149,7 @@ async function postChannelWinnerAnnouncement(
   if (!BOT_SIGNER_UUID) return null;
   try {
     const contribLine = contributorMentions.length > 0
-      ? ` funded by ${contributorMentions.join(", ")}.`
+      ? ` thanks for your contributions ${contributorMentions.join(", ")}!`
       : "";
 
     let text: string;
@@ -308,11 +316,14 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
               const allAddrs = [...new Set([...(winnerAddr ? [winnerAddr] : []), ...resolvedContributors])];
               const uMap = await resolveAddressesToUsernames(allAddrs);
               const wMention = winnerAddr ? (uMap.get(winnerAddr.toLowerCase()) ?? shortenAddress(winnerAddr)) : `claim #${bounty.winnerClaimId}`;
-              const cMentions = resolvedContributors
+              const winnerAddrLower = winnerAddr?.toLowerCase() ?? "";
+              // thanksOnly: contributors excluding the winner, deduped, capped at 5
+              const thanksOnly = resolvedContributors
+                .filter((a) => a.toLowerCase() !== winnerAddrLower)
                 .map((a) => uMap.get(a.toLowerCase()) ?? shortenAddress(a))
                 .filter((m, i, arr) => arr.indexOf(m) === i)
                 .slice(0, 5);
-              const contribLine = cMentions.length > 0 ? ` funded by ${cMentions.join(", ")}.` : "";
+              const contribLine = thanksOnly.length > 0 ? ` thanks for your contributions ${thanksOnly.join(", ")}!` : "";
 
               // Short pointer reply in original thread
               await postReply(getReplyTarget(bounty), `🏆 vote closed — ${wMention} wins. see /poidh for the full announcement. ${bountyLink}`);
@@ -403,11 +414,34 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
       const age = Date.now() - new Date(bounty.createdAt).getTime();
       if (age < MIN_OPEN_DURATION_MS) continue;
 
+      // --- Cooldown: skip re-evaluation if we already posted "none met" recently ---
+      if (bounty.lastCheckedAt) {
+        const elapsed = Date.now() - new Date(bounty.lastCheckedAt).getTime();
+        if (elapsed < EVAL_COOLDOWN_MS) {
+          console.log(`[bounty-loop] bounty ${bounty.bountyId} in cooldown — ${Math.round((EVAL_COOLDOWN_MS - elapsed) / 60000)}m remaining`);
+          continue;
+        }
+      }
+
       // --- Fetch claims ---
       const claims = await getClaimsForBounty(BigInt(bounty.bountyId), bountyChain);
       await updateBounty(bounty.bountyId, { claimCount: claims.length });
 
-      if (claims.length < MIN_CLAIMS_TO_EVALUATE) continue;
+      if (claims.length < MIN_CLAIMS_TO_EVALUATE) {
+        // No submissions yet — nudge if bounty has been open a long time with no activity
+        const age = Date.now() - new Date(bounty.createdAt).getTime();
+        const lastNudge = bounty.lastCheckedAt ? Date.now() - new Date(bounty.lastCheckedAt).getTime() : Infinity;
+        if (age >= NO_SUBMISSION_NUDGE_MS && lastNudge >= NO_SUBMISSION_NUDGE_INTERVAL_MS) {
+          const bountyLink = resolvePoidhUrl(bountyChain, bounty.bountyId);
+          const daysOpen = Math.floor(age / (24 * 60 * 60 * 1000));
+          await postReply(
+            getReplyTarget(bounty),
+            `still waiting for submissions — bounty has been open for ${daysOpen} days with no entries yet. anyone can submit proof at ${bountyLink}`,
+          );
+          await updateBounty(bounty.bountyId, { lastCheckedAt: new Date().toISOString() });
+        }
+        continue;
+      }
 
       await updateBounty(bounty.bountyId, { status: "evaluating" });
 
@@ -422,20 +456,12 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
       const result = await pickWinner(bounty.name, bounty.description, claimData, details.createdAt);
 
       if (!result) {
-        // Avoid spamming the same "none met criteria" reply every cron cycle.
-        // Only post when claim count changed since the last stored snapshot.
-        const claimCountChanged = bounty.claimCount !== claims.length;
-        if (claimCountChanged) {
-          await postReply(
-            getReplyTarget(bounty),
-            `reviewed ${claims.length} submission${claims.length !== 1 ? "s" : ""}, none met the criteria yet. keep trying!`,
-          );
-        } else {
-          console.log(
-            `[bounty-loop] skipped no-valid reply for ${bounty.bountyId} (claim count unchanged: ${claims.length})`,
-          );
-        }
-        await updateBounty(bounty.bountyId, { status: "open" });
+        await postReply(
+          getReplyTarget(bounty),
+          `reviewed ${claims.length} submission${claims.length !== 1 ? "s" : ""}, none met the criteria yet. keep trying!`,
+        );
+        // Stamp lastCheckedAt so cooldown prevents re-posting every minute
+        await updateBounty(bounty.bountyId, { status: "open", lastCheckedAt: new Date().toISOString() });
         continue;
       }
 
@@ -463,6 +489,13 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
         .filter((m, i, arr) => arr.indexOf(m) === i) // dedupe
         .slice(0, 5); // cap at 5 to avoid cast length blowout
 
+      // Contributors to thank — exclude winner (already the star of the post)
+      const thanksContributors = contributorAddresses
+        .filter((a) => a.toLowerCase() !== (winnerIssuer ?? "").toLowerCase())
+        .map((a) => usernameMap.get(a.toLowerCase()) ?? shortenAddress(a))
+        .filter((m, i, arr) => arr.indexOf(m) === i)
+        .slice(0, 5);
+
       if (method === "vote_submitted") {
         // Store full ranked results so re-nomination can use them if vote fails
         await updateBounty(bounty.bountyId, {
@@ -474,7 +507,7 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
         });
 
         // Single reply: scores + nomination merged into one cast
-        const announcementHash = await postChannelWinnerAnnouncement(bounty.name, claims.length, result.reasoning, bountyLink, "vote_submitted", winnerMention, contributorMentions, getReplyTarget(bounty), result.allResults);
+        const announcementHash = await postChannelWinnerAnnouncement(bounty.name, claims.length, result.reasoning, bountyLink, "vote_submitted", winnerMention, thanksContributors, getReplyTarget(bounty), result.allResults);
         if (announcementHash) {
           await updateBounty(bounty.bountyId, { announcementCastHash: announcementHash });
           await registerBountyThread({
@@ -503,7 +536,7 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
         await postReply(getReplyTarget(bounty), `🏆 vote closed — ${winnerMention} wins. see /poidh for the full announcement. ${bountyLink}`);
 
         // Full winner announcement as a NEW top-level cast in /poidh channel
-        const announcementHash = await postChannelWinnerAnnouncement(bounty.name, claims.length, result.reasoning, bountyLink, "vote_resolved", winnerMention, contributorMentions);
+        const announcementHash = await postChannelWinnerAnnouncement(bounty.name, claims.length, result.reasoning, bountyLink, "vote_resolved", winnerMention, thanksContributors);
         if (announcementHash) {
           await updateBounty(bounty.bountyId, { announcementCastHash: announcementHash });
           await registerBountyThread({
@@ -533,7 +566,7 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
         await postReply(getReplyTarget(bounty), `🏆 ${winnerMention} wins. see /poidh for the full announcement. ${bountyLink}`);
 
         // Full winner announcement as a NEW top-level cast in /poidh channel
-        const announcementHash = await postChannelWinnerAnnouncement(bounty.name, claims.length, result.reasoning, bountyLink, "direct", winnerMention, contributorMentions);
+        const announcementHash = await postChannelWinnerAnnouncement(bounty.name, claims.length, result.reasoning, bountyLink, "direct", winnerMention, thanksContributors);
         if (announcementHash) {
           await updateBounty(bounty.bountyId, { announcementCastHash: announcementHash });
           await registerBountyThread({

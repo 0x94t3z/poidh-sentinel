@@ -208,6 +208,7 @@ export function Dashboard() {
               { step: "02", title: "pick chain + amount", desc: "choose arbitrum, base, or degen and fund the bounty" },
               { step: "03", title: "bounty goes live", desc: "bot creates an open bounty on poidh.xyz — anyone can add funds" },
               { step: "04", title: "ai picks a winner", desc: "cron evaluates submissions every minute, picks best proof" },
+              { step: "05", title: "ask about any image", desc: 'tag @poidh-sentinel under a cast and ask "is this ai?" — bot runs forensic analysis and replies' },
             ].map((item) => (
               <div key={item.step} className="flex gap-3">
                 <span className="text-green-500 text-xs font-bold shrink-0 mt-0.5">{item.step}</span>
@@ -223,16 +224,23 @@ export function Dashboard() {
         {/* Activity feed */}
         <section>
           <div className="flex items-center justify-between mb-2">
-            <p className="text-[10px] text-gray-600 uppercase tracking-widest">recent activity</p>
+            <div className="flex items-center gap-2">
+              <p className="text-[10px] text-gray-600 uppercase tracking-widest">recent activity</p>
+              {data && data.stats.errors > 0 && (
+                <span className="text-[9px] font-bold font-mono bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded">
+                  {data.stats.errors} err
+                </span>
+              )}
+            </div>
             {!loading && (
               <p className="text-[10px] text-gray-700">
                 {lastRefresh.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
               </p>
             )}
           </div>
-          <div className="bg-[#111] rounded-xl border border-white/10 px-4">
+          <div className="bg-[#111] rounded-xl border border-white/10 overflow-hidden">
             {loading ? (
-              <div className="py-8 space-y-3">
+              <div className="px-4 py-8 space-y-3">
                 {[1, 2, 3].map((i) => (
                   <div key={i} className="space-y-1.5">
                     <div className="h-2.5 bg-white/5 rounded w-1/3 animate-pulse" />

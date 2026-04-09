@@ -4,6 +4,7 @@ interface PublishReplyParams {
   text: string;
   parentHash: string;
   signerUuid: string;
+  embedUrl?: string;
 }
 
 interface PublishCastParams {
@@ -56,7 +57,7 @@ async function postToNeynar(
 
 // Reply in-thread (always has a parent)
 export async function publishReply(params: PublishReplyParams): Promise<string> {
-  return postToNeynar(params.signerUuid, params.text, { parent: params.parentHash });
+  return postToNeynar(params.signerUuid, params.text, { parent: params.parentHash, embedUrl: params.embedUrl });
 }
 
 // Top-level cast on the bot's profile, optionally in a channel

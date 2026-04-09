@@ -19,6 +19,7 @@ export type ConversationStep =
   | "awaiting_chain"
   | "awaiting_payment"
   | "creating_bounty"
+  | "awaiting_cancel_confirmation"
   | "done";
 
 export interface ConversationState {
@@ -29,6 +30,10 @@ export interface ConversationState {
   chain?: "arbitrum" | "base" | "degen";
   amountEth?: string;
   uniqueAmount?: string;
+  // Cancel flow
+  cancelBountyId?: string;
+  cancelBountyChain?: string;
+  cancelBountyName?: string;
   lastUpdated: string;
 }
 
@@ -49,11 +54,18 @@ export async function getConversation(threadHash: string): Promise<ConversationS
     return undefined;
   }
 
+  // Decode suggestedIdea JSONB — may contain cancel-flow fields instead of bounty idea
+  const raw = row.suggestedIdea as Record<string, string> | null;
+  const isCancelData = raw && "cancelBountyId" in raw;
+
   return {
     step: row.step as ConversationStep,
     authorFid: row.authorFid,
     authorUsername: row.authorUsername,
-    suggestedIdea: row.suggestedIdea as { name: string; description: string } | undefined,
+    suggestedIdea: isCancelData ? undefined : (raw as { name: string; description: string } | undefined),
+    cancelBountyId: isCancelData ? raw.cancelBountyId : undefined,
+    cancelBountyChain: isCancelData ? raw.cancelBountyChain : undefined,
+    cancelBountyName: isCancelData ? raw.cancelBountyName : undefined,
     chain: row.chain as "arbitrum" | "base" | "degen" | undefined,
     amountEth: row.amountEth ?? undefined,
     uniqueAmount: row.uniqueAmount ?? undefined,
@@ -62,6 +74,12 @@ export async function getConversation(threadHash: string): Promise<ConversationS
 }
 
 export async function setConversation(threadHash: string, state: ConversationState): Promise<void> {
+  // Pack cancel-flow fields into suggestedIdea JSONB when present (cancel step doesn't use suggestedIdea)
+  const cancelData = state.cancelBountyId
+    ? { cancelBountyId: state.cancelBountyId, cancelBountyChain: state.cancelBountyChain, cancelBountyName: state.cancelBountyName }
+    : null;
+  const ideaPayload = cancelData ?? state.suggestedIdea ?? null;
+
   await db
     .insert(conversationState)
     .values({
@@ -69,7 +87,7 @@ export async function setConversation(threadHash: string, state: ConversationSta
       step: state.step,
       authorFid: state.authorFid,
       authorUsername: state.authorUsername,
-      suggestedIdea: state.suggestedIdea ?? null,
+      suggestedIdea: ideaPayload,
       chain: state.chain ?? null,
       amountEth: state.amountEth ?? null,
       uniqueAmount: state.uniqueAmount ?? null,
@@ -81,7 +99,7 @@ export async function setConversation(threadHash: string, state: ConversationSta
         step: state.step,
         authorFid: state.authorFid,
         authorUsername: state.authorUsername,
-        suggestedIdea: state.suggestedIdea ?? null,
+        suggestedIdea: ideaPayload,
         chain: state.chain ?? null,
         amountEth: state.amountEth ?? null,
         uniqueAmount: state.uniqueAmount ?? null,
@@ -147,6 +165,7 @@ export interface ActiveBounty {
   amountEth: string;
   chain: string;
   castHash: string;
+  creatorFid?: number;
   announcementCastHash?: string;
   status: "open" | "evaluating" | "closed";
   winnerClaimId?: string;
@@ -169,6 +188,7 @@ export async function addActiveBounty(bounty: ActiveBounty): Promise<void> {
       amountEth: bounty.amountEth,
       chain: bounty.chain,
       castHash: bounty.castHash,
+      creatorFid: bounty.creatorFid ?? null,
       announcementCastHash: bounty.announcementCastHash ?? null,
       status: bounty.status,
       winnerClaimId: bounty.winnerClaimId ?? null,
@@ -273,6 +293,15 @@ export async function updateBounty(bountyId: string, updates: Partial<ActiveBoun
     .where(eq(activeBounties.bountyId, bountyId));
 }
 
+export async function getActiveBounty(bountyId: string): Promise<ActiveBounty | undefined> {
+  const rows = await db
+    .select()
+    .from(activeBounties)
+    .where(eq(activeBounties.bountyId, bountyId))
+    .limit(1);
+  return rows[0] ? rowToBounty(rows[0]) : undefined;
+}
+
 function rowToBounty(row: typeof activeBounties.$inferSelect): ActiveBounty {
   return {
     bountyId: row.bountyId,
@@ -282,6 +311,7 @@ function rowToBounty(row: typeof activeBounties.$inferSelect): ActiveBounty {
     amountEth: row.amountEth,
     chain: row.chain,
     castHash: row.castHash,
+    creatorFid: row.creatorFid ?? undefined,
     announcementCastHash: row.announcementCastHash ?? undefined,
     status: row.status as "open" | "evaluating" | "closed",
     winnerClaimId: row.winnerClaimId ?? undefined,

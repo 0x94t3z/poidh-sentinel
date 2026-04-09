@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import type { BotLogEntry } from "@/features/bot/types";
 
 const ACTION_LABELS: Record<string, { label: string; color: string }> = {
@@ -20,25 +21,24 @@ function truncate(text: string, max: number): string {
 
 function LogRow({ entry }: { entry: BotLogEntry }) {
   const actionMeta = ACTION_LABELS[entry.action] ?? FALLBACK_ACTION;
+  const isError = entry.status === "error";
   const time = new Date(entry.timestamp).toLocaleTimeString([], {
     hour: "2-digit",
     minute: "2-digit",
   });
 
   return (
-    <div className="border-b border-white/5 py-3 last:border-0">
+    <div className={`border-b border-white/5 py-3 last:border-0 ${isError ? "bg-red-500/5" : ""}`}>
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-2">
-          <span className={`text-[10px] font-mono font-bold ${actionMeta.color}`}>
-            {actionMeta.label}
+          <span className={`text-[10px] font-mono font-bold ${isError ? "text-red-400" : actionMeta.color}`}>
+            {isError ? "ERROR" : actionMeta.label}
           </span>
           <span className="text-gray-500 font-mono text-[10px]">@{entry.triggerAuthor}</span>
         </div>
         <div className="flex items-center gap-2">
-          <span
-            className={`text-[10px] font-mono ${entry.status === "success" ? "text-green-500" : "text-red-500"}`}
-          >
-            {entry.status === "success" ? "✓" : "✗"}
+          <span className={`text-[10px] font-mono ${isError ? "text-red-500" : "text-green-500"}`}>
+            {isError ? "✗" : "✓"}
           </span>
           <span className="text-gray-600 font-mono text-[10px]">{time}</span>
         </div>
@@ -56,9 +56,11 @@ function LogRow({ entry }: { entry: BotLogEntry }) {
         </p>
       )}
 
-      {/* Error */}
+      {/* Error message */}
       {entry.errorMessage && (
-        <p className="text-red-400 text-[10px] font-mono mt-1">{entry.errorMessage}</p>
+        <p className="text-red-400 text-[10px] font-mono mt-1.5 pl-2 border-l border-red-500/40 leading-relaxed">
+          {entry.errorMessage}
+        </p>
       )}
     </div>
   );
@@ -69,6 +71,11 @@ interface ActivityFeedProps {
 }
 
 export function ActivityFeed({ logs }: ActivityFeedProps) {
+  const [filter, setFilter] = useState<"all" | "errors">("all");
+
+  const errorCount = logs.filter((l) => l.status === "error").length;
+  const filtered = filter === "errors" ? logs.filter((l) => l.status === "error") : logs;
+
   if (logs.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
@@ -83,7 +90,48 @@ export function ActivityFeed({ logs }: ActivityFeedProps) {
 
   return (
     <div>
-      {logs.map((entry) => (
+      {/* Filter tabs */}
+      <div className="flex items-center gap-1 px-4 pt-3 pb-2 border-b border-white/5">
+        <button
+          onClick={() => setFilter("all")}
+          className={`text-[10px] font-mono px-2.5 py-1 rounded transition-colors ${
+            filter === "all"
+              ? "bg-white/10 text-white"
+              : "text-gray-500 hover:text-gray-300"
+          }`}
+        >
+          all ({logs.length})
+        </button>
+        <button
+          onClick={() => setFilter("errors")}
+          className={`text-[10px] font-mono px-2.5 py-1 rounded transition-colors flex items-center gap-1.5 ${
+            filter === "errors"
+              ? "bg-red-500/20 text-red-400"
+              : errorCount > 0
+              ? "text-red-500 hover:text-red-400"
+              : "text-gray-600 cursor-default"
+          }`}
+          disabled={errorCount === 0}
+        >
+          errors
+          {errorCount > 0 && (
+            <span className={`text-[9px] font-bold px-1 py-0.5 rounded ${filter === "errors" ? "bg-red-500/30" : "bg-red-500/20"}`}>
+              {errorCount}
+            </span>
+          )}
+          {errorCount === 0 && " (0)"}
+        </button>
+      </div>
+
+      {/* Empty state for errors filter */}
+      {filtered.length === 0 && filter === "errors" && (
+        <div className="flex flex-col items-center justify-center py-10 text-center">
+          <p className="text-green-500 font-mono text-sm">✓ no errors</p>
+          <p className="text-gray-600 font-mono text-[10px] mt-1">all systems nominal</p>
+        </div>
+      )}
+
+      {filtered.map((entry) => (
         <LogRow key={entry.id} entry={entry} />
       ))}
     </div>

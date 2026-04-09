@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHmac, timingSafeEqual } from "crypto";
+import { parseEther } from "viem";
 import { runAgent } from "@/features/bot/agent";
 import { publishReply } from "@/features/bot/cast-reply";
 import { appendLog } from "@/features/bot/bot-log";
@@ -12,10 +13,14 @@ import {
   isConfirmation,
   isRejection,
   makeUniqueAmount,
+  addPlatformFee,
+  PLATFORM_FEE_PCT,
   CHAIN_CONFIG,
 } from "@/features/bot/conversation-state";
 import { registerPendingPayment, getAllAwaitingPayment } from "@/features/bot/conversation-state-registry";
-import { markCastProcessed, pruneProcessedCasts, getBountyThread } from "@/db/actions/bot-actions";
+import { markCastProcessed, pruneProcessedCasts, getBountyThread, updateBounty, getActiveBounty } from "@/db/actions/bot-actions";
+import { cancelBounty } from "@/features/bot/poidh-contract";
+import { resolveAddressesToUsernames } from "@/features/bot/bounty-loop";
 import type { WebhookPayload, BotLogEntry } from "@/features/bot/types";
 
 const BOT_FID = 3273077;
@@ -49,21 +54,52 @@ function isFromBot(payload: WebhookPayload): boolean {
 }
 
 // Check if the parent cast was authored by the bot (reply to bot's cast)
-async function isReplyToBot(parentHash: string | null): Promise<boolean> {
-  if (!parentHash) return false;
+// Also returns the parent cast's embeds so we can extract image URLs without a second API call
+async function fetchParentCastInfo(parentHash: string | null): Promise<{
+  isFromBot: boolean;
+  imageUrls: string[];
+}> {
+  if (!parentHash) return { isFromBot: false, imageUrls: [] };
   const apiKey = process.env.NEYNAR_API_KEY;
-  if (!apiKey) return false;
+  if (!apiKey) return { isFromBot: false, imageUrls: [] };
   try {
     const res = await fetch(
       `https://api.neynar.com/v2/farcaster/cast?identifier=${parentHash}&type=hash`,
       { headers: { "x-api-key": apiKey } },
     );
-    if (!res.ok) return false;
-    const data = (await res.json()) as { cast?: { author?: { fid?: number } } };
-    return data.cast?.author?.fid === BOT_FID;
+    if (!res.ok) return { isFromBot: false, imageUrls: [] };
+    const data = (await res.json()) as {
+      cast?: {
+        author?: { fid?: number };
+        embeds?: Array<{ url?: string }>;
+      };
+    };
+    const cast = data.cast;
+    const isFromBot = cast?.author?.fid === BOT_FID;
+    const imageUrls = extractImageUrls(cast?.embeds ?? []);
+    return { isFromBot, imageUrls };
   } catch {
-    return false;
+    return { isFromBot: false, imageUrls: [] };
   }
+}
+
+// Extract image URLs from Neynar embed objects
+function extractImageUrls(embeds: Array<{ url?: string }>): string[] {
+  return embeds
+    .map((e) => e.url ?? "")
+    .filter((url) => {
+      if (!url) return false;
+      const lower = url.toLowerCase();
+      return (
+        lower.includes("imagedelivery.net") ||
+        lower.includes("ipfs") ||
+        lower.includes("imgur") ||
+        lower.match(/\.(jpg|jpeg|png|gif|webp)(\?|$)/) !== null ||
+        lower.includes("i.imgur") ||
+        lower.includes("cdn.") ||
+        lower.includes("images.")
+      );
+    });
 }
 
 async function reply(text: string, parentHash: string): Promise<void> {
@@ -71,6 +107,20 @@ async function reply(text: string, parentHash: string): Promise<void> {
   if (!signerUuid) return;
   const trimmed = text.slice(0, 400);
   await publishReply({ text: trimmed, parentHash, signerUuid });
+}
+
+// Detect cancel intent — must be explicit to avoid accidental triggers
+function isCancelRequest(text: string): boolean {
+  const lower = text.toLowerCase().trim();
+  return (
+    lower.includes("cancel bounty") ||
+    lower.includes("cancel this bounty") ||
+    lower.includes("cancel the bounty") ||
+    lower.includes("cancel it") ||
+    lower.includes("cancell") || // common typo
+    (lower.includes("cancel") && lower.includes("refund")) ||
+    (lower.includes("cancel") && lower.includes("bounty"))
+  );
 }
 
 // Check if a message looks like the user is trying to answer the chain question
@@ -141,11 +191,14 @@ async function handleConversationFlow(
     }
 
     const finalAmount = amount ?? config.minAmount;
+    const { total: totalWithFee, fee: feeAmount } = addPlatformFee(finalAmount);
     const walletAddress = getBotWalletAddress();
 
     const existingPending = (await getAllAwaitingPayment()).filter(p => (p.state.chain ?? "arbitrum") === chain);
-    const uniqueAmount = makeUniqueAmount(finalAmount, existingPending.length);
+    // makeUniqueAmount applied to total (bounty + fee) for dedup
+    const uniqueAmount = makeUniqueAmount(totalWithFee, existingPending.length);
 
+    // amountEth = bounty only (used for on-chain creation), uniqueAmount = total user must send
     const updatedState = { ...state, step: "awaiting_payment" as const, chain, amountEth: finalAmount, uniqueAmount };
     await setConversation(threadHash, updatedState);
 
@@ -155,8 +208,7 @@ async function handleConversationFlow(
 
     await registerPendingPayment(threadHash, castHash, updatedState);
 
-    const sendAmount = uniqueAmount !== finalAmount ? uniqueAmount : finalAmount;
-    return `send exactly ${sendAmount} ${config.currency} to ${walletAddress} on ${config.label}. also include ~${config.minGas} for gas. once i see the funds i'll create the bounty automatically.`;
+    return `send exactly ${uniqueAmount} ${config.currency} to ${walletAddress} on ${config.label} — ${finalAmount} bounty + ${feeAmount} platform fee (${PLATFORM_FEE_PCT}%). sending more won't increase the prize and won't be refunded. your wallet handles gas. once i see the deposit i'll create the bounty.`;
   }
 
   // --- Step: awaiting_payment ---
@@ -171,6 +223,93 @@ async function handleConversationFlow(
       return `got it — checking for the deposit now. once confirmed on-chain i'll create the bounty and post the link here. usually takes a minute or two.`;
     }
     return null;
+  }
+
+  // --- Step: awaiting_cancel_confirmation ---
+  if (state.step === "awaiting_cancel_confirmation") {
+    // Only the original requester can confirm — ignore anyone else replying in the thread
+    if (state.authorFid !== authorFid) return null;
+
+    const bountyName = state.cancelBountyName ?? "this bounty";
+    const bountyId = state.cancelBountyId;
+    const bountyChain = state.cancelBountyChain ?? "arbitrum";
+
+    if (isRejection(lower) || lower.includes("nevermind") || lower.includes("never mind") || lower.includes("keep it")) {
+      await clearConversation(threadHash);
+      return `ok, bounty stays open. good luck!`;
+    }
+
+    // Accept explicit double-confirmation to avoid accidental cancel
+    const isYesCancel = (
+      lower === "yes cancel" ||
+      lower === "yes, cancel" ||
+      lower.includes("yes cancel") ||
+      lower.includes("confirm cancel") ||
+      lower.includes("yes, cancel it") ||
+      lower.includes("cancel confirmed") ||
+      lower === "yes" ||
+      lower === "y"
+    );
+
+    if (!isYesCancel) return null; // wait for a clear answer
+
+    if (!bountyId) {
+      await clearConversation(threadHash);
+      return `can't find the bounty to cancel — contact support or try again.`;
+    }
+
+    try {
+      // Look up creator FID so we can refund to their wallet
+      // Also guard against double-execution: if already closed, don't cancel again
+      const bountyRecord = await getActiveBounty(bountyId);
+      if (bountyRecord?.status === "closed") {
+        await clearConversation(threadHash);
+        return `"${bountyName}" is already closed — nothing to cancel.`;
+      }
+      const creatorFid = bountyRecord?.creatorFid;
+      // Use the stored bounty amount as the exact refund — this is what the creator put up
+      // (bounty reward only, no fee). parseEther handles the string → wei conversion.
+      const bountyAmountWei = bountyRecord?.amountEth ? parseEther(bountyRecord.amountEth) : undefined;
+
+      const { cancelTxHash, refundTxHash, method, refundAddress, externalContributors } = await cancelBounty(BigInt(bountyId), bountyChain, creatorFid, bountyAmountWei);
+      await updateBounty(bountyId, { status: "closed", winnerReasoning: "bounty cancelled by issuer" });
+      await clearConversation(threadHash);
+
+      const shortRefund = `${refundAddress.slice(0, 6)}...${refundAddress.slice(-4)}`;
+      const refundLine = refundTxHash
+        ? `bounty amount sent to ${shortRefund}.`
+        : `couldn't resolve your wallet — ETH is held safely in the bot wallet. DM to arrange your refund.`;
+
+      if (method === "cancelOpenBounty" && externalContributors.length > 0) {
+        // Resolve contributor addresses to @usernames and post a follow-up ping
+        const usernameMap = await resolveAddressesToUsernames(externalContributors);
+        const mentions = externalContributors
+          .map((a) => usernameMap.get(a.toLowerCase()) ?? `${a.slice(0, 6)}...${a.slice(-4)}`)
+          .join(" ");
+        void (async () => {
+          const signerUuid = process.env.BOT_SIGNER_UUID ?? "";
+          if (signerUuid) {
+            await publishReply({
+              text: `heads up ${mentions} — this bounty was cancelled. go to poidh.xyz to claim your refund via "claim refund from cancelled bounty".`,
+              parentHash: threadHash,
+              signerUuid,
+            }).catch((e) => console.error("[webhook] contributor ping failed:", e));
+          }
+        })();
+
+        return `"${bountyName}" cancelled — ${refundLine} pinging contributors to claim their refunds on poidh.xyz. cancel tx: ${cancelTxHash.slice(0, 18)}...`;
+      }
+
+      return `"${bountyName}" cancelled — ${refundLine} tx: ${cancelTxHash.slice(0, 18)}...`;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      await clearConversation(threadHash);
+
+      if (msg.toLowerCase().includes("voting") || msg.toLowerCase().includes("vote")) {
+        return `can't cancel right now — a community vote is in progress. wait for the vote to resolve first, then try again.`;
+      }
+      return `cancel failed: ${msg.slice(0, 150)}`;
+    }
   }
 
   return null;
@@ -210,6 +349,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   const { hash, thread_hash, parent_hash, author, text } = payload.data;
 
+  // Extract image URLs from the triggering cast's embeds (inline — no extra API call)
+  const castImageUrls = extractImageUrls(payload.data.embeds ?? []);
+
   // Atomic DB dedup — works across all serverless instances
   const isNew = await markCastProcessed(hash);
   if (!isNew) return NextResponse.json({ ok: true, skipped: "duplicate" });
@@ -220,12 +362,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const mentioned = isBotMentioned(payload);
 
   // Check active thread by thread_hash OR parent_hash — parallel DB lookups
-  const [threadActive, parentActive, bountyThread, replyToBot] = await Promise.all([
+  // fetchParentCastInfo combines isReplyToBot + parent image extraction in one API call
+  const [threadActive, parentActive, bountyThread, parentInfo] = await Promise.all([
     isInActiveThread(thread_hash),
     parent_hash ? isInActiveThread(parent_hash) : Promise.resolve(false),
     getBountyThread(thread_hash),
-    isReplyToBot(parent_hash),
+    fetchParentCastInfo(parent_hash),
   ]);
+
+  const replyToBot = parentInfo.isFromBot;
+  // Combine image URLs from both current cast and parent cast (parent first — that's usually the submission)
+  const imageUrls = [...parentInfo.imageUrls, ...castImageUrls].filter(
+    (url, i, arr) => arr.indexOf(url) === i, // deduplicate
+  );
 
   const activeThreadKey = threadActive
     ? thread_hash
@@ -275,6 +424,57 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     // --- Priority 2: direct reply to one of the bot's casts OR bounty thread ---
+    // Cancel request: user explicitly mentions bot + "cancel bounty" in the bounty thread
+    if (inBountyThread && bountyThread && mentioned && isCancelRequest(text)) {
+      // Check if already closed before starting the confirmation flow
+      const existingBounty = await getActiveBounty(bountyThread.bountyId);
+      if (existingBounty?.status === "closed") {
+        logEntry.action = "cancel_already_closed";
+        logEntry.replyText = "already closed";
+        await reply(`"${bountyThread.bountyName}" is already closed — nothing to cancel.`, hash);
+        await appendLog(logEntry);
+        return NextResponse.json({ ok: true });
+      }
+
+      // Only the bounty creator can cancel — reject everyone else.
+      // creatorFid may be null for bounties created before this field was added.
+      // In that case we can't verify ownership — block the cancel and ask them to DM.
+      if (!existingBounty?.creatorFid) {
+        logEntry.action = "cancel_no_creator_fid";
+        logEntry.replyText = "no creator fid on record";
+        await reply(`this bounty was created before creator tracking was added — can't verify ownership automatically. DM @0x94t3z.eth to arrange a manual cancel and refund.`, hash);
+        await appendLog(logEntry);
+        return NextResponse.json({ ok: true });
+      }
+
+      if (existingBounty.creatorFid !== author.fid) {
+        logEntry.action = "cancel_unauthorized";
+        logEntry.replyText = "not creator";
+        await reply(`only the person who created this bounty can cancel it.`, hash);
+        await appendLog(logEntry);
+        return NextResponse.json({ ok: true });
+      }
+
+      const cancelState = {
+        step: "awaiting_cancel_confirmation" as const,
+        authorFid: author.fid,
+        authorUsername: author.username,
+        cancelBountyId: bountyThread.bountyId,
+        cancelBountyChain: bountyThread.chain,
+        cancelBountyName: bountyThread.bountyName,
+        lastUpdated: new Date().toISOString(),
+      };
+      await setConversation(thread_hash, cancelState);
+      if (hash !== thread_hash) await setConversation(hash, cancelState);
+
+      const cancelReply = `you want to cancel "${bountyThread.bountyName}"? this will close the bounty and refund the bounty amount to your wallet. reply "yes cancel" to confirm or "no" to keep it open.`;
+      logEntry.action = "cancel_bounty_confirmation";
+      logEntry.replyText = cancelReply;
+      await reply(cancelReply, hash);
+      await appendLog(logEntry);
+      return NextResponse.json({ ok: true });
+    }
+
     if (replyToBot || (inBountyThread && bountyThread)) {
       const agentResult = await runAgent({
         castHash: hash,
@@ -284,6 +484,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         castText: text,
         action: "general_reply",
         replyToBot,
+        mentioned,
+        imageUrls: imageUrls.length ? imageUrls : undefined,
         bountyContext: bountyThread ? {
           bountyId: bountyThread.bountyId,
           name: bountyThread.bountyName,
@@ -310,6 +512,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       authorFid: author.fid,
       castText: text,
       action: "general_reply",
+      mentioned,
+      imageUrls: imageUrls.length ? imageUrls : undefined,
     });
 
     logEntry.action = agentResult.action;

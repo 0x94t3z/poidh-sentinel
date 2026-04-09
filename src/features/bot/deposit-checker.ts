@@ -2,7 +2,8 @@ import "server-only";
 import { createPublicClient, http, formatEther, parseEther } from "viem";
 import { arbitrum, base } from "viem/chains";
 import { getBotWalletAddress, createBountyOnChain, resolvePoidhUrl } from "@/features/bot/poidh-contract";
-import { setConversation, clearConversation, CHAIN_CONFIG } from "@/features/bot/conversation-state";
+import { MIN_OPEN_DURATION_HOURS } from "@/features/bot/bounty-loop";
+import { setConversation, clearConversation, CHAIN_CONFIG, PLATFORM_FEE_PCT } from "@/features/bot/conversation-state";
 import { addActiveBounty } from "@/features/bot/bounty-store";
 import { publishReply, publishCast } from "@/features/bot/cast-reply";
 import { getWalletBalance, setWalletBalance, getAllAwaitingPayment, unregisterPendingPayment, registerBountyThread, updateBounty } from "@/db/actions/bot-actions";
@@ -94,9 +95,10 @@ async function _checkDeposits(): Promise<void> {
         // If balance increased but still not enough, notify user
         if (currentBalance > lastBalance) {
           const depositEth = formatEther(currentBalance - lastBalance);
-          const baseNote = matchingAmount !== requestedAmount ? ` (base bounty amount ${requestedAmount} ETH)` : "";
+          const config = CHAIN_CONFIG[chain as keyof typeof CHAIN_CONFIG];
+          const curr = config?.currency ?? "ETH";
           await publishReply({
-            text: `received ${depositEth} ETH — target for this request is ${matchingAmount} ETH${baseNote}. send the rest and i'll create the bounty.`,
+            text: `received ${depositEth} ${curr} — still need ${formatEther(requiredWei - (currentBalance - lastBalance))} more. target is ${matchingAmount} ${curr} (${requestedAmount} bounty + ${PLATFORM_FEE_PCT}% fee). send the rest and i'll create the bounty.`,
             parentHash: castHash,
             signerUuid,
           });
@@ -133,6 +135,7 @@ async function _checkDeposits(): Promise<void> {
         chain,
         createdAt: new Date().toISOString(),
         castHash,
+        creatorFid: state.authorFid,
         status: "open",
         claimCount: 0,
       });
@@ -151,9 +154,10 @@ async function _checkDeposits(): Promise<void> {
           text: `bounty is live — ${poidhUrl}`,
           parentHash: castHash,
           signerUuid,
+          embedUrl: poidhUrl,
         });
 
-        const channelAnnouncement = `new open bounty: "${idea.name}"\n\n${idea.description}\n\nreward: ${requestedAmount} ${config.currency} on ${config.label}. open bounty — anyone can add funds and vote on the winner.`;
+        const channelAnnouncement = `new open bounty: "${idea.name}"\n\n${idea.description}\n\nreward: ${requestedAmount} ${config.currency} on ${config.label}. submissions open for ${MIN_OPEN_DURATION_HOURS}h — anyone can submit proof or add funds. winner chosen by vote.\n\nto cancel this bounty, reply "cancel bounty" and tag @poidh-sentinel.`;
         const announcementHash = await publishCast({
           text: channelAnnouncement.slice(0, 1024),
           signerUuid,
@@ -182,7 +186,7 @@ async function _checkDeposits(): Promise<void> {
           signerUuid,
         });
 
-        const channelAnnouncement = `new open bounty: "${idea.name}"\n\n${idea.description}\n\nreward: ${requestedAmount} ${config.currency} on ${config.label}. tx: ${explorerUrl}`;
+        const channelAnnouncement = `new open bounty: "${idea.name}"\n\n${idea.description}\n\nreward: ${requestedAmount} ${config.currency} on ${config.label}. submissions open for ${MIN_OPEN_DURATION_HOURS}h — anyone can submit proof or add funds. winner chosen by vote.\n\nto cancel this bounty, reply "cancel bounty" and tag @poidh-sentinel. tx: ${explorerUrl}`;
         const announcementHash = await publishCast({
           text: channelAnnouncement.slice(0, 1024),
           signerUuid,

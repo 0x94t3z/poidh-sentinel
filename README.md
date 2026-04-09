@@ -1,4 +1,4 @@
-# Poidh Sentinel
+# poidh sentinel
 
 An autonomous bounty agent for [poidh (pics or it didn't happen)](https://poidh.xyz), deployed as a Farcaster mini app.
 
@@ -93,7 +93,8 @@ deposit-checker.ts                 bounty-loop.ts  (cron, every minute)
    -> posts announcement cast to /poidh channel (this hash = announcementCastHash)
    -> registers bounty in DB + bounty_threads table
 
-5. (MIN_OPEN_DURATION_MS = 24h minimum before evaluation)
+5. (MIN_OPEN_DURATION_HOURS = 72h minimum before evaluation, env-overridable)
+   -> if no submissions after 7 days (NO_SUBMISSION_NUDGE_HOURS), bot posts a nudge reply every 48h
 
 6. bounty-loop picks up open bounty with claims
    -> runs full evaluation pipeline
@@ -112,6 +113,75 @@ deposit-checker.ts                 bounty-loop.ts  (cron, every minute)
     -> if YES: winner cast as NEW top-level /poidh cast with bounty URL
     -> if NO: re-nominate next-best (score >= 60) from allEvalResults
 ```
+
+### Cancel flow
+
+```
+User replies in /poidh announcement thread: "cancel bounty @poidh-sentinel"
+  |
+  v
+webhook detects: inBountyThread + mentioned + isCancelRequest()
+  -> saves awaiting_cancel_confirmation conversation state
+  -> bot replies: "you want to cancel "[name]"? reply 'yes cancel' to confirm or 'no' to keep it open."
+
+User replies: "yes cancel"
+  |
+  v
+handleConversationFlow() (awaiting_cancel_confirmation step)
+  -> calls cancelBounty(bountyId, chain, creatorFid) in poidh-contract.ts:
+
+  KEY INSIGHT: the original depositor (bounty creator) sent ETH directly to the bot
+  wallet — the poidh contract has no record of them. refund is a plain ETH transfer
+  from the bot wallet, NOT a poidh contract call. withdrawTo() only drains
+  pendingWithdrawals[msg.sender] (the bot wallet's own balance) — it cannot send
+  to an arbitrary third party on behalf of the creator.
+
+  REFUND AMOUNT = parseEther(bountyRecord.amountEth) from DB
+    → exact bounty reward the creator put up (no 2.5% fee)
+    → pendingWithdrawals delta (before/after cancel) logged as sanity check
+    → DB value is definitive — immune to contract state edge cases
+
+  SOLO BOUNTY path (3 txs):
+       1. cancelSoloBounty(bountyId)
+          → credits pendingWithdrawals[botWallet] with bountyAmount
+       2. withdraw() → ETH back to bot wallet
+       3. sendTransaction(to=creatorAddress, value=amountEth from DB)
+          → plain ETH transfer: bot wallet → creator's custody/verified address
+          (fallback: ETH stays in bot wallet if Neynar can't resolve creator's address)
+
+  OPEN BOUNTY path (4 txs):
+       1. cancelOpenBounty(bountyId)
+          → marks bounty cancelled; does NOT auto-refund anyone
+       2. claimRefundFromCancelledOpenBounty(bountyId)
+          → bot claims its own issuer contribution into pendingWithdrawals[botWallet]
+       3. withdraw() → ETH back to bot wallet
+       4. sendTransaction(to=creatorAddress, value=amountEth from DB)
+          → plain ETH transfer: bot wallet → creator's custody/verified address
+       ⚠️  other contributors must call claimRefundFromCancelledOpenBounty themselves
+           on poidh.xyz — requires their own msg.sender (bot cannot do it for them)
+       → bot resolves each contributor address → @username via Neynar bulk-by-address
+       → posts a follow-up reply tagging each contributor:
+         "heads up @alice @bob — this bounty was cancelled. go to poidh.xyz to claim
+          your refund via 'claim refund from cancelled bounty'."
+
+  OLD BOUNTIES (creatorFid = null):
+       → cancel blocked: "DM @0x94t3z.eth to arrange manually"
+       → evaluation + winner selection still runs fully autonomous
+
+  -> updateBounty(bountyId, { status: "closed", winnerReasoning: "bounty cancelled by issuer" })
+  -> bot replies: '"[name]" cancelled — your deposit refunded to 0x1a2b...5f6e. pinging contributors to claim their refunds.'
+  -> clears conversation state
+
+Edge cases:
+  - vote in progress: contract reverts → "can't cancel — a vote is in progress. wait for it to resolve first."
+  - user says "no": "ok, bounty stays open. good luck!"
+  - FID address resolution fails: ETH withdrawn to bot wallet (user contacts support)
+  - pendingWithdrawals = 0 after cancel: cancel tx still confirmed, no withdraw sent
+  - cancel tx fails: error posted in thread, state cleared
+```
+
+The cancel instructions are included in every bounty announcement cast posted to `/poidh`:
+`"to cancel this bounty, reply 'cancel bounty' and tag @poidh-sentinel."`
 
 ### AI image detection flow
 
@@ -172,31 +242,50 @@ Key contract functions used:
 
 | Function | Purpose |
 |----------|---------|
-| `createOpenBounty(name, description)` | Creates a crowdfundable open bounty |
+| `createOpenBounty(name, description)` | Creates a crowdfundable open bounty (creator added as first participant) |
+| `createSoloBounty(name, description)` | Creates a solo bounty (issuer decides winner directly) |
 | `bounties(id)` | Fetches bounty details (issuer, amount, claimer, createdAt) |
 | `getClaimsByBountyId(bountyId, cursor)` | Paginates claims (10 per page, zero-padded) |
-| `bountyContributions(bountyId)` | Returns contributor list; falls back to issuer if empty |
-| `everHadExternalContributor(bountyId)` | Determines direct-accept vs. community vote path |
-| `acceptClaim(bountyId, claimId)` | Direct payout (issuer-only bounty) |
-| `submitClaimForVote(bountyId, claimId)` | Nominates winner, starts 48h vote window |
+| `participants(bountyId, index)` | Returns participant address at index; reverts if out-of-bounds |
+| `acceptClaim(bountyId, claimId)` | Direct payout — solo bounties only (no participants array) |
+| `submitClaimForVote(bountyId, claimId)` | Nominates winner, starts 48h vote window — open bounties only |
+| `voteClaim(bountyId, vote)` | Contributors vote yes/no weighted by their ETH contribution |
 | `bountyVotingTracker(bountyId)` | Returns yesVotes, noVotes, deadline |
-| `resolveVote(bountyId)` | Finalizes vote after deadline |
+| `bountyCurrentVotingClaim(bountyId)` | Returns currently nominated claimId (0 if no vote active) |
+| `resolveVote(bountyId)` | Finalizes vote after deadline; accepts if yes > 50% weighted |
+| `cancelSoloBounty(bountyId)` | Issuer cancels solo bounty — credits `pendingWithdrawals[issuer]` |
+| `cancelOpenBounty(bountyId)` | Issuer cancels open bounty — credits `pendingWithdrawals` for all participants |
+| `pendingWithdrawals(address)` | Returns claimable ETH balance (credited by acceptClaim/resolveVote/cancelSoloBounty) |
+| `withdraw()` | Pulls `pendingWithdrawals[msg.sender]` to caller |
+| `withdrawTo(address)` | Pulls `pendingWithdrawals[msg.sender]` to any address — useful for contracts that can't receive ETH directly |
+| `withdrawFromOpenBounty(bountyId)` | Contributor exits a live open bounty and reclaims their contribution |
+| `claimRefundFromCancelledOpenBounty(bountyId)` | Each participant claims their refund after `cancelOpenBounty` — NOT automatic |
+
+**Bounty type detection** — the bot probes `participants[bountyId][0]`:
+- reverts → no participants → **solo bounty** → use `acceptClaim` directly
+- succeeds → has participants → **open bounty** → use `submitClaimForVote` / `resolveVote`
 
 Winner resolution flow:
 
 ```
-everHadExternalContributor(bountyId)?
+participants[bountyId][0] probe
 |
-+-- NO  -> acceptClaim(bountyId, claimId)         — immediate payout
++-- reverts (solo)  -> acceptClaim(bountyId, claimId)        — immediate payout
 |
-+-- YES -> submitClaimForVote(bountyId, claimId)  — 48h community vote
-                |
-                +-- after deadline -> resolveVote(bountyId)
-                      |
-                      +-- YES votes > NO votes -> winner paid
-                      +-- rejected -> nominate next-best claim (score >= 60)
-                                       from stored allEvalResults
++-- succeeds (open) -> bountyCurrentVotingClaim(bountyId)?
+                          |
+                          +-- 0 -> submitClaimForVote()       — starts 48h vote
+                          |
+                          +-- >0 -> bountyVotingTracker deadline passed?
+                                      |
+                                      +-- YES -> resolveVote()
+                                      |           yes > 50% weighted -> winner paid
+                                      |           rejected -> nominate next-best (score >= 60)
+                                      |
+                                      +-- NO  -> "vote in progress, Xh remaining" (skip)
 ```
+
+**New claims during a vote** — `createClaim` has no voting gate; submissions come in freely during the 48h window. They are picked up in the next evaluation cycle after the current vote resolves.
 
 ---
 
@@ -433,7 +522,7 @@ Dashboard auto-refreshes every 15 seconds.
 ## Setup
 
 ### Prerequisites
-- Node.js 18+, pnpm
+- Node.js 18+, npm
 - Neynar account ([dev.neynar.com](https://dev.neynar.com)) — Farcaster webhook + managed signer
 - Groq account — free-tier LLM + vision inference ([console.groq.com](https://console.groq.com))
 - EVM wallet with ETH on Arbitrum or Base for gas (0.005 ETH recommended minimum)
@@ -450,12 +539,12 @@ The bot's FID is hardcoded as `3273077` in `src/app/api/webhook/farcaster/route.
 
 ### Run locally
 
-**Prerequisites:** Node.js 18+, pnpm, PostgreSQL database (Neon free tier works great)
+**Prerequisites:** Node.js 18+, npm, PostgreSQL database (Neon free tier works great)
 
 ```bash
 git clone <your-repo-url>
 cd <repo>
-pnpm install
+npm install
 ```
 
 Create a `.env` file in the project root:
@@ -521,7 +610,7 @@ COINGECKO_API_KEY=
 Start the dev server:
 
 ```bash
-pnpm dev
+npm run dev
 # -> http://localhost:3000
 ```
 
@@ -595,11 +684,14 @@ Vercel Cron is pre-configured in `vercel.json` to run the bounty loop every minu
 - **Conversation state duplication** — state is written under both `threadHash` and `castHash` to handle Farcaster's behavior where the first cast in a thread has `thread_hash === hash`.
 - **State before reply** — conversation state is written to DB before the reply is published to prevent race conditions on fast follow-up casts.
 - **Address resolution** — `resolveAddressesToUsernames()` uses Neynar's bulk-by-address endpoint (up to 350 addresses) to convert contributor wallet addresses to `@usernames` in winner announcements. Falls back to truncated address if resolution fails.
-- **Contributor fallback** — if `bountyContributions()` returns an empty list, the bounty issuer address is used as the sole contributor for @mention purposes.
-- **MIN_OPEN_DURATION_MS** — set to 24 hours in production. A bounty must be open for at least this long before the bot evaluates it, giving submitters time to respond to the announcement.
+- **Contributor detection** — the bot probes `participants[bountyId][0..N]` sequentially until an out-of-bounds revert, collecting all non-zero addresses. `address(0)` slots (withdrawn participants) are skipped without stopping iteration. Falls back to the bounty issuer address if the probe fails or returns nothing.
+- **MIN_OPEN_DURATION_HOURS** — default 72h. A bounty must be open at least this long before the bot evaluates it, giving everyone fair time to submit. Override via `MIN_OPEN_DURATION_HOURS` env var. The value is printed in the bounty announcement cast so submitters know the window.
+- **NO_SUBMISSION_NUDGE_HOURS** — default 168h (7 days). If a bounty has been open this long with zero submissions, the bot posts a nudge reply in the announcement thread every 48h until someone submits or the bounty is cancelled.
 - **Video submissions** — vision AI can only evaluate images. Video proof is scored on submission name/description text only.
 - **Degen Chain** — fully supported for conversation and bounty creation; deposit detection not implemented (ETH balance detection only covers Arbitrum and Base).
 - **Announcement cast embed** — nomination replies in thread do not include the bounty URL (it's already embedded in the parent announcement cast). Top-level winner announcements include the full URL as an embed.
+- **Cancelled vs won detection** — the bounty-loop checks `claimer != 0x000...` to detect closed bounties. If `claimer == issuer`, the bounty was cancelled (`cancelSoloBounty` / `cancelOpenBounty`) and funds were refunded; if `claimer != issuer`, a winner was accepted. Both set status to `closed` in the DB. Only the bot wallet (EOA issuer) can cancel bounties it created.
+- **Cancel flow** — the original depositor sent ETH directly to the bot wallet, so the poidh contract has no record of them. `withdrawTo()` only pulls `pendingWithdrawals[msg.sender]` (bot wallet's own balance) — it cannot route ETH to a third party. The actual creator refund is a **plain ETH transfer** (`sendTransaction`) from the bot wallet to the creator's Farcaster custody/verified address resolved via Neynar. Solo cancel: `cancelSoloBounty` → `withdraw()` → `sendTransaction(creatorAddress)`. Open cancel: `cancelOpenBounty` → `claimRefundFromCancelledOpenBounty` → `withdraw()` → `sendTransaction(creatorAddress)`. Other open bounty contributors call `claimRefundFromCancelledOpenBounty` themselves on poidh.xyz — bot cannot do it for them. Bot pings all contributors by @username in the announcement thread after cancel. `creatorFid` stored on `active_bounties` at creation time. **Refund amount** = `parseEther(bountyRecord.amountEth)` from DB — the exact bounty reward the creator put up (no fee). The `pendingWithdrawals` delta (before/after cancel) is computed as a sanity log but the DB value is the definitive source for the actual transfer. **Cancel auth**: only the creator (`creatorFid` match) can trigger cancel. If `creatorFid` is null (bounties created before this field was added), cancel is blocked and the user is directed to DM `@0x94t3z.eth` for manual handling.
 - **Cron parallelism** — `runBountyLoop()` and `checkDepositsAndCreateBounties()` run in parallel via `Promise.allSettled`. A failure in deposit checking does not block bounty evaluation and vice versa.
 - **OpenAI vision cost** — `gpt-4o-mini` charges ~$0.001 per image for claim evaluation. It only activates when all Groq vision models are rate-limited. For a typical bounty with 5-10 submissions, this costs less than $0.01 total.
 - **AI detection cost** — `gpt-4o` charges ~$0.007 per two-pass detection call. OpenAI caches the image between the two passes so the second call costs roughly half. Only triggered when someone explicitly asks "is this AI?" with an image present.

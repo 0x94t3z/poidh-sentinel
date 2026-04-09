@@ -1,5 +1,5 @@
 import "server-only";
-import { createPublicClient, createWalletClient, http, parseEther, type Hash } from "viem";
+import { createPublicClient, createWalletClient, http, parseEther, formatEther, type Hash } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { arbitrum, base } from "viem/chains";
 
@@ -80,11 +80,25 @@ export const POIDH_ABI = [
     ],
   },
   {
-    name: "everHadExternalContributor",
+    name: "participants",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "bountyId", type: "uint256" }, { name: "index", type: "uint256" }],
+    outputs: [{ name: "", type: "address" }],
+  },
+  {
+    name: "bountyContributions",
     type: "function",
     stateMutability: "view",
     inputs: [{ name: "bountyId", type: "uint256" }],
-    outputs: [{ name: "", type: "bool" }],
+    outputs: [{
+      name: "",
+      type: "tuple[]",
+      components: [
+        { name: "contributor", type: "address" },
+        { name: "amount", type: "uint256" },
+      ],
+    }],
   },
   {
     name: "submitClaimForVote",
@@ -129,6 +143,61 @@ export const POIDH_ABI = [
       { name: "bountyId", type: "uint256" },
       { name: "claimId", type: "uint256" },
     ],
+    outputs: [],
+  },
+  {
+    name: "cancelSoloBounty",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "bountyId", type: "uint256" }],
+    outputs: [],
+  },
+  {
+    name: "cancelOpenBounty",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "bountyId", type: "uint256" }],
+    outputs: [],
+  },
+  // Pull payment pattern — pendingWithdrawals credited by acceptClaim/resolveVote/cancelSoloBounty
+  {
+    name: "pendingWithdrawals",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ name: "amount", type: "uint256" }],
+  },
+  {
+    // Pulls pendingWithdrawals[msg.sender] to caller (winner payout or solo bounty issuer refund)
+    name: "withdraw",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [],
+    outputs: [],
+  },
+  {
+    // Pulls pendingWithdrawals[msg.sender] to arbitrary address — useful for contract wallets
+    // NOTE: bot uses plain sendTransaction() for creator refunds, not withdrawTo()
+    name: "withdrawTo",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "to", type: "address" }],
+    outputs: [],
+  },
+  {
+    // Contributor withdraws their share from a live open bounty (before cancel)
+    name: "withdrawFromOpenBounty",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "bountyId", type: "uint256" }],
+    outputs: [],
+  },
+  {
+    // Contributor claims their refund AFTER cancelOpenBounty — NOT automatic, must be called per-contributor
+    name: "claimRefundFromCancelledOpenBounty",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "bountyId", type: "uint256" }],
     outputs: [],
   },
   {
@@ -356,14 +425,23 @@ export async function resolveBountyWinner(
   const { client, account } = getWalletClient(chain);
   const contractAddress = POIDH_CONTRACTS[chain] ?? POIDH_CONTRACT;
 
-  const hasExternal = await publicClient.readContract({
-    address: contractAddress,
-    abi: POIDH_ABI,
-    functionName: "everHadExternalContributor",
-    args: [bountyId],
-  }) as boolean;
+  // Determine bounty type: solo (no participants → acceptClaim directly) vs
+  // open (participants array populated via createOpenBounty → submitClaimForVote/resolveVote).
+  // The contract does NOT have everHadExternalContributor — use participants[bountyId][0] probe.
+  let isOpenBounty = false;
+  try {
+    await publicClient.readContract({
+      address: contractAddress,
+      abi: POIDH_ABI,
+      functionName: "participants",
+      args: [bountyId, BigInt(0)],
+    });
+    isOpenBounty = true; // didn't revert → at least one participant → open bounty
+  } catch {
+    isOpenBounty = false; // reverted → no participants → solo bounty
+  }
 
-  if (!hasExternal) {
+  if (!isOpenBounty) {
     const txHash = await client.writeContract({
       address: contractAddress,
       abi: POIDH_ABI,
@@ -415,6 +493,185 @@ export async function resolveBountyWinner(
 
   const hoursLeft = Number((deadline - now) / BigInt(3600));
   throw new Error(`vote in progress, ${hoursLeft}h remaining until resolution`);
+}
+
+// Resolve a Farcaster FID to a verified custody address via Neynar
+async function resolveFidToCustodyAddress(fid: number): Promise<string | null> {
+  const apiKey = process.env.NEYNAR_API_KEY;
+  if (!apiKey) return null;
+  try {
+    const res = await fetch(`https://api.neynar.com/v2/farcaster/user/bulk?fids=${fid}`, {
+      headers: { "x-api-key": apiKey },
+    });
+    if (!res.ok) return null;
+    const data = await res.json() as { users?: Array<{ custody_address?: string; verified_addresses?: { eth_addresses?: string[] } }> };
+    const user = data.users?.[0];
+    if (!user) return null;
+    // Prefer first verified ETH address, fall back to custody address
+    return user.verified_addresses?.eth_addresses?.[0] ?? user.custody_address ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// Cancel a bounty the bot created — uses cancelSoloBounty or cancelOpenBounty.
+//
+// REFUND MECHANICS (verified from contract ABI):
+//
+// cancelSoloBounty:
+//   → credits pendingWithdrawals[botWallet]
+//   → bot calls withdraw() to pull ETH back to bot wallet
+//   → bot calls sendTransaction(creatorAddress, amount) — plain ETH transfer to the person who funded it
+//     (the poidh contract has no record of the original depositor; refund is outside the contract)
+//
+// cancelOpenBounty:
+//   → does NOT auto-refund anyone
+//   → bot calls claimRefundFromCancelledOpenBounty(bountyId) to recover its own issuer contribution
+//     into pendingWithdrawals[botWallet], then withdraw() + sendTransaction(creatorAddress)
+//   → all OTHER contributors must call claimRefundFromCancelledOpenBounty(bountyId) themselves
+//     on poidh.xyz — requires their own msg.sender, bot cannot do it for them
+//
+// withdraw / withdrawTo pull from pendingWithdrawals[msg.sender] — same mechanism used for
+// winner payouts from acceptClaim/resolveVote. withdrawTo is NOT used for creator refunds.
+export async function cancelBounty(
+  bountyId: bigint,
+  chain = "arbitrum",
+  creatorFid?: number,
+  bountyAmountWei?: bigint, // exact bounty reward from DB — preferred over pendingWithdrawals delta
+): Promise<{ cancelTxHash: string; withdrawTxHash: string; refundTxHash?: string; method: "cancelSoloBounty" | "cancelOpenBounty"; refundAddress: string; externalContributors: string[] }> {
+  const publicClient = getPublicClient(chain);
+  const { client, account } = getWalletClient(chain);
+  const contractAddress = POIDH_CONTRACTS[chain] ?? POIDH_CONTRACT;
+
+  // Probe participants[bountyId][0] to determine solo vs open
+  let isOpen = false;
+  try {
+    await publicClient.readContract({
+      address: contractAddress,
+      abi: POIDH_ABI,
+      functionName: "participants",
+      args: [bountyId, BigInt(0)],
+    });
+    isOpen = true;
+  } catch {
+    isOpen = false;
+  }
+
+  // Snapshot pendingWithdrawals BEFORE cancel — so we can isolate exactly what was credited by this cancel
+  const pendingBefore = await publicClient.readContract({
+    address: contractAddress,
+    abi: POIDH_ABI,
+    functionName: "pendingWithdrawals",
+    args: [account.address],
+  }) as bigint;
+
+  const functionName = isOpen ? "cancelOpenBounty" : "cancelSoloBounty";
+  const cancelTxHash = await client.writeContract({
+    address: contractAddress,
+    abi: POIDH_ABI,
+    functionName,
+    args: [bountyId],
+    account,
+  });
+
+  // Wait for cancel tx to be mined
+  await publicClient.waitForTransactionReceipt({ hash: cancelTxHash, timeout: 60_000 });
+
+  // For open bounties: bot must first call claimRefundFromCancelledOpenBounty
+  // to move its own contribution into pendingWithdrawals[botWallet]
+  if (isOpen) {
+    const claimRefundTx = await client.writeContract({
+      address: contractAddress,
+      abi: POIDH_ABI,
+      functionName: "claimRefundFromCancelledOpenBounty",
+      args: [bountyId],
+      account,
+    });
+    await publicClient.waitForTransactionReceipt({ hash: claimRefundTx, timeout: 60_000 });
+    console.log(`[poidh-contract] claimRefundFromCancelledOpenBounty bountyId=${bountyId}: ${claimRefundTx}`);
+  }
+
+  // Read pendingWithdrawals AFTER cancel — the delta is exactly what this bounty credited
+  const pendingAfter = await publicClient.readContract({
+    address: contractAddress,
+    abi: POIDH_ABI,
+    functionName: "pendingWithdrawals",
+    args: [account.address],
+  }) as bigint;
+
+  // Compute delta for sanity logging — how much this cancel actually credited
+  const deltaAmount = pendingAfter > pendingBefore ? pendingAfter - pendingBefore : BigInt(0);
+
+  // Use stored bounty amount (from DB) as the definitive refund amount.
+  // This is the exact bounty reward the creator put up — no fee, no over/under.
+  // Fall back to the delta if no stored amount was provided (shouldn't happen in normal flow).
+  const bountyRefundAmount = bountyAmountWei ?? deltaAmount;
+
+  console.log(
+    `[poidh-contract] cancelBounty: pendingBefore=${formatEther(pendingBefore)} ` +
+    `pendingAfter=${formatEther(pendingAfter)} delta=${formatEther(deltaAmount)} ` +
+    `refundAmount=${formatEther(bountyRefundAmount)} (${bountyAmountWei ? "from DB" : "from delta"})`,
+  );
+
+  if (bountyRefundAmount === BigInt(0)) {
+    console.warn(`[poidh-contract] cancelBounty: refund amount is zero for bountyId=${bountyId} — nothing to withdraw`);
+    return { cancelTxHash, withdrawTxHash: cancelTxHash, refundTxHash: undefined, method: functionName, refundAddress: account.address, externalContributors: [] };
+  }
+
+  // Step 1: withdraw the full pendingWithdrawals[botWallet] balance back to the bot wallet.
+  // withdraw() pulls everything — we then send exactly bountyRefundAmount to the creator,
+  // which preserves any pre-existing balance in the bot wallet.
+  const withdrawTxHash = await client.writeContract({
+    address: contractAddress,
+    abi: POIDH_ABI,
+    functionName: "withdraw",
+    args: [],
+    account,
+  });
+  await publicClient.waitForTransactionReceipt({ hash: withdrawTxHash, timeout: 60_000 });
+  console.log(`[poidh-contract] withdraw to bot wallet: ${withdrawTxHash}`);
+
+  // Step 2: plain ETH transfer from bot wallet → creator wallet for exactly bountyRefundAmount.
+  // The poidh contract has no record of the original depositor — refund is outside the contract.
+  const creatorAddress = creatorFid ? await resolveFidToCustodyAddress(creatorFid) : null;
+  const refundAddress = creatorAddress ?? account.address;
+
+  let refundTxHash: string | undefined;
+  if (creatorAddress && creatorAddress.toLowerCase() !== account.address.toLowerCase()) {
+    refundTxHash = await client.sendTransaction({
+      to: creatorAddress as `0x${string}`,
+      value: bountyRefundAmount,
+      account,
+    });
+    await publicClient.waitForTransactionReceipt({ hash: refundTxHash as `0x${string}`, timeout: 60_000 });
+    console.log(`[poidh-contract] refund ${formatEther(bountyRefundAmount)} ETH sent to creator ${creatorAddress} (FID ${creatorFid}): ${refundTxHash}`);
+  } else {
+    console.warn(`[poidh-contract] no creator address resolved for FID ${creatorFid} — ${formatEther(bountyRefundAmount)} ETH stays in bot wallet`);
+  }
+
+  // Collect external contributor addresses (all participants except the bot itself)
+  // These must claim their own refund on poidh.xyz via claimRefundFromCancelledOpenBounty
+  const externalContributors: string[] = [];
+  if (isOpen) {
+    const ZERO_ADDR = "0x0000000000000000000000000000000000000000";
+    for (let i = 0; i < 50; i++) {
+      try {
+        const addr = await publicClient.readContract({
+          address: contractAddress,
+          abi: POIDH_ABI,
+          functionName: "participants",
+          args: [bountyId, BigInt(i)],
+        }) as string;
+        if (addr && addr !== ZERO_ADDR && addr.toLowerCase() !== account.address.toLowerCase()) {
+          externalContributors.push(addr);
+        }
+      } catch {
+        break;
+      }
+    }
+  }
+
+  return { cancelTxHash, withdrawTxHash, refundTxHash, method: functionName, refundAddress, externalContributors };
 }
 
 export async function getBountyDetails(bountyId: bigint, chain = "arbitrum") {

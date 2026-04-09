@@ -57,6 +57,7 @@ export const activeBounties = pgTable("active_bounties", {
   amountEth: text("amount_eth").notNull(),
   chain: text("chain").notNull(),
   castHash: text("cast_hash").notNull(),
+  creatorFid: integer("creator_fid"),              // FID of the user who funded this bounty
   announcementCastHash: text("announcement_cast_hash"), // hash of the channel announcement cast
   status: text("status").notNull().default("open"), // open | evaluating | closed
   winnerClaimId: text("winner_claim_id"),

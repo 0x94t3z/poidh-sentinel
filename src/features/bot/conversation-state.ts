@@ -12,21 +12,18 @@ export {
 export const CHAIN_CONFIG = {
   arbitrum: {
     minAmount: "0.001",
-    minGas: "~0.0001 ETH",
     currency: "ETH",
     label: "Arbitrum",
     explorer: "arbiscan.io",
   },
   base: {
     minAmount: "0.001",
-    minGas: "~0.00001 ETH",
     currency: "ETH",
     label: "Base",
     explorer: "basescan.org",
   },
   degen: {
     minAmount: "1000",
-    minGas: "~1 DEGEN",
     currency: "DEGEN",
     label: "Degen Chain",
     explorer: "explorer.degen.tips",
@@ -91,7 +88,23 @@ export function isRejection(text: string): boolean {
   );
 }
 
-// Generate a unique amount by adding a tiny suffix (e.g. 0.001 → 0.0010001)
+// Platform fee charged on top of the bounty amount (kept by the bot wallet)
+export const PLATFORM_FEE_PCT = 2.5;
+
+// Returns total amount user must send = bountyAmount + platform fee
+// e.g. bountyAmount=0.001, fee=2.5% → total=0.0010250
+export function addPlatformFee(bountyAmount: string): { total: string; fee: string } {
+  const base = parseFloat(bountyAmount);
+  const fee = base * (PLATFORM_FEE_PCT / 100);
+  const total = base + fee;
+  // Round to 7 decimal places to avoid floating point noise
+  const feeStr = fee.toFixed(7).replace(/0+$/, "").replace(/\.$/, "");
+  const totalStr = total.toFixed(7).replace(/0+$/, "").replace(/\.$/, "");
+  return { total: totalStr, fee: feeStr };
+}
+
+// Generate a unique amount by adding a tiny suffix (e.g. 0.0010250 → 0.0010251)
+// Applied AFTER the fee so the uniqueness suffix is on top of total
 export function makeUniqueAmount(baseAmount: string, index: number): string {
   const base = parseFloat(baseAmount);
   const unique = base + (index * 0.0000001);
