@@ -58,11 +58,12 @@ your personality:
 - never use markdown, no bullet points, no bold, no headers
 - never say "as an ai", "i'm an ai", "i cannot", or any disclaimer
 - never start with "i'd love to", "great question", "sure!", or similar filler
-- NEVER fabricate outcomes — if you see a previous message saying "cancel failed" or an error, do NOT say the cancel succeeded. be honest: "the cancel failed — try again by replying 'cancel bounty' in the announcement thread."
-- if someone asks "what's that mean" or similar after an error message, explain the error plainly — do not invent a different outcome
 - NEVER introduce yourself mid-conversation ("i'm ${BOT_USERNAME}..." is banned unless someone literally asks who you are)
 - NEVER reset the conversation or ignore prior context — always read the thread history and stay on topic
+- if someone is just congratulating, celebrating, or saying thanks — respond warmly and briefly. do NOT redirect them to poidh.xyz. just be human.
 - if someone asks about a bounty's current value or status, tell them to check poidh.xyz — you don't have live contract data in this context
+- NEVER fabricate outcomes — if you see a previous message saying "cancel failed" or an error, do NOT say the cancel succeeded. be honest: "the cancel failed — try again by replying 'cancel bounty' in the announcement thread."
+- if someone asks "what's that mean" or similar after an error message, explain the error plainly — do not invent a different outcome
 
 your capabilities:
 - suggest creative, specific, real-world bounty ideas
@@ -210,36 +211,27 @@ async function detectAction(text: string): Promise<BountyAction> {
   }
 
   // LLM-based intent classifier for suggest_bounty vs general_reply.
-  // Keyword matching was too broad — celebratory / ambient mentions could incorrectly
-  // trigger bounty-creation flow.
+  // Keyword matching was too broad — "make a poidh bounty" in a celebratory post
+  // (like announcing a winner) would incorrectly trigger the bounty creation flow.
+  // The LLM understands context: only returns "suggest_bounty" when someone is
+  // *actively asking* the bot to help them create one right now.
   try {
     const apiKey = process.env.CEREBRAS_API_KEY ?? process.env.GROQ_API_KEY ?? process.env.OPENROUTER_API_KEY;
     if (apiKey) {
       const endpoint = process.env.CEREBRAS_API_KEY
-        ? CEREBRAS_API_URL
+        ? "https://api.cerebras.ai/v1/chat/completions"
         : process.env.GROQ_API_KEY
-          ? "https://api.groq.com/openai/v1/chat/completions"
-          : OPENROUTER_API_URL;
-
+        ? "https://api.groq.com/openai/v1/chat/completions"
+        : "https://openrouter.ai/api/v1/chat/completions";
       const model = process.env.CEREBRAS_API_KEY
         ? "llama3.1-8b"
         : process.env.GROQ_API_KEY
-          ? "llama-3.1-8b-instant"
-          : "meta-llama/llama-3.3-70b-instruct:free";
-
-      const headers: Record<string, string> = {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      };
-
-      if (!process.env.CEREBRAS_API_KEY && !process.env.GROQ_API_KEY) {
-        headers["HTTP-Referer"] = BOT_APP_URL;
-        headers["X-Title"] = BOT_USERNAME;
-      }
+        ? "llama-3.1-8b-instant"
+        : "meta-llama/llama-3.3-70b-instruct:free";
 
       const res = await fetch(endpoint, {
         method: "POST",
-        headers,
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({
           model,
           messages: [
@@ -263,10 +255,10 @@ async function detectAction(text: string): Promise<BountyAction> {
         const data = (await res.json()) as { choices: Array<{ message: { content: string } }> };
         const answer = data.choices?.[0]?.message?.content?.trim().toLowerCase() ?? "";
         if (answer.includes("suggest_bounty")) {
-          console.log("[agent] detectAction LLM -> suggest_bounty");
+          console.log(`[agent] detectAction LLM → suggest_bounty`);
           return "suggest_bounty";
         }
-        console.log(`[agent] detectAction LLM -> general_reply (raw: "${answer}")`);
+        console.log(`[agent] detectAction LLM → general_reply (raw: "${answer}")`);
         return "general_reply";
       }
     }
@@ -274,7 +266,7 @@ async function detectAction(text: string): Promise<BountyAction> {
     console.warn("[agent] detectAction LLM fallback failed:", err);
   }
 
-  // Safe default — if classifier is unavailable, don't assume bounty creation intent
+  // Safe default — if LLM is unavailable, don't assume bounty creation intent
   return "general_reply";
 }
 
@@ -596,9 +588,10 @@ Respond ONLY in JSON (no markdown):
   }
 }
 
-// Strip markdown formatting that Farcaster doesn't render
+// Strip markdown formatting that Farcaster doesn't render.
+// Also strips outer quotes that small LLMs sometimes wrap their entire reply in.
 function stripMarkdown(text: string): string {
-  return text
+  const stripped = text
     .replace(/\*\*(.*?)\*\*/g, "$1")
     .replace(/\*(.*?)\*/g, "$1")
     .replace(/__(.*?)__/g, "$1")
@@ -608,6 +601,14 @@ function stripMarkdown(text: string): string {
     .replace(/^[-*]\s+/gm, "") // remove bullet points
     .replace(/\n{2,}/g, " ")   // collapse newlines
     .trim();
+  // Remove wrapping quotes: "like this" or 'like this' — LLMs sometimes quote their whole reply
+  if (
+    (stripped.startsWith('"') && stripped.endsWith('"')) ||
+    (stripped.startsWith("'") && stripped.endsWith("'"))
+  ) {
+    return stripped.slice(1, -1).trim();
+  }
+  return stripped;
 }
 
 export async function runAgent(ctx: AgentContext): Promise<AgentResponse> {
@@ -627,8 +628,8 @@ export async function runAgent(ctx: AgentContext): Promise<AgentResponse> {
   }
 
   // If we're in a bounty thread OR this is a direct reply to the bot's cast,
-  // skip keyword detection entirely — just have a natural conversation.
-  // Prevents "good bounty idea!" from triggering a new suggest_bounty flow.
+  // skip intent detection entirely — just have a natural conversation.
+  // Prevents celebratory posts from accidentally triggering a new bounty flow.
   const inContext = !!(ctx.bountyContext ?? ctx.replyToBot);
   const action = inContext ? "general_reply" : await detectAction(ctx.castText);
 
