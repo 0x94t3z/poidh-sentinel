@@ -43,7 +43,10 @@ const OPENROUTER_MODELS = [
   "arcee-ai/trinity-mini:free",
 ];
 
-const SYSTEM_PROMPT = `you are poidh-sentinel, an autonomous bounty agent for the poidh (pics or it didn't happen) platform on farcaster.
+const BOT_USERNAME = process.env.BOT_USERNAME ?? "poidh-sentinel";
+const BOT_APP_URL = process.env.BOT_APP_URL ?? `https://${BOT_USERNAME}.neynar.app`;
+
+const SYSTEM_PROMPT = `you are ${BOT_USERNAME}, an autonomous bounty agent for the poidh (pics or it didn't happen) platform on farcaster.
 
 poidh is an on-chain bounty protocol on arbitrum, base, and degen chain. users create open bounties with ETH or DEGEN, anyone can submit proof (photo/video), and the community votes on the winner. bounties are for real-world tasks only — no digital-only submissions.
 
@@ -54,7 +57,7 @@ your personality:
 - never use markdown, no bullet points, no bold, no headers
 - never say "as an ai", "i'm an ai", "i cannot", or any disclaimer
 - never start with "i'd love to", "great question", "sure!", or similar filler
-- NEVER introduce yourself mid-conversation ("i'm poidh-sentinel..." is banned unless someone literally asks who you are)
+- NEVER introduce yourself mid-conversation ("i'm ${BOT_USERNAME}..." is banned unless someone literally asks who you are)
 - NEVER reset the conversation or ignore prior context — always read the thread history and stay on topic
 - if someone asks about a bounty's current value or status, tell them to check poidh.xyz — you don't have live contract data in this context
 
@@ -76,7 +79,7 @@ key facts about poidh:
 - bounty link format: poidh.xyz/{chain}/bounty/{id}
 - do NOT invent rules beyond what's above — if unsure, say "check poidh.xyz for details"
 - ALWAYS call bounties "open bounties" — NEVER use the word "single" to describe a bounty type. poidh only creates open bounties.
-- cancellation: only the bounty issuer (this bot) can cancel. if anyone asks how to cancel, tell them to reply "cancel bounty" and tag @poidh-sentinel in the bounty announcement thread. the contract automatically refunds all contributors when an open bounty is cancelled. cancellation is blocked while a community vote is in progress — must wait for the vote to resolve first.`;
+- cancellation: only the bounty issuer (this bot) can cancel. if anyone asks how to cancel, tell them to reply "cancel bounty" and tag @${BOT_USERNAME} in the bounty announcement thread. the contract automatically refunds all contributors when an open bounty is cancelled. cancellation is blocked while a community vote is in progress — must wait for the vote to resolve first.`;
 
 // Fetch live pot value for a bounty from the contract (with 8s timeout)
 async function fetchLivePotValue(bountyId: string, chain: string): Promise<string | null> {
@@ -303,8 +306,8 @@ async function callOpenRouter(
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
-      "HTTP-Referer": "https://poidh-sentinel.neynar.app",
-      "X-Title": "poidh-sentinel",
+      "HTTP-Referer": BOT_APP_URL,
+      "X-Title": BOT_USERNAME,
     },
     body: JSON.stringify({ model, messages, max_tokens: 300, temperature: 0.7 }),
   });

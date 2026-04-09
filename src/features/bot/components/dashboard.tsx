@@ -64,7 +64,7 @@ function poidhUrl(chain: string, rawBountyId: string): string {
   return `https://poidh.xyz/${slug}/bounty/${displayId}`;
 }
 
-export function Dashboard() {
+export function Dashboard({ botUsername }: { botUsername: string }) {
   const [data, setData] = useState<LogsResponse | null>(null);
   const [bounties, setBounties] = useState<ActiveBounty[]>([]);
   const [loading, setLoading] = useState(true);
@@ -147,7 +147,7 @@ export function Dashboard() {
             {bounties.length === 0 ? (
               <div className="px-4 py-6 text-center">
                 <p className="text-gray-500 text-xs">no bounties yet</p>
-                <p className="text-gray-600 text-[10px] mt-1">mention @poidh-sentinel to create one</p>
+                <p className="text-gray-600 text-[10px] mt-1">mention @{botUsername} to create one</p>
               </div>
             ) : (
               bounties.map((b) => {
@@ -204,11 +204,11 @@ export function Dashboard() {
           <p className="text-[10px] text-gray-600 uppercase tracking-widest mb-2">how it works</p>
           <div className="bg-[#111] rounded-xl border border-white/10 p-4 space-y-3">
             {[
-              { step: "01", title: "mention @poidh-sentinel", desc: "bot suggests a bounty idea for you to confirm" },
+              { step: "01", title: `mention @${botUsername}`, desc: "bot suggests a bounty idea for you to confirm" },
               { step: "02", title: "pick chain + amount", desc: "choose arbitrum, base, or degen and fund the bounty" },
               { step: "03", title: "bounty goes live", desc: "bot creates an open bounty on poidh.xyz — anyone can add funds" },
               { step: "04", title: "ai picks a winner", desc: "cron evaluates submissions every minute, picks best proof" },
-              { step: "05", title: "ask about any image", desc: 'tag @poidh-sentinel under a cast and ask "is this ai?" — bot runs forensic analysis and replies' },
+              { step: "05", title: "ask about any image", desc: `tag @${botUsername} under a cast and ask "is this ai?" — bot runs forensic analysis and replies` },
             ].map((item) => (
               <div key={item.step} className="flex gap-3">
                 <span className="text-green-500 text-xs font-bold shrink-0 mt-0.5">{item.step}</span>
@@ -249,7 +249,7 @@ export function Dashboard() {
                 ))}
               </div>
             ) : (
-              <ActivityFeed logs={data?.logs ?? []} />
+              <ActivityFeed logs={data?.logs ?? []} botUsername={botUsername} />
             )}
           </div>
         </section>

@@ -68,9 +68,10 @@ function LogRow({ entry }: { entry: BotLogEntry }) {
 
 interface ActivityFeedProps {
   logs: BotLogEntry[];
+  botUsername: string;
 }
 
-export function ActivityFeed({ logs }: ActivityFeedProps) {
+export function ActivityFeed({ logs, botUsername }: ActivityFeedProps) {
   const [filter, setFilter] = useState<"all" | "errors">("all");
 
   const errorCount = logs.filter((l) => l.status === "error").length;
@@ -82,7 +83,7 @@ export function ActivityFeed({ logs }: ActivityFeedProps) {
         <span className="text-4xl mb-3">👻</span>
         <p className="text-gray-500 font-mono text-sm">no activity yet</p>
         <p className="text-gray-600 font-mono text-xs mt-1">
-          mention @poidh-sentinel in a cast to trigger the bot
+          mention @{botUsername} in a cast to trigger the bot
         </p>
       </div>
     );

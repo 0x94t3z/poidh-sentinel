@@ -157,7 +157,7 @@ async function _checkDeposits(): Promise<void> {
           embedUrl: poidhUrl,
         });
 
-        const channelAnnouncement = `new open bounty: "${idea.name}"\n\n${idea.description}\n\nreward: ${requestedAmount} ${config.currency} on ${config.label}. submissions open for ${MIN_OPEN_DURATION_HOURS}h — anyone can submit proof or add funds. winner chosen by vote.\n\nto cancel this bounty, reply "cancel bounty" and tag @poidh-sentinel.`;
+        const channelAnnouncement = `new open bounty: "${idea.name}"\n\n${idea.description}\n\nreward: ${requestedAmount} ${config.currency} on ${config.label}. submissions open for ${MIN_OPEN_DURATION_HOURS}h — anyone can submit proof or add funds. winner chosen by vote.\n\nto cancel this bounty, reply "cancel bounty" and tag @${process.env.BOT_USERNAME ?? "poidh-sentinel"}.`;
         const announcementHash = await publishCast({
           text: channelAnnouncement.slice(0, 1024),
           signerUuid,
@@ -186,7 +186,7 @@ async function _checkDeposits(): Promise<void> {
           signerUuid,
         });
 
-        const channelAnnouncement = `new open bounty: "${idea.name}"\n\n${idea.description}\n\nreward: ${requestedAmount} ${config.currency} on ${config.label}. submissions open for ${MIN_OPEN_DURATION_HOURS}h — anyone can submit proof or add funds. winner chosen by vote.\n\nto cancel this bounty, reply "cancel bounty" and tag @poidh-sentinel. tx: ${explorerUrl}`;
+        const channelAnnouncement = `new open bounty: "${idea.name}"\n\n${idea.description}\n\nreward: ${requestedAmount} ${config.currency} on ${config.label}. submissions open for ${MIN_OPEN_DURATION_HOURS}h — anyone can submit proof or add funds. winner chosen by vote.\n\nto cancel this bounty, reply "cancel bounty" and tag @${process.env.BOT_USERNAME ?? "poidh-sentinel"}. tx: ${explorerUrl}`;
         const announcementHash = await publishCast({
           text: channelAnnouncement.slice(0, 1024),
           signerUuid,

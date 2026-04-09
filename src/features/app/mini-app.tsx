@@ -2,6 +2,10 @@
 
 import { Dashboard } from "@/features/bot/components/dashboard";
 
-export function MiniApp() {
-  return <Dashboard />;
+interface MiniAppProps {
+  botUsername: string;
+}
+
+export function MiniApp({ botUsername }: MiniAppProps) {
+  return <Dashboard botUsername={botUsername} />;
 }

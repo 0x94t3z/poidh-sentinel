@@ -1,4 +1,4 @@
-# poidh sentinel
+# Poidh Sentinel
 
 An autonomous bounty agent for [poidh (pics or it didn't happen)](https://poidh.xyz), deployed as a Farcaster mini app.
 
@@ -70,7 +70,7 @@ deposit-checker.ts                 bounty-loop.ts  (cron, every minute)
 
 ### Cron endpoint
 
-`GET /api/cron/bounty-loop` runs `runBountyLoop()` and `checkDepositsAndCreateBounties()` in parallel every minute. Secured via `CRON_SECRET` bearer token (optional but recommended).
+`GET /api/cron/bounty-loop` runs `runBountyLoop()` and `checkDepositsAndCreateBounties()` in parallel every minute. Secured via `CRON_SECRET` bearer token (Vercel cron convention — optional but recommended). One-shot maintenance endpoints (`migrate`, `fix-bounty88`, `backfill-creator-fids`) are secured separately via `ADMIN_SECRET` — set both to the same value.
 
 ---
 
@@ -499,7 +499,12 @@ All modes except `run=1`, `register=1`, and `post=1` are dry-runs — no DB writ
 | `OCR_SPACE_API_KEY`      | Optional  | ocr.space key — defaults to the public `helloworld` key if unset                   |
 | `ARBITRUM_RPC_URL`       | Optional  | Custom Arbitrum RPC — defaults to `https://arb1.arbitrum.io/rpc`                   |
 | `BASE_RPC_URL`           | Optional  | Custom Base RPC — defaults to `https://mainnet.base.org`                           |
-| `CRON_SECRET`            | Optional  | Bearer token to secure the cron endpoint                                           |
+| `BOT_FID`                | Required  | Farcaster FID of the bot account (e.g. `3273077`)                                  |
+| `BOT_USERNAME`           | Required  | Farcaster username of the bot (e.g. `poidh-sentinel`) — used in casts, system prompt, and UI |
+| `BOT_APP_URL`            | Optional  | Public URL of this app — used as HTTP-Referer for OpenRouter (e.g. `https://poidh-sentinel.neynar.app`) |
+| `BOT_OWNER_HANDLE`       | Optional  | Your Farcaster handle — shown in blocked-cancel DM message (e.g. `0x94t3z.eth`)    |
+| `CRON_SECRET`            | Optional  | Bearer token to secure `/api/cron/bounty-loop` — auto-injected by Vercel for cron routes |
+| `ADMIN_SECRET`           | Optional  | Bearer token to secure maintenance endpoints (`/api/bot/migrate`, `fix-bounty88`, `backfill-creator-fids`) — set to the same value as `CRON_SECRET` |
 | `NEXT_PUBLIC_USER_FID`   | Optional  | Your Farcaster FID — used for admin view gating in the dashboard                   |
 | `COINGECKO_API_KEY`      | Optional  | Coingecko API key — falls back to public demo key if unset                         |
 
@@ -565,6 +570,12 @@ BOT_SIGNER_UUID=
 BOT_WALLET_PRIVATE_KEY=
 BOT_WALLET_ADDRESS=
 
+# Bot Farcaster identity
+BOT_FID=
+BOT_USERNAME=
+BOT_APP_URL=
+BOT_OWNER_HANDLE=
+
 # --- Recommended ---
 
 # Webhook HMAC secret — from dev.neynar.com -> your app -> Webhooks
@@ -597,8 +608,10 @@ OCR_SPACE_API_KEY=
 ARBITRUM_RPC_URL=https://arb1.arbitrum.io/rpc
 BASE_RPC_URL=https://mainnet.base.org
 
-# Bearer token to protect /api/cron/bounty-loop
+# Bearer token to protect /api/cron/bounty-loop (Vercel cron convention)
 CRON_SECRET=
+# Bearer token to protect admin/maintenance endpoints — set to same value as CRON_SECRET
+ADMIN_SECRET=
 
 # Your Farcaster FID (used for admin view gating)
 NEXT_PUBLIC_USER_FID=

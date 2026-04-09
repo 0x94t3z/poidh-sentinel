@@ -1,11 +1,14 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/neynar-db-sdk/db";
 import { activeBounties } from "@/db/schema";
 import { isNull } from "drizzle-orm";
 import { getBountyDetails, getPublicClient, POIDH_CONTRACTS, POIDH_ABI } from "@/features/bot/poidh-contract";
 import { formatEther } from "viem";
+import { checkAdminAuth } from "@/lib/admin-auth";
 
-export async function GET(): Promise<NextResponse> {
+export async function GET(req: NextRequest): Promise<NextResponse> {
+  const unauth = checkAdminAuth(req);
+  if (unauth) return unauth;
   // All bounties for full picture
   const all = await db
     .select({

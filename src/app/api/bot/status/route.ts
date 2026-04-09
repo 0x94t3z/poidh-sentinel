@@ -1,8 +1,11 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getBotWalletAddress } from "@/features/bot/poidh-contract";
 import { getAllBounties } from "@/features/bot/bounty-store";
+import { checkAdminAuth } from "@/lib/admin-auth";
 
-export async function GET(): Promise<NextResponse> {
+export async function GET(req: NextRequest): Promise<NextResponse> {
+  const unauth = checkAdminAuth(req);
+  if (unauth) return unauth;
   const hasApiKey = !!process.env.NEYNAR_API_KEY;
   const hasOpenRouter = !!process.env.OPENROUTER_API_KEY;
   const hasSignerUuid = !!process.env.BOT_SIGNER_UUID;
@@ -36,8 +39,8 @@ export async function GET(): Promise<NextResponse> {
       open: openBounties,
       closed: closedBounties,
     },
-    botFid: 3273077,
-    botUsername: "poidh-sentinel",
+    botFid: parseInt(process.env.BOT_FID ?? "0", 10),
+    botUsername: process.env.BOT_USERNAME ?? "poidh-sentinel",
     webhookEndpoint: "/api/webhook/farcaster",
     cronEndpoint: "/api/cron/bounty-loop",
   });

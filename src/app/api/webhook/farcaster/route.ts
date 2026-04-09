@@ -23,7 +23,7 @@ import { cancelBounty } from "@/features/bot/poidh-contract";
 import { resolveAddressesToUsernames } from "@/features/bot/bounty-loop";
 import type { WebhookPayload, BotLogEntry } from "@/features/bot/types";
 
-const BOT_FID = 3273077;
+const BOT_FID = parseInt(process.env.BOT_FID ?? "0", 10);
 
 function getBotWalletAddress(): string {
   return process.env.BOT_WALLET_ADDRESS ?? process.env.NEYNAR_WALLET_ADDRESS ?? "";
@@ -46,7 +46,8 @@ function verifySignature(body: string, signature: string, secret: string): boole
 function isBotMentioned(payload: WebhookPayload): boolean {
   const { mentioned_profiles } = payload.data;
   if (mentioned_profiles?.some((p) => p.fid === BOT_FID)) return true;
-  return payload.data.text.toLowerCase().includes("@poidh-sentinel");
+  const botUsername = process.env.BOT_USERNAME ?? "poidh-sentinel";
+  return payload.data.text.toLowerCase().includes(`@${botUsername}`);
 }
 
 function isFromBot(payload: WebhookPayload): boolean {
@@ -442,7 +443,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       if (!existingBounty?.creatorFid) {
         logEntry.action = "cancel_no_creator_fid";
         logEntry.replyText = "no creator fid on record";
-        await reply(`this bounty was created before creator tracking was added — can't verify ownership automatically. DM @0x94t3z.eth to arrange a manual cancel and refund.`, hash);
+        const ownerHandle = process.env.BOT_OWNER_HANDLE ?? "0x94t3z.eth";
+        await reply(`this bounty was created before creator tracking was added — can't verify ownership automatically. DM @${ownerHandle} to arrange a manual cancel and refund.`, hash);
         await appendLog(logEntry);
         return NextResponse.json({ ok: true });
       }

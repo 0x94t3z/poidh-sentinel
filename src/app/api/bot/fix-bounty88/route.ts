@@ -1,11 +1,15 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/neynar-db-sdk/db";
 import { activeBounties } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { checkAdminAuth } from "@/lib/admin-auth";
 
 // One-shot fix: correct the amountEth for bounty #88 which was recorded incorrectly
 // Creator paid 0.001 ETH — DB incorrectly shows 0.002
-export async function GET(): Promise<NextResponse> {
+// Protected by ADMIN_SECRET — pass as Authorization: Bearer <secret>
+export async function POST(req: NextRequest): Promise<NextResponse> {
+  const unauth = checkAdminAuth(req);
+  if (unauth) return unauth;
   const before = await db
     .select({ bountyId: activeBounties.bountyId, amountEth: activeBounties.amountEth })
     .from(activeBounties)

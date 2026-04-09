@@ -3,6 +3,9 @@ import { getClaimsForBounty, getBountyDetails, resolvePoidhUrl, POIDH_FRONTEND_O
 import { evaluateClaim, deterministicScore, type ClaimData } from "@/features/bot/submission-evaluator";
 import { addActiveBounty } from "@/features/bot/bounty-store";
 import { runBountyLoop } from "@/features/bot/bounty-loop";
+import { fetchCastThread } from "@/features/bot/cast-reply";
+import { detectAiImage } from "@/features/bot/agent";
+import { checkAdminAuth } from "@/lib/admin-auth";
 
 /**
  * Dry-run evaluation endpoint — no DB writes, no on-chain transactions, no casts posted.
@@ -15,6 +18,9 @@ import { runBountyLoop } from "@/features/bot/bounty-loop";
  *   GET /api/bot/test-evaluate?probe=1&chain=arbitrum&around=264
  */
 export async function GET(req: NextRequest): Promise<NextResponse> {
+  const unauth = checkAdminAuth(req);
+  if (unauth) return unauth;
+
   const { searchParams } = req.nextUrl;
   const chain = (searchParams.get("chain") ?? "arbitrum").toLowerCase();
 
@@ -114,6 +120,47 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       mimeType: base64Result.mimeType,
       groqKeySet: !!groqKey,
       visionResults: results,
+    });
+  }
+
+  // --- AI image detection mode (dry-run, no casting) ---
+  // GET /api/bot/test-evaluate?ai-detect=1&url=<image_url>
+  // GET /api/bot/test-evaluate?ai-detect=1&url=<image_url>&thread=<cast_hash>  ← includes live community context
+  if (searchParams.get("ai-detect") === "1") {
+    const imageUrl = searchParams.get("url");
+    if (!imageUrl) return NextResponse.json({ error: "url param required" }, { status: 400 });
+    if (!process.env.OPENAI_API_KEY) return NextResponse.json({ error: "OPENAI_API_KEY not set" }, { status: 500 });
+
+    // Optionally load thread discussion to prime the prompt with community observations
+    const threadHash = searchParams.get("thread");
+    let threadDiscussion: Array<{ username: string; text: string }> | undefined;
+    if (threadHash) {
+      try {
+        threadDiscussion = await fetchCastThread(threadHash);
+      } catch {
+        // non-critical — continue without context
+      }
+    }
+
+    const raw = await detectAiImage(imageUrl, { threadDiscussion, debug: true });
+    if (!raw) {
+      return NextResponse.json({ error: "analysis failed — check OPENAI_API_KEY or image URL" }, { status: 500 });
+    }
+
+    // debug:true returns a JSON string — parse it back
+    let debugResult: Record<string, unknown>;
+    try {
+      debugResult = JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      debugResult = { botReply: raw };
+    }
+
+    return NextResponse.json({
+      imageUrl,
+      threadHash: threadHash ?? null,
+      threadMessagesLoaded: threadDiscussion?.length ?? 0,
+      model: "gpt-4o (two-pass)",
+      ...debugResult,
     });
   }
 

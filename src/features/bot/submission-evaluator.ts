@@ -1,4 +1,5 @@
 import "server-only";
+import { detectAiImage } from "@/features/bot/agent";
 
 const CEREBRAS_API_URL = "https://api.cerebras.ai/v1/chat/completions";
 const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
@@ -108,8 +109,8 @@ async function callOpenRouter(prompt: string, modelIndex = 0): Promise<string> {
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
-      "HTTP-Referer": "https://poidh-sentinel.neynar.app",
-      "X-Title": "poidh-sentinel",
+      "HTTP-Referer": process.env.BOT_APP_URL ?? `https://${process.env.BOT_USERNAME ?? "poidh-sentinel"}.neynar.app`,
+      "X-Title": process.env.BOT_USERNAME ?? "poidh-sentinel",
     },
     body: JSON.stringify({
       model,
@@ -424,8 +425,8 @@ async function describeImageWithVision(imageUrl: string, bountyName: string, bou
         headers: {
           Authorization: `Bearer ${openrouterKey}`,
           "Content-Type": "application/json",
-          "HTTP-Referer": "https://poidh-sentinel.neynar.app",
-          "X-Title": "poidh-sentinel",
+          "HTTP-Referer": process.env.BOT_APP_URL ?? `https://${process.env.BOT_USERNAME ?? "poidh-sentinel"}.neynar.app`,
+          "X-Title": process.env.BOT_USERNAME ?? "poidh-sentinel",
         },
         body: JSON.stringify({
           model,
@@ -482,8 +483,25 @@ async function resolveImageProof(
     return ocrText ? `OCR TEXT IN IMAGE: "${ocrText}"` : `image proof at ${imageUrl} (no text detected)`;
   }
 
-  // Step 1: Groq vision (primary — best quality)
-  const vision = await describeImageWithVision(imageUrl, bountyName, bountyDescription);
+  // Run vision + AI detection in parallel — detection adds zero extra latency
+  const [vision, aiDetectRaw] = await Promise.all([
+    describeImageWithVision(imageUrl, bountyName, bountyDescription),
+    detectAiImage(imageUrl),
+  ]);
+
+  // Parse AI detection result — detectAiImage returns a human-readable string like
+  // "🤖 looks ai-generated (80% confident). shadow inconsistency near subject."
+  // We want to know if it's flagged AI so we can warn the LLM evaluator.
+  let aiDetectNote: string | null = null;
+  if (aiDetectRaw) {
+    const lower = aiDetectRaw.toLowerCase();
+    if (lower.includes("looks ai-generated") || lower.includes("🤖")) {
+      aiDetectNote = `AI DETECTION WARNING: image may be AI-generated — ${aiDetectRaw}`;
+    } else if (lower.includes("hard to tell") || lower.includes("🤔")) {
+      aiDetectNote = `AI DETECTION: authenticity uncertain — ${aiDetectRaw}`;
+    }
+    // REAL verdict: don't add noise to the prompt
+  }
 
   if (vision) {
     // Vision succeeded — also append OCR if it adds text not captured by vision
@@ -492,13 +510,17 @@ async function resolveImageProof(
     if (ocrText && ocrText.length >= OCR_SUFFICIENT_CHARS) {
       parts.push(`OCR TEXT IN IMAGE: "${ocrText}"`);
     }
+    if (aiDetectNote) parts.push(aiDetectNote);
     return parts.join(" | ");
   }
 
-  // Step 2: Vision failed (rate limited / all models exhausted) — fall back to OCR
+  // Vision failed — fall back to OCR, still surface AI detection result
   console.log(`[evaluator] vision unavailable — falling back to OCR`);
   const ocrText = await extractTextFromImage(imageUrl);
-  if (ocrText) return `OCR TEXT IN IMAGE: "${ocrText}"`;
+  const parts: string[] = [];
+  if (ocrText) parts.push(`OCR TEXT IN IMAGE: "${ocrText}"`);
+  if (aiDetectNote) parts.push(aiDetectNote);
+  if (parts.length > 0) return parts.join(" | ");
 
   return `image proof at ${imageUrl} (analysis unavailable)`;
 }
@@ -592,6 +614,8 @@ important rules:
 - if the bounty asks for "your username", any username written in the image counts — do NOT try to verify it matches a wallet address or on-chain identity
 - judge only what is visible in the proof image and the submission text
 - be generous with minor variations (e.g. "5th April" vs "April 5th" both count as the same date)
+- if the proof contains an "AI DETECTION WARNING", the image is likely AI-generated — set valid=false and penalize the score heavily (max 20). poidh requires real-world photographic proof, not AI-generated images
+- if the proof contains "AI DETECTION: authenticity uncertain", reduce the score by 20-30 points to reflect the doubt
 
 respond with ONLY a JSON object (no markdown, no explanation outside the JSON):
 {
@@ -637,6 +661,17 @@ respond with ONLY a JSON object (no markdown, no explanation outside the JSON):
 // Winner picker
 // ---------------------------------------------------------------------------
 
+// Normalize a proof URI for duplicate comparison:
+// strips query params, trims whitespace, lowercases
+function normalizeProofUri(uri: string): string {
+  try {
+    const url = new URL(uri);
+    return `${url.origin}${url.pathname}`.toLowerCase().trim();
+  } catch {
+    return uri.toLowerCase().trim();
+  }
+}
+
 export async function pickWinner(
   bountyName: string,
   bountyDescription: string,
@@ -645,8 +680,38 @@ export async function pickWinner(
 ): Promise<{ winnerClaimId: string; reasoning: string; allResults: EvaluationResult[] } | null> {
   if (claims.length === 0) return null;
 
+  // Duplicate URI detection — same proof submitted by multiple claimants.
+  // Group claims by normalized proof URI. Within each group, only the EARLIEST
+  // submission is considered legitimate; later ones using the exact same URI are
+  // disqualified as plagiarism. We sort by claimId (ascending = creation order)
+  // since contract IDs are monotonically increasing.
+  const uriToFirstClaimId = new Map<string, string>();
+  const plagiarizedClaimIds = new Set<string>();
+  const sortedByAge = [...claims].sort((a, b) => Number(BigInt(a.id) - BigInt(b.id)));
+  for (const claim of sortedByAge) {
+    const key = normalizeProofUri(claim.uri);
+    if (!key || key === "no proof uri provided") continue;
+    if (uriToFirstClaimId.has(key)) {
+      plagiarizedClaimIds.add(claim.id);
+      console.log(`[evaluator] claim ${claim.id} disqualified — duplicate URI of claim ${uriToFirstClaimId.get(key)}`);
+    } else {
+      uriToFirstClaimId.set(key, claim.id);
+    }
+  }
+
   const results = await Promise.all(
-    claims.map((c) => evaluateClaim(bountyName, bountyDescription, c, bountyCreatedAt)),
+    claims.map((c) => {
+      if (plagiarizedClaimIds.has(c.id)) {
+        // Short-circuit — no API calls needed
+        return Promise.resolve<EvaluationResult>({
+          claimId: c.id,
+          score: 0,
+          valid: false,
+          reasoning: "duplicate proof — same image already submitted by an earlier claim",
+        });
+      }
+      return evaluateClaim(bountyName, bountyDescription, c, bountyCreatedAt);
+    }),
   );
 
   const validResults = results.filter((r) => r.valid && r.score >= 60);
