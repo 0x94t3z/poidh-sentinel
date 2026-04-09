@@ -146,15 +146,23 @@ async function resolveFidToRefundAddress(fid: number): Promise<string | null> {
 }
 
 
-// Detect cancel intent — must be explicit to avoid accidental triggers
+// Detect cancel intent — in a bounty thread context, be generous: any "cancel" signal counts.
+// The creator confirmation step acts as the safety gate, not this detector.
 function isCancelRequest(text: string): boolean {
   const lower = text.toLowerCase().trim();
-  // Must mention both "cancel" and "bounty", OR use explicit cancel phrases
   return (
     lower.includes("cancel bounty") ||
     lower.includes("cancel this bounty") ||
     lower.includes("cancel the bounty") ||
     lower.includes("cancell bounty") || // common typo
+    lower.includes("cancel it") ||
+    lower.includes("cancel pls") ||
+    lower.includes("pls cancel") ||
+    lower.includes("please cancel") ||
+    lower.includes("want to cancel") ||
+    lower.includes("wanna cancel") ||
+    lower === "cancel" ||
+    lower === "cancel!" ||
     (lower.includes("cancel") && lower.includes("refund")) ||
     (lower.startsWith("cancel") && lower.includes("bounty")) ||
     (lower.includes("bounty") && lower.includes("cancel"))
@@ -181,6 +189,7 @@ async function handleConversationFlow(
   text: string,
   authorFid: number,
   authorUsername: string,
+  mentioned: boolean,
 ): Promise<string | null> {
   const state = await getConversation(threadHash);
   if (!state) return null;
@@ -192,29 +201,45 @@ async function handleConversationFlow(
 
   // --- Step: awaiting_confirmation ---
   if (state.step === "awaiting_confirmation") {
-    if (isRejection(lower)) {
+    if (await isRejection(text)) {
       await clearConversation(threadHash);
       return "no worries — mention me anytime if you want a different idea.";
     }
 
-    if (isConfirmation(lower)) {
+    if (await isConfirmation(text)) {
+      // Bonus: if they also mentioned a chain + amount in the same message, skip ahead
+      const earlyChain = await parseChain(text);
+      const earlyAmount = await parseAmount(text);
+      if (earlyChain) {
+        const config = CHAIN_CONFIG[earlyChain];
+        const finalAmount = earlyAmount ?? config.minAmount;
+        const numAmount = parseFloat(finalAmount);
+        if (numAmount < parseFloat(config.minAmount)) {
+          await setConversation(threadHash, { ...state, step: "awaiting_chain" });
+          return `nice! minimum for ${config.label} is ${config.minAmount} ${config.currency} — want to go with that?`;
+        }
+        const chainState = { ...state, step: "awaiting_bounty_type" as const, chain: earlyChain, amountEth: finalAmount };
+        await setConversation(threadHash, chainState);
+        return `nice! ${config.label}, ${finalAmount} ${config.currency}. open or solo bounty?\n\n• open (default) — anyone can contribute funds, community votes on the winner.\n• solo — only you decide the winner directly.\n\nreply "open" or "solo" (or just continue and i'll default to open).`;
+      }
       await setConversation(threadHash, { ...state, step: "awaiting_chain" });
       return `nice! which chain — arbitrum, base, or degen? and how much do you want to put up? minimums: arbitrum/base = 0.001 ETH, degen = 1000 DEGEN.`;
     }
 
-    // Not a clear yes or no — stay silent, don't disrupt the user's conversation
-    return null;
+    // Not a clear yes or no — only re-prompt if they explicitly @mentioned the bot,
+    // otherwise stay silent (they might just be chatting in the thread)
+    if (!mentioned) return null;
+    const ideaName = state.suggestedIdea?.name ?? "the idea";
+    return `still waiting on you — want to create a bounty for "${ideaName}"? reply yes to continue or no to cancel.`;
   }
 
   // --- Step: awaiting_chain ---
   if (state.step === "awaiting_chain") {
-    const chain = parseChain(lower);
-    const amount = parseAmount(lower);
+    const [chain, amount] = await Promise.all([parseChain(text), parseAmount(text)]);
 
     if (!chain) {
-      // Only re-prompt if the message looks like they're attempting an answer
-      // (has a number or chain-adjacent word). Ignore casual conversation.
-      if (!looksLikeChainAnswer(lower)) return null;
+      // Re-prompt only if they @mentioned the bot OR it looks like a chain answer attempt
+      if (!mentioned && !looksLikeChainAnswer(lower)) return null;
       return `which chain? arbitrum, base, or degen — just let me know and include how much you want to put up.`;
     }
 
@@ -240,10 +265,10 @@ async function handleConversationFlow(
 
   // --- Step: awaiting_bounty_type ---
   if (state.step === "awaiting_bounty_type") {
-    const parsed = parseBountyType(lower);
+    const [parsed, rejected] = await Promise.all([parseBountyType(text), isRejection(text)]);
 
     // Rejections / explicit "no" → go back and ask again
-    if (isRejection(lower) && !parsed) {
+    if (rejected && !parsed) {
       return `open or solo? open = community vote, solo = you pick the winner directly.`;
     }
 
@@ -274,16 +299,20 @@ async function handleConversationFlow(
 
   // --- Step: awaiting_payment ---
   if (state.step === "awaiting_payment") {
-    if (
-      lower.includes("sent") ||
-      lower.includes("done") ||
-      lower.includes("transferred") ||
-      lower.includes("paid") ||
-      lower.includes("funded")
-    ) {
+    const paymentSent =
+      lower.includes("sent") || lower.includes("done") || lower.includes("transferred") ||
+      lower.includes("paid") || lower.includes("funded") ||
+      await isConfirmation(text); // catches "I did it", "all good", "went through", etc.
+    if (paymentSent) {
       return `got it — checking for the deposit now. once confirmed on-chain i'll create the bounty and post the link here. usually takes a minute or two.`;
     }
-    return null;
+    // Re-prompt only if they explicitly @mentioned the bot
+    if (!mentioned) return null;
+    const chain = state.chain ?? "arbitrum";
+    const config = CHAIN_CONFIG[chain as keyof typeof CHAIN_CONFIG];
+    const uniqueAmt = state.uniqueAmount ?? state.amountEth ?? config.minAmount;
+    const walletAddress = getBotWalletAddress();
+    return `still waiting on the deposit — send exactly ${uniqueAmt} ${config.currency} to ${walletAddress} on ${config.label}. reply "sent" once it's done.`;
   }
 
   // --- Step: awaiting_cancel_confirmation ---
@@ -295,24 +324,22 @@ async function handleConversationFlow(
     const bountyId = state.cancelBountyId;
     const bountyChain = state.cancelBountyChain ?? "arbitrum";
 
-    if (isRejection(lower) || lower.includes("nevermind") || lower.includes("never mind") || lower.includes("keep it")) {
+    if (
+      lower.includes("nevermind") || lower.includes("never mind") || lower.includes("keep it") ||
+      await isRejection(text)
+    ) {
       await clearConversation(threadHash);
       return `ok, bounty stays open. good luck!`;
     }
 
-    // Accept explicit double-confirmation to avoid accidental cancel
-    const isYesCancel = (
-      lower === "yes cancel" ||
-      lower === "yes, cancel" ||
-      lower.includes("yes cancel") ||
-      lower.includes("confirm cancel") ||
-      lower.includes("yes, cancel it") ||
-      lower.includes("cancel confirmed") ||
-      lower === "yes" ||
-      lower === "y"
-    );
+    // Use LLM to decide if this is a clear cancel confirmation
+    const isYesCancel = await isConfirmation(text);
 
-    if (!isYesCancel) return null; // wait for a clear answer
+    if (!isYesCancel) {
+      // Re-prompt only if they explicitly @mentioned the bot, otherwise stay silent
+      if (!mentioned) return null;
+      return `reply "yes cancel" to confirm cancelling "${bountyName}", or "no" to keep it open.`;
+    }
 
     if (!bountyId) {
       await clearConversation(threadHash);
@@ -332,8 +359,10 @@ async function handleConversationFlow(
       // Use the stored bounty amount as the exact refund — this is what the creator put up
       // (bounty reward only, no fee). parseEther handles the string → wei conversion.
       const bountyAmountWei = bountyRecord?.amountEth ? parseEther(bountyRecord.amountEth) : undefined;
+      // Pass DB bountyType so cancelBounty can use it as fallback if everHadExternalContributor fails
+      const bountyType = bountyRecord?.bountyType ?? null;
 
-      const { cancelTxHash, refundTxHash, method, refundAddress, externalContributors } = await cancelBounty(BigInt(bountyId), bountyChain, preResolvedAddress, bountyAmountWei);
+      const { cancelTxHash, refundTxHash, method, refundAddress, externalContributors } = await cancelBounty(BigInt(bountyId), bountyChain, preResolvedAddress, bountyAmountWei, bountyType);
       await updateBounty(bountyId, { status: "closed", winnerReasoning: `bounty cancelled by @${state.authorUsername}` });
       await clearConversation(threadHash);
 
@@ -376,7 +405,9 @@ async function handleConversationFlow(
     }
   }
 
-  return null;
+  // Unknown step — re-prompt only if they explicitly @mentioned the bot
+  if (!mentioned) return null;
+  return `still here — just reply to continue where we left off.`;
 }
 
 // Check active thread — async now since getConversation hits DB
@@ -471,8 +502,22 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
     // --- Priority 1: active conversation flow (multi-step) ---
     if (inActiveThread && activeThreadKey) {
+      const state = await getConversation(activeThreadKey);
+
+      // If a different user explicitly mentions the bot in someone else's active conversation,
+      // acknowledge them and invite them to start their own — don't leave them hanging.
+      if (state && state.authorFid !== author.fid && mentioned) {
+        const botUsername = process.env.BOT_USERNAME ?? "poidh-sentinel";
+        const nudge = `hey @${author.username}! there's already a bounty conversation going here. mention me in your own cast and i'll help you create one too — @${botUsername}`;
+        logEntry.action = "third_party_nudge";
+        logEntry.replyText = nudge;
+        await reply(nudge, hash);
+        await appendLog(logEntry);
+        return NextResponse.json({ ok: true });
+      }
+
       const flowReply = await handleConversationFlow(
-        activeThreadKey, hash, text, author.fid, author.username,
+        activeThreadKey, hash, text, author.fid, author.username, mentioned,
       );
 
       if (flowReply !== null) {
@@ -483,7 +528,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         return NextResponse.json({ ok: true });
       }
       // Never fall through to the agent when a conversation is in progress
-      console.log(`[webhook] silent — in active thread but no flow match (step=${(await getConversation(activeThreadKey))?.step})`);
+      console.log(`[webhook] silent — in active thread but no flow match (step=${state?.step})`);
       return NextResponse.json({ ok: true, skipped: "unrelated thread reply" });
     }
 

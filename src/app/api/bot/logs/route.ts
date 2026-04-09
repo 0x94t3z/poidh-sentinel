@@ -1,11 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getLogs, getStats } from "@/features/bot/bot-log";
-import { checkAdminAuth } from "@/lib/admin-auth";
+import { getLogs, getLogCount, getStats } from "@/features/bot/bot-log";
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
-  const unauth = checkAdminAuth(req);
-  if (unauth) return unauth;
+  const { searchParams } = new URL(req.url);
+  const limit = Math.min(parseInt(searchParams.get("limit") ?? "10", 10), 100);
+  const offset = Math.max(parseInt(searchParams.get("offset") ?? "0", 10), 0);
+  const statsOnly = searchParams.get("statsOnly") === "1";
 
-  const [logs, stats] = await Promise.all([getLogs(), getStats()]);
-  return NextResponse.json({ logs, stats });
+  if (statsOnly) {
+    const stats = await getStats();
+    return NextResponse.json({ stats });
+  }
+
+  const [logs, total, stats] = await Promise.all([
+    getLogs(limit, offset),
+    getLogCount(),
+    offset === 0 ? getStats() : Promise.resolve(null),
+  ]);
+
+  return NextResponse.json({ logs, total, stats });
 }

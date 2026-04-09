@@ -1,18 +1,17 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { getBotWalletAddress } from "@/features/bot/poidh-contract";
 import { getAllBounties } from "@/features/bot/bounty-store";
-import { checkAdminAuth } from "@/lib/admin-auth";
 
-export async function GET(req: NextRequest): Promise<NextResponse> {
-  const unauth = checkAdminAuth(req);
-  if (unauth) return unauth;
+export async function GET(): Promise<NextResponse> {
   const hasApiKey = !!process.env.NEYNAR_API_KEY;
   const hasOpenRouter = !!process.env.OPENROUTER_API_KEY;
+  const hasGroq = !!process.env.GROQ_API_KEY;
   const hasSignerUuid = !!process.env.BOT_SIGNER_UUID;
   const hasWebhookSecret = !!process.env.NEYNAR_WEBHOOK_SECRET;
   const hasWalletKey = !!process.env.BOT_WALLET_PRIVATE_KEY;
 
-  const ready = hasApiKey && hasOpenRouter && hasSignerUuid && hasWalletKey;
+  // Ready = all required keys present. Groq is recommended but not strictly required (OpenRouter fallback).
+  const ready = hasApiKey && (hasOpenRouter || hasGroq) && hasSignerUuid && hasWalletKey;
 
   const walletAddress = getBotWalletAddress();
   const bounties = await getAllBounties();
@@ -24,15 +23,14 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     config: {
       neynarApiKey: hasApiKey,
       openRouterKey: hasOpenRouter,
+      groqKey: hasGroq,
       signerUuid: hasSignerUuid,
       webhookSecret: hasWebhookSecret,
       walletKey: hasWalletKey,
     },
     wallet: {
       address: walletAddress,
-      chain: "arbitrum",
-      contractAddress: "0x5555Fa783936C260f77385b4E153B9725feF1719",
-      fundingNote: "send ETH on arbitrum or base to this address to fund bounties",
+      fundingNote: "send ETH (arbitrum/base) or DEGEN (degen chain) to this address for gas",
     },
     bounties: {
       total: bounties.length,

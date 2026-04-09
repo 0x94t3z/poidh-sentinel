@@ -562,12 +562,15 @@ export async function cancelBounty(
   chain = "arbitrum",
   creatorRefundAddress?: string | null, // pre-resolved creator wallet — caller must validate before passing
   bountyAmountWei?: bigint, // exact bounty reward from DB — preferred over pendingWithdrawals delta
+  bountyType?: "open" | "solo" | null, // DB bountyType — used as fallback when contract read fails
 ): Promise<{ cancelTxHash: string; withdrawTxHash: string; refundTxHash?: string; method: "cancelSoloBounty" | "cancelOpenBounty"; refundAddress: string; externalContributors: string[] }> {
   const publicClient = getPublicClient(chain);
   const { client, account } = getWalletClient(chain);
   const contractAddress = POIDH_CONTRACTS[chain] ?? POIDH_CONTRACT;
 
-  // Use everHadExternalContributor — works on arbitrum, base, and degen
+  // Use everHadExternalContributor to determine cancel path.
+  // If the contract call fails (e.g. not supported on this chain version), fall back to
+  // the DB bountyType — "open" bounties always use cancelOpenBounty regardless of contributors.
   let isOpen = false;
   try {
     isOpen = await publicClient.readContract({
@@ -577,7 +580,10 @@ export async function cancelBounty(
       args: [bountyId],
     }) as boolean;
   } catch {
-    isOpen = false;
+    // everHadExternalContributor failed — use DB bountyType as authoritative fallback.
+    // "open" = cancelOpenBounty, "solo" or unknown = cancelSoloBounty.
+    isOpen = bountyType === "open";
+    console.warn(`[poidh-contract] cancelBounty: everHadExternalContributor failed for bountyId=${bountyId} chain=${chain}, falling back to DB bountyType=${bountyType} → isOpen=${isOpen}`);
   }
 
   // Snapshot pendingWithdrawals BEFORE cancel — so we can isolate exactly what was credited by this cancel

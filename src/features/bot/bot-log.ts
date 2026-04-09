@@ -5,5 +5,6 @@ export type { BotLogEntry } from "@/db/actions/bot-actions";
 export {
   appendLog,
   getLogs,
+  getLogCount,
   getStats,
 } from "@/db/actions/bot-actions";
