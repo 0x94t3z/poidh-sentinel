@@ -47,6 +47,15 @@ export interface AgentContext {
     winnerClaimId?: string;
     winnerIssuer?: string;
     winnerReasoning?: string;
+    // Per-claim evaluation results used for follow-up explanations in thread replies
+    allEvalResults?: Array<{
+      claimId: string;
+      score: number;
+      valid: boolean;
+      reasoning: string;
+      issuer?: string;
+      issuerUsername?: string;
+    }>;
   };
 }
 

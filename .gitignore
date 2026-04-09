@@ -53,4 +53,5 @@ core.[0-9]*
 .llm
 .env*.local
 
-key.txt
+keys.txt
+requirements.txt

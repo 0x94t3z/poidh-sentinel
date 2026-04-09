@@ -63,6 +63,7 @@ export const activeBounties = pgTable("active_bounties", {
   winnerClaimId: text("winner_claim_id"),
   winnerTxHash: text("winner_tx_hash"),
   winnerReasoning: text("winner_reasoning"),
+  bountyType: text("bounty_type").notNull().default("open"), // open | solo
   allEvalResults: jsonb("all_eval_results"), // EvaluationResult[] — full ranked list from last evaluation
   lastCheckedAt: timestamp("last_checked_at"),
   claimCount: integer("claim_count").notNull().default(0),

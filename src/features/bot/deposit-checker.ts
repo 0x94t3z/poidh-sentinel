@@ -1,8 +1,8 @@
 import "server-only";
 import { createPublicClient, http, formatEther, parseEther } from "viem";
-import { arbitrum, base } from "viem/chains";
+import { arbitrum, base, degen } from "viem/chains";
 import { getBotWalletAddress, createBountyOnChain, resolvePoidhUrl } from "@/features/bot/poidh-contract";
-import { MIN_OPEN_DURATION_HOURS } from "@/features/bot/bounty-loop";
+import { MIN_OPEN_DURATION_HOURS } from "@/features/bot/constants";
 import { setConversation, clearConversation, CHAIN_CONFIG, PLATFORM_FEE_PCT } from "@/features/bot/conversation-state";
 import { addActiveBounty } from "@/features/bot/bounty-store";
 import { publishReply, publishCast } from "@/features/bot/cast-reply";
@@ -17,12 +17,16 @@ function buildExplorerUrl(chain: string, txHash: string): string {
   return `${explorerMap[chain] ?? "https://arbiscan.io/tx"}/${txHash}`;
 }
 
-async function getOnChainBalance(chain: "arbitrum" | "base", address: string): Promise<bigint> {
-  const rpcUrl = chain === "arbitrum"
-    ? (process.env.ARBITRUM_RPC_URL ?? "https://arb1.arbitrum.io/rpc")
-    : (process.env.BASE_RPC_URL ?? "https://mainnet.base.org");
+function getViemChainConfig(chain: string) {
+  if (chain === "base") return { viemChain: base, rpcUrl: process.env.BASE_RPC_URL ?? "https://mainnet.base.org" };
+  if (chain === "degen") return { viemChain: degen, rpcUrl: process.env.DEGEN_RPC_URL ?? "https://rpc.degen.tips" };
+  return { viemChain: arbitrum, rpcUrl: process.env.ARBITRUM_RPC_URL ?? "https://arb1.arbitrum.io/rpc" };
+}
+
+async function getOnChainBalance(chain: string, address: string): Promise<bigint> {
+  const { viemChain, rpcUrl } = getViemChainConfig(chain);
   const client = createPublicClient({
-    chain: chain === "arbitrum" ? arbitrum : base,
+    chain: viemChain,
     transport: http(rpcUrl),
   });
   return client.getBalance({ address: address as `0x${string}` });
@@ -59,9 +63,8 @@ async function _checkDeposits(): Promise<void> {
   const chainBalances = new Map<string, bigint>();
   for (const { state } of pending) {
     const chain = state.chain ?? "arbitrum";
-    if (chain === "degen") continue;
     if (!chainBalances.has(chain)) {
-      const bal = await getOnChainBalance(chain as "arbitrum" | "base", walletAddress).catch(() => BigInt(0));
+      const bal = await getOnChainBalance(chain, walletAddress).catch(() => BigInt(0));
       chainBalances.set(chain, bal);
     }
   }
@@ -70,7 +73,6 @@ async function _checkDeposits(): Promise<void> {
 
   for (const { threadHash, castHash, state } of pending) {
     const chain = state.chain ?? "arbitrum";
-    if (chain === "degen") continue;
 
     const balanceKey = `${chain}:${walletAddress}`;
     const currentBalance = chainBalances.get(chain) ?? BigInt(0);
@@ -122,6 +124,7 @@ async function _checkDeposits(): Promise<void> {
         idea.description,
         requestedAmount,
         chain,
+        state.bountyType ?? "open",
       );
 
       const resolvedBountyId = bountyId ?? `pending-${txHash.slice(0, 10)}`;
@@ -136,6 +139,7 @@ async function _checkDeposits(): Promise<void> {
         createdAt: new Date().toISOString(),
         castHash,
         creatorFid: state.authorFid,
+        bountyType: state.bountyType ?? "open",
         status: "open",
         claimCount: 0,
       });
@@ -157,7 +161,12 @@ async function _checkDeposits(): Promise<void> {
           embedUrl: poidhUrl,
         });
 
-        const channelAnnouncement = `new open bounty: "${idea.name}"\n\n${idea.description}\n\nreward: ${requestedAmount} ${config.currency} on ${config.label}. submissions open for ${MIN_OPEN_DURATION_HOURS}h — anyone can submit proof or add funds. winner chosen by vote.\n\nto cancel this bounty, reply "cancel bounty" and tag @${process.env.BOT_USERNAME ?? "poidh-sentinel"}.`;
+        const isSolo = state.bountyType === "solo";
+        const bountyLabel = isSolo ? "solo bounty" : "open bounty";
+        const submissionNote = isSolo
+          ? `submissions open for ${MIN_OPEN_DURATION_HOURS}h — winner chosen directly by the creator.`
+          : `submissions open for ${MIN_OPEN_DURATION_HOURS}h — anyone can submit proof or add funds. winner chosen by vote.`;
+        const channelAnnouncement = `new ${bountyLabel}: "${idea.name}"\n\n${idea.description}\n\nreward: ${requestedAmount} ${config.currency} on ${config.label}. ${submissionNote}\n\nto cancel this bounty, reply "cancel bounty" and tag @${process.env.BOT_USERNAME ?? "poidh-sentinel"}.`;
         const announcementHash = await publishCast({
           text: channelAnnouncement.slice(0, 1024),
           signerUuid,
@@ -186,7 +195,12 @@ async function _checkDeposits(): Promise<void> {
           signerUuid,
         });
 
-        const channelAnnouncement = `new open bounty: "${idea.name}"\n\n${idea.description}\n\nreward: ${requestedAmount} ${config.currency} on ${config.label}. submissions open for ${MIN_OPEN_DURATION_HOURS}h — anyone can submit proof or add funds. winner chosen by vote.\n\nto cancel this bounty, reply "cancel bounty" and tag @${process.env.BOT_USERNAME ?? "poidh-sentinel"}. tx: ${explorerUrl}`;
+        const isSoloFallback = state.bountyType === "solo";
+        const bountyLabelFallback = isSoloFallback ? "solo bounty" : "open bounty";
+        const submissionNoteFallback = isSoloFallback
+          ? `submissions open for ${MIN_OPEN_DURATION_HOURS}h — winner chosen directly by the creator.`
+          : `submissions open for ${MIN_OPEN_DURATION_HOURS}h — anyone can submit proof or add funds. winner chosen by vote.`;
+        const channelAnnouncement = `new ${bountyLabelFallback}: "${idea.name}"\n\n${idea.description}\n\nreward: ${requestedAmount} ${config.currency} on ${config.label}. ${submissionNoteFallback}\n\nto cancel this bounty, reply "cancel bounty" and tag @${process.env.BOT_USERNAME ?? "poidh-sentinel"}. tx: ${explorerUrl}`;
         const announcementHash = await publishCast({
           text: channelAnnouncement.slice(0, 1024),
           signerUuid,

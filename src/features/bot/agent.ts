@@ -5,6 +5,7 @@ import { getBountyDetails } from "@/features/bot/poidh-contract";
 import { getActiveBounties } from "@/features/bot/bounty-store";
 import { formatEther } from "viem";
 import { validateRealWorldBounty } from "@/features/bot/bounty-validation";
+import { MIN_OPEN_DURATION_HOURS } from "@/features/bot/constants";
 
 // Bounty ideas the bot autonomously creates on-chain
 const AUTONOMOUS_BOUNTY_IDEAS = [
@@ -71,6 +72,7 @@ your capabilities:
 key facts about poidh:
 - bounties require a minimum of 0.001 ETH (arbitrum/base) or 1000 DEGEN (degen chain)
 - open bounties are crowdfunded — anyone can add to the prize pool at any time
+- submissions stay open for ${MIN_OPEN_DURATION_HOURS}h after bounty creation before the bot picks a winner — this gives everyone a fair window to submit proof
 - winner selection for open bounties with external contributors is a 2-step process:
   1. the bot nominates the best submission via submitClaimForVote (starts a 48h voting window)
   2. after 48h, anyone can call resolveVote — claim wins if YES votes exceed 50% of contributor weight
@@ -79,7 +81,8 @@ key facts about poidh:
 - bounty link format: poidh.xyz/{chain}/bounty/{id}
 - do NOT invent rules beyond what's above — if unsure, say "check poidh.xyz for details"
 - ALWAYS call bounties "open bounties" — NEVER use the word "single" to describe a bounty type. poidh only creates open bounties.
-- cancellation: only the bounty issuer (this bot) can cancel. if anyone asks how to cancel, tell them to reply "cancel bounty" and tag @${BOT_USERNAME} in the bounty announcement thread. the contract automatically refunds all contributors when an open bounty is cancelled. cancellation is blocked while a community vote is in progress — must wait for the vote to resolve first.`;
+- cancellation: only the bounty issuer (this bot) can cancel. if anyone asks how to cancel, tell them to reply "cancel bounty" and tag @${BOT_USERNAME} in the bounty announcement thread. the contract automatically refunds all contributors when an open bounty is cancelled. cancellation is blocked while a community vote is in progress — must wait for the vote to resolve first.
+- no submissions after ${MIN_OPEN_DURATION_HOURS}h: the bounty stays open indefinitely — it does NOT auto-close or auto-refund. the creator can cancel at any time for a full deposit refund, or share the link to attract submitters. the bot posts a reminder at ${MIN_OPEN_DURATION_HOURS}h and again every 48h after 7 days with no submissions.`;
 
 // Fetch live pot value for a bounty from the contract (with 8s timeout)
 async function fetchLivePotValue(bountyId: string, chain: string): Promise<string | null> {
@@ -231,6 +234,7 @@ function detectAction(text: string): BountyAction {
 async function callLLM(
   messages: Array<{ role: string; content: string }>,
   modelIndex = 0,
+  maxTokens = 300,
 ): Promise<string> {
   // Tier 1: Cerebras (fast, free, preferred)
   const cerebrasKey = process.env.CEREBRAS_API_KEY;
@@ -243,7 +247,7 @@ async function callLLM(
           Authorization: `Bearer ${cerebrasKey}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ model, messages, max_tokens: 300, temperature: 0.7 }),
+        body: JSON.stringify({ model, messages, max_tokens: maxTokens, temperature: 0.7 }),
       });
       if (res.ok) {
         const data = (await res.json()) as { choices: Array<{ message: { content: string } }> };
@@ -254,7 +258,7 @@ async function callLLM(
         }
       }
       if (modelIndex + 1 < CEREBRAS_MODELS.length) {
-        return callLLM(messages, modelIndex + 1);
+        return callLLM(messages, modelIndex + 1, maxTokens);
       }
     } catch (err) {
       console.warn(`[agent] cerebras error:`, err);
@@ -268,7 +272,7 @@ async function callLLM(
       const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
         headers: { Authorization: `Bearer ${groqKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages, max_tokens: 300, temperature: 0.7 }),
+        body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages, max_tokens: maxTokens, temperature: 0.7 }),
         signal: AbortSignal.timeout(15000),
       });
       if (res.ok) {
@@ -291,12 +295,13 @@ async function callLLM(
   if (!openrouterKey) throw new Error("No LLM API key configured (CEREBRAS_API_KEY, GROQ_API_KEY, or OPENROUTER_API_KEY)");
 
   const orIndex = Math.max(0, modelIndex - CEREBRAS_MODELS.length);
-  return callOpenRouter(messages, orIndex);
+  return callOpenRouter(messages, orIndex, maxTokens);
 }
 
 async function callOpenRouter(
   messages: Array<{ role: string; content: string }>,
   modelIndex = 0,
+  maxTokens = 300,
 ): Promise<string> {
   const model = OPENROUTER_MODELS[modelIndex] ?? OPENROUTER_MODELS[0];
   const apiKey = process.env.OPENROUTER_API_KEY!;
@@ -309,13 +314,13 @@ async function callOpenRouter(
       "HTTP-Referer": BOT_APP_URL,
       "X-Title": BOT_USERNAME,
     },
-    body: JSON.stringify({ model, messages, max_tokens: 300, temperature: 0.7 }),
+    body: JSON.stringify({ model, messages, max_tokens: maxTokens, temperature: 0.7 }),
   });
 
   if (!response.ok) {
     if (modelIndex < OPENROUTER_MODELS.length - 1) {
       console.warn(`[agent] openrouter/${model} failed (${response.status}), trying next...`);
-      return callOpenRouter(messages, modelIndex + 1);
+      return callOpenRouter(messages, modelIndex + 1, maxTokens);
     }
     const errorText = await response.text();
     throw new Error(`OpenRouter error ${response.status}: ${errorText}`);
@@ -326,7 +331,7 @@ async function callOpenRouter(
   if (!content) {
     if (modelIndex < OPENROUTER_MODELS.length - 1) {
       console.warn(`[agent] openrouter/${model} returned empty, trying next...`);
-      return callOpenRouter(messages, modelIndex + 1);
+      return callOpenRouter(messages, modelIndex + 1, maxTokens);
     }
     throw new Error("All models exhausted — no content returned");
   }
@@ -582,10 +587,15 @@ export async function runAgent(ctx: AgentContext): Promise<AgentResponse> {
 
   // Wallet address — no LLM needed
   if (action === "wallet_address") {
-    const address = process.env.BOT_WALLET_ADDRESS ?? process.env.NEYNAR_WALLET_ADDRESS ?? "not configured";
+    // Derive address from private key — BOT_WALLET_ADDRESS is no longer needed
+    let address = "not configured";
+    try {
+      const { getBotWalletAddress } = await import("@/features/bot/poidh-contract");
+      address = getBotWalletAddress();
+    } catch { /* key not set */ }
     const reply = address === "not configured"
       ? "wallet not configured yet — check back soon."
-      : `send ETH to ${address} on arbitrum or base. minimum 0.001 ETH. once funded i'll deploy the bounty and anyone can add more.`;
+      : `send ETH (arbitrum/base) or DEGEN (degen chain) to ${address}. minimums: 0.001 ETH or 1000 DEGEN. once i see the deposit i'll create the bounty — submissions stay open for ${MIN_OPEN_DURATION_HOURS}h before i pick a winner.`;
     return { reply, action };
   }
 
@@ -652,7 +662,8 @@ export async function runAgent(ctx: AgentContext): Promise<AgentResponse> {
     { role: "user", content: userMessage },
   ];
 
-  const raw = await callLLM(messages);
+  // suggest_bounty needs more tokens — JSON with name + description + reply easily exceeds 300
+  const raw = await callLLM(messages, 0, action === "suggest_bounty" ? 600 : 300);
 
   // suggest_bounty — expects JSON back, with plain text fallback
   if (action === "suggest_bounty") {
@@ -693,9 +704,12 @@ export async function runAgent(ctx: AgentContext): Promise<AgentResponse> {
       }
     }
 
-    // Plain text fallback — LLM didn't return JSON, use the raw reply anyway
-    // Still create a suggestedIdea so the conversation flow can continue
-    const plain = stripMarkdown(raw).slice(0, 320);
+    // Plain text fallback — LLM didn't return valid JSON (truncated or malformed)
+    // If raw looks like JSON, don't publish it — use a generic fallback instead
+    const looksLikeJson = raw.trimStart().startsWith("{");
+    const plain = looksLikeJson
+      ? "got a great bounty idea in mind — want me to suggest one for you? just say the word."
+      : stripMarkdown(raw).slice(0, 320);
     const authorSuffix = ctx.authorUsername ? ` by @${ctx.authorUsername}` : "";
     const nameGuess = plain.split(/[.!?]/)[0].slice(0, 50).toLowerCase().trim();
     return {
@@ -734,10 +748,10 @@ function buildUserMessage(
       "they want a bounty idea. respond with ONLY valid JSON, no other text:\n" +
       '{"name":"bounty title, max 50 chars, lowercase, plain words only",' +
       '"description":"2-3 sentences for poidh.xyz: what must be done, what counts as proof, any specific requirements. clear and direct. do NOT mention any ETH amount, reward value, or prize — that is set separately.",' +
-      '"reply":"your reply to the user. suggest the idea briefly, mention what proof is needed. end by asking if they want you to create it on-chain. max 280 chars, no markdown. do NOT mention any ETH amount."}\n\n' +
+      '"reply":"your reply to the user. MUST name the specific bounty idea (e.g. \'how about catching a street performer mid-act\'). briefly mention what proof is needed. end with \'want me to create this on-chain?\'. max 280 chars, no markdown. do NOT mention any ETH amount."}\n\n' +
       'example name: "find a street performer in a major city"\n' +
       'example description: "find a street performer actively performing in a major city. take a photo or short video clearly showing the performer mid-act with a recognizable urban backdrop. proof must be original, unedited, and taken within the last 7 days."\n' +
-      'example reply: "how about finding a street performer in action — photo or short vid, clearly mid-performance in a public space. want me to post this as a bounty on-chain?"';
+      'example reply: "how about finding a street performer in action — photo or short vid, clearly mid-performance in a public space. want me to create this on-chain?"';
   }
 
   if (action === "evaluate_submission") {
@@ -761,11 +775,70 @@ function buildUserMessage(
       "be direct and confident — this was picked by an autonomous AI evaluator.\n"
     : "";
 
+  // Build per-claim context — identify who is asking and what claims are being referenced
+  const rejectedCtx = (() => {
+    const results = bountyContext?.allEvalResults;
+    if (!results || results.length === 0) return "";
+
+    const castText = ctx.castText?.toLowerCase() ?? "";
+    const authorUsername = ctx.authorUsername?.toLowerCase() ?? "";
+
+    // 1. Is the speaker themselves a submitter?
+    const speakerClaim = results.find((r) =>
+      (r.issuerUsername && r.issuerUsername.replace("@", "").toLowerCase() === authorUsername) ||
+      (r.issuer && r.issuer.toLowerCase() === authorUsername)
+    );
+
+    // 2. Is the speaker mentioning a specific claim ID? e.g. "claim #362" or "#362"
+    const mentionedClaimId = (() => {
+      const m = castText.match(/#(\d+)/) ?? castText.match(/claim\s+(\d+)/);
+      return m ? m[1] : null;
+    })();
+    const mentionedClaim = mentionedClaimId
+      ? results.find((r) => r.claimId === mentionedClaimId)
+      : null;
+
+    // 3. Is the speaker mentioning another user? e.g. "@dan_xv"
+    const mentionedUsername = (() => {
+      // strip the bot's own mention first, then grab first remaining @handle
+      const stripped = castText.replace(/@poidh[^\s]*/gi, "").replace(/@sentinel[^\s]*/gi, "");
+      const m = stripped.match(/@([a-z0-9_.-]+)/i);
+      return m ? m[1].toLowerCase() : null;
+    })();
+    const mentionedUserClaim = mentionedUsername && mentionedUsername !== authorUsername
+      ? results.find((r) =>
+          r.issuerUsername && r.issuerUsername.replace("@", "").toLowerCase() === mentionedUsername
+        )
+      : null;
+
+    const parts: string[] = [];
+
+    if (speakerClaim) {
+      parts.push(`the person asking (@${ctx.authorUsername}) submitted claim #${speakerClaim.claimId} (score ${speakerClaim.score}/100, valid: ${speakerClaim.valid}): ${speakerClaim.reasoning}. address them directly about their own submission.`);
+    }
+
+    if (mentionedClaim && mentionedClaim.claimId !== speakerClaim?.claimId) {
+      parts.push(`they are asking about claim #${mentionedClaim.claimId}${mentionedClaim.issuerUsername ? ` (submitted by ${mentionedClaim.issuerUsername})` : ""} — score ${mentionedClaim.score}/100, valid: ${mentionedClaim.valid}: ${mentionedClaim.reasoning}.`);
+    }
+
+    if (mentionedUserClaim && mentionedUserClaim.claimId !== mentionedClaim?.claimId) {
+      parts.push(`they are asking about @${mentionedUsername}'s claim #${mentionedUserClaim.claimId} — score ${mentionedUserClaim.score}/100, valid: ${mentionedUserClaim.valid}: ${mentionedUserClaim.reasoning}.`);
+    }
+
+    // Always include the full results list so the bot can answer any arbitrary question
+    const allLines = results
+      .map((r) => `claim #${r.claimId}${r.issuerUsername ? ` by ${r.issuerUsername}` : ""} — score ${r.score}/100, valid: ${r.valid}: ${r.reasoning}`)
+      .join("; ");
+    parts.push(`all evaluated claims: ${allLines}.`);
+
+    return "\n" + parts.join("\n") + "\nuse the above to give specific, accurate answers about any claim or submitter.\n";
+  })();
+
   const bountyCtx = bountyContext
     ? "\nthis is a reply in the announcement thread for the bounty \"" + bountyContext.name +
       "\" on " + bountyContext.chain + ".\nbounty description: " + bountyContext.description +
       (bountyContext.poidhUrl ? "\nbounty link: " + bountyContext.poidhUrl : "") + "\n" +
-      winnerCtx
+      winnerCtx + rejectedCtx
     : "";
 
   const potCtx = livePotContext ? "\nlive contract data: " + livePotContext + "\n" : "";

@@ -43,6 +43,14 @@ export interface EvaluationResult {
   valid: boolean;
   reasoning: string;
   deterministicScore?: number;  // pre-filter score for transparency
+  issuer?: string;
+  issuerUsername?: string;
+  openaiVisionCost?: {
+    model: string;
+    inputTokens: number;
+    outputTokens: number;
+    estimatedCostUsd: number;
+  } | null;
 }
 
 // ---------------------------------------------------------------------------

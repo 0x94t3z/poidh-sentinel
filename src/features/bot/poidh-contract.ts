@@ -1,7 +1,7 @@
 import "server-only";
 import { createPublicClient, createWalletClient, http, parseEther, formatEther, type Hash } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { arbitrum, base } from "viem/chains";
+import { arbitrum, base, degen } from "viem/chains";
 
 // Contract addresses per chain
 export const POIDH_CONTRACTS: Record<string, `0x${string}`> = {
@@ -30,6 +30,16 @@ export function resolvePoidhUrl(chain: string, rawBountyId: string): string {
 export const POIDH_ABI = [
   {
     name: "createOpenBounty",
+    type: "function",
+    stateMutability: "payable",
+    inputs: [
+      { name: "name", type: "string" },
+      { name: "description", type: "string" },
+    ],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    name: "createSoloBounty",
     type: "function",
     stateMutability: "payable",
     inputs: [
@@ -80,25 +90,21 @@ export const POIDH_ABI = [
     ],
   },
   {
+    // Returns true if any external contributor (not the issuer) has ever joined this bounty.
+    // Use this to decide acceptClaim (false) vs submitClaimForVote (true).
+    // Works on both arbitrum/base (0x5555...) and degen (0x18E5...) — same selector 0xb04f5ebd.
+    name: "everHadExternalContributor",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "bountyId", type: "uint256" }],
+    outputs: [{ name: "", type: "bool" }],
+  },
+  {
     name: "participants",
     type: "function",
     stateMutability: "view",
     inputs: [{ name: "bountyId", type: "uint256" }, { name: "index", type: "uint256" }],
     outputs: [{ name: "", type: "address" }],
-  },
-  {
-    name: "bountyContributions",
-    type: "function",
-    stateMutability: "view",
-    inputs: [{ name: "bountyId", type: "uint256" }],
-    outputs: [{
-      name: "",
-      type: "tuple[]",
-      components: [
-        { name: "contributor", type: "address" },
-        { name: "amount", type: "uint256" },
-      ],
-    }],
   },
   {
     name: "submitClaimForVote",
@@ -263,11 +269,13 @@ async function getPoidhNftAddress(chain: string): Promise<`0x${string}` | null> 
 
 function getViemChain(chain: string) {
   if (chain === "base") return base;
+  if (chain === "degen") return degen;
   return arbitrum; // default + "arbitrum"
 }
 
 function getRpcUrl(chain: string): string {
   if (chain === "base") return process.env.BASE_RPC_URL ?? "https://mainnet.base.org";
+  if (chain === "degen") return process.env.DEGEN_RPC_URL ?? "https://rpc.degen.tips";
   return process.env.ARBITRUM_RPC_URL ?? "https://arb1.arbitrum.io/rpc";
 }
 
@@ -305,12 +313,15 @@ export function getBotWalletAddress(): string {
   }
 }
 
-// Create an OPEN bounty on the specified chain
+// Create a bounty on the specified chain.
+// bountyType "open" (default) = createOpenBounty — anyone can contribute, community votes on winner.
+// bountyType "solo" = createSoloBounty — issuer decides winner directly via acceptClaim, no vote.
 export async function createBountyOnChain(
   name: string,
   description: string,
   amountEth = "0.001",
   chain = "arbitrum",
+  bountyType: "open" | "solo" = "open",
 ): Promise<{ txHash: Hash; bountyId: string | null }> {
   const { client, account } = getWalletClient(chain);
   const publicClient = getPublicClient(chain);
@@ -320,7 +331,7 @@ export async function createBountyOnChain(
   const txHash = await client.writeContract({
     address: contractAddress,
     abi: POIDH_ABI,
-    functionName: "createOpenBounty",
+    functionName: bountyType === "solo" ? "createSoloBounty" : "createOpenBounty",
     args: [name, description],
     value,
     account,
@@ -425,20 +436,19 @@ export async function resolveBountyWinner(
   const { client, account } = getWalletClient(chain);
   const contractAddress = POIDH_CONTRACTS[chain] ?? POIDH_CONTRACT;
 
-  // Determine bounty type: solo (no participants → acceptClaim directly) vs
-  // open (participants array populated via createOpenBounty → submitClaimForVote/resolveVote).
-  // The contract does NOT have everHadExternalContributor — use participants[bountyId][0] probe.
+  // Determine bounty type: use everHadExternalContributor — canonical check on both
+  // arbitrum/base and degen. Returns true if any external (non-issuer) contributor has
+  // ever joined → use submitClaimForVote/resolveVote. False → use acceptClaim directly.
   let isOpenBounty = false;
   try {
-    await publicClient.readContract({
+    isOpenBounty = await publicClient.readContract({
       address: contractAddress,
       abi: POIDH_ABI,
-      functionName: "participants",
-      args: [bountyId, BigInt(0)],
-    });
-    isOpenBounty = true; // didn't revert → at least one participant → open bounty
+      functionName: "everHadExternalContributor",
+      args: [bountyId],
+    }) as boolean;
   } catch {
-    isOpenBounty = false; // reverted → no participants → solo bounty
+    isOpenBounty = false; // if it reverts for any reason, fall back to solo path
   }
 
   if (!isOpenBounty) {
@@ -543,16 +553,15 @@ export async function cancelBounty(
   const { client, account } = getWalletClient(chain);
   const contractAddress = POIDH_CONTRACTS[chain] ?? POIDH_CONTRACT;
 
-  // Probe participants[bountyId][0] to determine solo vs open
+  // Use everHadExternalContributor — works on arbitrum, base, and degen
   let isOpen = false;
   try {
-    await publicClient.readContract({
+    isOpen = await publicClient.readContract({
       address: contractAddress,
       abi: POIDH_ABI,
-      functionName: "participants",
-      args: [bountyId, BigInt(0)],
-    });
-    isOpen = true;
+      functionName: "everHadExternalContributor",
+      args: [bountyId],
+    }) as boolean;
   } catch {
     isOpen = false;
   }
@@ -631,8 +640,9 @@ export async function cancelBounty(
   await publicClient.waitForTransactionReceipt({ hash: withdrawTxHash, timeout: 60_000 });
   console.log(`[poidh-contract] withdraw to bot wallet: ${withdrawTxHash}`);
 
-  // Step 2: plain ETH transfer from bot wallet → creator wallet for exactly bountyRefundAmount.
-  // The poidh contract has no record of the original depositor — refund is outside the contract.
+  // Step 2: plain native token transfer from bot wallet → creator wallet for exactly bountyRefundAmount.
+  // ETH on arbitrum/base, DEGEN on degen chain. The poidh contract has no record of the original
+  // depositor — refund is a direct sendTransaction outside the contract.
   const creatorAddress = creatorFid ? await resolveFidToCustodyAddress(creatorFid) : null;
   const refundAddress = creatorAddress ?? account.address;
 
@@ -644,9 +654,11 @@ export async function cancelBounty(
       account,
     });
     await publicClient.waitForTransactionReceipt({ hash: refundTxHash as `0x${string}`, timeout: 60_000 });
-    console.log(`[poidh-contract] refund ${formatEther(bountyRefundAmount)} ETH sent to creator ${creatorAddress} (FID ${creatorFid}): ${refundTxHash}`);
+    const nativeCurrency = chain === "degen" ? "DEGEN" : "ETH";
+    console.log(`[poidh-contract] refund ${formatEther(bountyRefundAmount)} ${nativeCurrency} sent to creator ${creatorAddress} (FID ${creatorFid}): ${refundTxHash}`);
   } else {
-    console.warn(`[poidh-contract] no creator address resolved for FID ${creatorFid} — ${formatEther(bountyRefundAmount)} ETH stays in bot wallet`);
+    const nativeCurrency = chain === "degen" ? "DEGEN" : "ETH";
+    console.warn(`[poidh-contract] no creator address resolved for FID ${creatorFid} — ${formatEther(bountyRefundAmount)} ${nativeCurrency} stays in bot wallet`);
   }
 
   // Collect external contributor addresses (all participants except the bot itself)

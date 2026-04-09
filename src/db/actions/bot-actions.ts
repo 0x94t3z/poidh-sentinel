@@ -17,6 +17,7 @@ import { eq, desc, lt } from "drizzle-orm";
 export type ConversationStep =
   | "awaiting_confirmation"
   | "awaiting_chain"
+  | "awaiting_bounty_type"
   | "awaiting_payment"
   | "creating_bounty"
   | "awaiting_cancel_confirmation"
@@ -30,6 +31,7 @@ export interface ConversationState {
   chain?: "arbitrum" | "base" | "degen";
   amountEth?: string;
   uniqueAmount?: string;
+  bountyType?: "open" | "solo"; // default: "open"
   // Cancel flow
   cancelBountyId?: string;
   cancelBountyChain?: string;
@@ -155,6 +157,14 @@ export interface EvaluationResult {
   valid: boolean;
   reasoning: string;
   deterministicScore?: number;
+  issuer?: string;
+  issuerUsername?: string;
+  openaiVisionCost?: {
+    model: string;
+    inputTokens: number;
+    outputTokens: number;
+    estimatedCostUsd: number;
+  } | null;
 }
 
 export interface ActiveBounty {
@@ -167,6 +177,7 @@ export interface ActiveBounty {
   castHash: string;
   creatorFid?: number;
   announcementCastHash?: string;
+  bountyType: "open" | "solo"; // open = community vote; solo = creator picks winner on poidh.xyz
   status: "open" | "evaluating" | "closed";
   winnerClaimId?: string;
   winnerTxHash?: string;
@@ -190,6 +201,7 @@ export async function addActiveBounty(bounty: ActiveBounty): Promise<void> {
       castHash: bounty.castHash,
       creatorFid: bounty.creatorFid ?? null,
       announcementCastHash: bounty.announcementCastHash ?? null,
+      bountyType: bounty.bountyType ?? "open",
       status: bounty.status,
       winnerClaimId: bounty.winnerClaimId ?? null,
       winnerTxHash: bounty.winnerTxHash ?? null,
@@ -313,6 +325,7 @@ function rowToBounty(row: typeof activeBounties.$inferSelect): ActiveBounty {
     castHash: row.castHash,
     creatorFid: row.creatorFid ?? undefined,
     announcementCastHash: row.announcementCastHash ?? undefined,
+    bountyType: (row.bountyType ?? "open") as "open" | "solo",
     status: row.status as "open" | "evaluating" | "closed",
     winnerClaimId: row.winnerClaimId ?? undefined,
     winnerTxHash: row.winnerTxHash ?? undefined,

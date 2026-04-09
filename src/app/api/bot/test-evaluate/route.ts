@@ -203,6 +203,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       chain,
       castHash,
       announcementCastHash: announcementCastHash ?? undefined,
+      bountyType: "open",
       status: "open",
       claimCount: 0,
       createdAt: details.createdAt
@@ -373,6 +374,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
           valid: result.valid,
           reasoning: result.reasoning,
           skippedFullEval: false,
+          openaiVisionCost: result.openaiVisionCost ?? null,
         };
       }),
     );
@@ -380,6 +382,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const validResults = evaluations.filter((r) => r.valid && r.score >= 60);
     validResults.sort((a, b) => b.score - a.score);
     const winner = validResults[0] ?? null;
+
+    // Aggregate OpenAI vision cost across all claims
+    const totalOpenAICost = evaluations.reduce((sum, e) => sum + (e.openaiVisionCost?.estimatedCostUsd ?? 0), 0);
+    const openAIClaimsCount = evaluations.filter((e) => e.openaiVisionCost).length;
 
     return NextResponse.json({
       bounty: bountyInfo,
@@ -394,6 +400,13 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
             reasoning: winner.reasoning,
           }
         : null,
+      costSummary: {
+        openaiVisionCalls: openAIClaimsCount,
+        totalOpenAICostUsd: Math.round(totalOpenAICost * 100000) / 100000,
+        note: openAIClaimsCount > 0
+          ? `gpt-4o vision fired ${openAIClaimsCount}/${claims.length} claims (groq was rate-limited). total: $${totalOpenAICost.toFixed(4)}`
+          : `groq vision handled all ${claims.length} claims — $0 openai cost`,
+      },
       note: "DRY RUN — no on-chain tx, no DB writes, no casts posted",
     });
   } catch (err) {

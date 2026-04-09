@@ -10,6 +10,7 @@ import {
   clearConversation,
   parseChain,
   parseAmount,
+  parseBountyType,
   isConfirmation,
   isRejection,
   makeUniqueAmount,
@@ -20,13 +21,22 @@ import {
 import { registerPendingPayment, getAllAwaitingPayment } from "@/features/bot/conversation-state-registry";
 import { markCastProcessed, pruneProcessedCasts, getBountyThread, updateBounty, getActiveBounty } from "@/db/actions/bot-actions";
 import { cancelBounty } from "@/features/bot/poidh-contract";
-import { resolveAddressesToUsernames } from "@/features/bot/bounty-loop";
+import { resolveAddressesToUsernames, MIN_OPEN_DURATION_HOURS } from "@/features/bot/bounty-loop";
 import type { WebhookPayload, BotLogEntry } from "@/features/bot/types";
 
 const BOT_FID = parseInt(process.env.BOT_FID ?? "0", 10);
 
 function getBotWalletAddress(): string {
-  return process.env.BOT_WALLET_ADDRESS ?? process.env.NEYNAR_WALLET_ADDRESS ?? "";
+  // Derive address directly from BOT_WALLET_PRIVATE_KEY — no need for BOT_WALLET_ADDRESS env var
+  try {
+    const { privateKeyToAccount } = require("viem/accounts") as typeof import("viem/accounts");
+    const key = process.env.BOT_WALLET_PRIVATE_KEY ?? "";
+    if (!key) return "";
+    const normalized = key.startsWith("0x") ? key : `0x${key}`;
+    return privateKeyToAccount(normalized as `0x${string}`).address;
+  } catch {
+    return "";
+  }
 }
 
 function verifySignature(body: string, signature: string, secret: string): boolean {
@@ -192,24 +202,47 @@ async function handleConversationFlow(
     }
 
     const finalAmount = amount ?? config.minAmount;
+
+    // Store chain + amount only — uniqueAmount computed later in awaiting_bounty_type
+    // (right before registerPendingPayment, so the pending count is accurate at that moment)
+    const chainState = { ...state, step: "awaiting_bounty_type" as const, chain, amountEth: finalAmount };
+    await setConversation(threadHash, chainState);
+
+    return `got it — ${config.label}, ${finalAmount} ${config.currency}. open or solo bounty?\n\n• open (default) — anyone can contribute funds, community votes on the winner.\n• solo — only you decide the winner directly.\n\nreply "open" or "solo" (or just continue and i'll default to open).`;
+  }
+
+  // --- Step: awaiting_bounty_type ---
+  if (state.step === "awaiting_bounty_type") {
+    const parsed = parseBountyType(lower);
+
+    // Rejections / explicit "no" → go back and ask again
+    if (isRejection(lower) && !parsed) {
+      return `open or solo? open = community vote, solo = you pick the winner directly.`;
+    }
+
+    // Default to "open" if user just says "go ahead", "ok", confirmation, or anything unclear
+    const bountyType: "open" | "solo" = parsed ?? "open";
+
+    const chain = state.chain ?? "arbitrum";
+    const finalAmount = state.amountEth ?? CHAIN_CONFIG[chain as keyof typeof CHAIN_CONFIG].minAmount;
     const { total: totalWithFee, fee: feeAmount } = addPlatformFee(finalAmount);
+    const config = CHAIN_CONFIG[chain as keyof typeof CHAIN_CONFIG];
     const walletAddress = getBotWalletAddress();
 
     const existingPending = (await getAllAwaitingPayment()).filter(p => (p.state.chain ?? "arbitrum") === chain);
-    // makeUniqueAmount applied to total (bounty + fee) for dedup
-    const uniqueAmount = makeUniqueAmount(totalWithFee, existingPending.length);
+    const uniqueAmount = makeUniqueAmount(totalWithFee, existingPending.length, chain === "degen");
 
-    // amountEth = bounty only (used for on-chain creation), uniqueAmount = total user must send
-    const updatedState = { ...state, step: "awaiting_payment" as const, chain, amountEth: finalAmount, uniqueAmount };
+    const updatedState = { ...state, step: "awaiting_payment" as const, chain: chain as "arbitrum" | "base" | "degen", amountEth: finalAmount, uniqueAmount, bountyType };
     await setConversation(threadHash, updatedState);
 
     if (!walletAddress) {
-      return `got it — ${config.label}, ${finalAmount} ${config.currency}. wallet not configured yet, check back soon.`;
+      return `${bountyType} bounty — ${config.label}, ${finalAmount} ${config.currency}. wallet not configured yet, check back soon.`;
     }
 
     await registerPendingPayment(threadHash, castHash, updatedState);
 
-    return `send exactly ${uniqueAmount} ${config.currency} to ${walletAddress} on ${config.label} — ${finalAmount} bounty + ${feeAmount} platform fee (${PLATFORM_FEE_PCT}%). sending more won't increase the prize and won't be refunded. your wallet handles gas. once i see the deposit i'll create the bounty.`;
+    const typeNote = bountyType === "solo" ? "you'll pick the winner directly." : `submissions stay open for ${MIN_OPEN_DURATION_HOURS}h before i pick a winner.`;
+    return `${bountyType} bounty — send exactly ${uniqueAmount} ${config.currency} to ${walletAddress} on ${config.label} — ${finalAmount} bounty + ${feeAmount} platform fee (${PLATFORM_FEE_PCT}%). sending more won't increase the prize and won't be refunded. your wallet handles gas. once i see the deposit i'll create the bounty — ${typeNote}`;
   }
 
   // --- Step: awaiting_payment ---
@@ -277,9 +310,10 @@ async function handleConversationFlow(
       await clearConversation(threadHash);
 
       const shortRefund = `${refundAddress.slice(0, 6)}...${refundAddress.slice(-4)}`;
+      const chainCurrency = bountyChain === "degen" ? "DEGEN" : "ETH";
       const refundLine = refundTxHash
         ? `bounty amount sent to ${shortRefund}.`
-        : `couldn't resolve your wallet — ETH is held safely in the bot wallet. DM to arrange your refund.`;
+        : `couldn't resolve your wallet — ${chainCurrency} is held safely in the bot wallet. DM to arrange your refund.`;
 
       if (method === "cancelOpenBounty" && externalContributors.length > 0) {
         // Resolve contributor addresses to @usernames and post a follow-up ping
@@ -488,16 +522,25 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         replyToBot,
         mentioned,
         imageUrls: imageUrls.length ? imageUrls : undefined,
-        bountyContext: bountyThread ? {
-          bountyId: bountyThread.bountyId,
-          name: bountyThread.bountyName,
-          description: bountyThread.bountyDescription,
-          chain: bountyThread.chain,
-          poidhUrl: bountyThread.poidhUrl,
-          winnerClaimId: bountyThread.winnerClaimId,
-          winnerIssuer: bountyThread.winnerIssuer,
-          winnerReasoning: bountyThread.winnerReasoning,
-        } : undefined,
+        bountyContext: bountyThread ? await (async () => {
+          // Pull allEvalResults from the bounty record so the bot can explain rejections in thread
+          let allEvalResults: Array<{ claimId: string; score: number; valid: boolean; reasoning: string }> | undefined;
+          try {
+            const bountyRecord = await getActiveBounty(bountyThread.bountyId);
+            allEvalResults = bountyRecord?.allEvalResults ?? undefined;
+          } catch { /* non-critical */ }
+          return {
+            bountyId: bountyThread.bountyId,
+            name: bountyThread.bountyName,
+            description: bountyThread.bountyDescription,
+            chain: bountyThread.chain,
+            poidhUrl: bountyThread.poidhUrl,
+            winnerClaimId: bountyThread.winnerClaimId,
+            winnerIssuer: bountyThread.winnerIssuer,
+            winnerReasoning: bountyThread.winnerReasoning,
+            allEvalResults,
+          };
+        })() : undefined,
       });
       logEntry.action = agentResult.action;
       logEntry.replyText = agentResult.reply;

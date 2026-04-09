@@ -56,6 +56,8 @@ export function isConfirmation(text: string): boolean {
   // Exact short confirmations
   if (lower === "yes" || lower === "y" || lower === "yep" || lower === "yup") return true;
   if (lower === "yeah" || lower === "sure" || lower === "do it") return true;
+  if (lower === "pls" || lower === "plz" || lower === "please") return true;
+  if (lower === "w" || lower === "wagmi" || lower === "lfg") return true;
 
   // Phrases that clearly signal bounty creation intent
   if (lower.includes("let's go") || lower.includes("lets go")) return true;
@@ -65,12 +67,23 @@ export function isConfirmation(text: string): boolean {
   if (lower.includes("make it") || lower.includes("post it")) return true;
   if (lower.includes("launch it") || lower.includes("launch the bounty")) return true;
   if (lower.includes("i want it") || lower.includes("i'll take it")) return true;
-  if (lower.includes("yes please") || lower.includes("yeah please")) return true;
+  if (lower.includes("yes please") || lower.includes("yes pls") || lower.includes("yeah please") || lower.includes("yeah pls")) return true;
   if (lower.includes("that works") || lower.includes("that's good") || lower.includes("thats good")) return true;
   if (lower.includes("sounds good") && lower.length < 20) return true; // only when it's the whole message
   if (lower.includes("looks good") && lower.length < 20) return true;
 
   return false;
+}
+
+// Parse bounty type from user text — default is "open" if unclear
+export function parseBountyType(text: string): "open" | "solo" | null {
+  const lower = text.toLowerCase().trim();
+  if (lower.includes("solo") || lower.includes("just me") || lower.includes("i decide") || lower.includes("myself")) return "solo";
+  if (lower.includes("open") || lower.includes("community") || lower.includes("vote") || lower.includes("crowdfund") || lower.includes("anyone")) return "open";
+  // Clear confirmations with no type hint → accept default (open)
+  if (lower === "open" || lower === "o") return "open";
+  if (lower === "solo" || lower === "s") return "solo";
+  return null;
 }
 
 // Check if text is a rejection
@@ -103,10 +116,14 @@ export function addPlatformFee(bountyAmount: string): { total: string; fee: stri
   return { total: totalStr, fee: feeStr };
 }
 
-// Generate a unique amount by adding a tiny suffix (e.g. 0.0010250 → 0.0010251)
-// Applied AFTER the fee so the uniqueness suffix is on top of total
-export function makeUniqueAmount(baseAmount: string, index: number): string {
+// Generate a unique amount by adding a tiny suffix to avoid deposit collisions.
+// ETH amounts (e.g. 0.001025): suffix = index * 0.0000001 → 0.0010251, 0.0010252 ...
+// DEGEN amounts (e.g. 1025):   suffix = index * 0.001     → 1025.001, 1025.002 ...
+// Applied AFTER the fee so the uniqueness suffix is on top of total.
+export function makeUniqueAmount(baseAmount: string, index: number, isDegen = false): string {
   const base = parseFloat(baseAmount);
-  const unique = base + (index * 0.0000001);
-  return unique.toFixed(7).replace(/0+$/, "").replace(/\.$/, "");
+  const step = isDegen ? 0.001 : 0.0000001;
+  const unique = base + (index * step);
+  const decimals = isDegen ? 3 : 7;
+  return unique.toFixed(decimals).replace(/0+$/, "").replace(/\.$/, "");
 }
