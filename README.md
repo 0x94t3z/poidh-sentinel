@@ -13,7 +13,7 @@ Built for the [poidh SKILL challenge](https://github.com/picsoritdidnthappen/poi
 1. **Suggests bounties** — responds to Farcaster mentions with creative, real-world bounty ideas (validated to reject digital-only tasks)
 2. **Creates bounties on-chain** — deploys open bounties on Arbitrum, Base, or Degen Chain via the poidh smart contract
 3. **Monitors submissions** — cron polls every minute for new claims on all active bounties
-4. **Evaluates proof with AI** — deterministic pre-scorer + OCR + vision AI (Groq + OpenAI) + LLM final verdict
+4. **Evaluates proof with AI** — deterministic pre-scorer + OCR + vision AI (free-first: Groq/OpenRouter, optional OpenAI fallback) + LLM final verdict
 5. **Selects a winner autonomously** — scores all claims 0-100, picks highest scoring valid claim (score >= 60)
 6. **Executes payout on-chain** — calls `acceptClaim` or `submitClaimForVote` → `resolveVote` with no human step
 7. **Announces winners publicly** — posts to `/poidh` channel with score breakdown and reasoning
@@ -93,7 +93,7 @@ Built for the [poidh SKILL challenge](https://github.com/picsoritdidnthappen/poi
 
 ### Cron endpoint
 
-`GET /api/cron/bounty-loop` runs `runBountyLoop()` and `checkDepositsAndCreateBounties()` in parallel every minute. Secured via `CRON_SECRET` bearer token (Vercel cron convention — optional but recommended). Admin endpoints (`state`, `test-evaluate`) are secured via `ADMIN_SECRET` — set both to the same value.
+`GET /api/cron/bounty-loop` runs `runBountyLoop()` and `checkDepositsAndCreateBounties()` in parallel every minute. Secured via `CRON_SECRET` bearer token. In production, missing `CRON_SECRET` returns HTTP 500 (fail-closed). Admin endpoints (`state`, `test-evaluate`) are secured via `ADMIN_SECRET` — set both to the same value.
 
 ### Timing reference
 
@@ -440,16 +440,16 @@ Token overlap (Jaccard-style) between bounty text and claim text, with penalties
 - Digital-only signals ("nft link", "screenshot of", etc.) → -25 pts each
 - Suspiciously short description (< 10 chars) → -20 pts
 
-Claims scoring < 15 are rejected immediately without any API calls.
+Claims scoring < 10 are rejected immediately without any API calls.
 
 ### Stage 2 — Proof resolution
 
 Fetches the claim's `tokenURI` from the poidh NFT contract, then:
 
 1. **OCR** via [ocr.space](https://ocr.space) (free; `OCR_SPACE_API_KEY` optional, defaults to `helloworld` public key) — always runs, extracts text from images
-2. **Vision AI** (only if deterministic score >= 40, `VISION_SCORE_GATE`):
+2. **Vision AI** (only if deterministic score >= 20, `VISION_SCORE_GATE`):
    - **Tier 1 — Groq**: `llama-4-scout-17b-16e-instruct` → `llama-3.2-90b-vision-preview` → `llama-3.2-11b-vision-preview`
-   - **Tier 2 — OpenAI**: `gpt-4o` (best vision quality, kicks in when Groq is rate-limited)
+   - **Tier 2 — OpenAI**: `gpt-4o` (**opt-in** via `ENABLE_OPENAI_VISION_FALLBACK=true`)
    - **Tier 3 — OpenRouter**: `qwen/qwen3.6-plus:free` → `google/gemini-3.1-flash-lite-preview`
    - Images fetched as base64 data URIs (avoids vision model URL-access issues)
    - If OCR text >= 30 chars (`OCR_SUFFICIENT_CHARS`), OCR is appended alongside vision result
@@ -461,7 +461,7 @@ Vision is skipped for low-scoring claims to conserve Groq quota. OCR always runs
 - `AI DETECTION: authenticity uncertain` → score reduced by 20-30 points
 - `REAL` verdict → no note added, no effect on score
 
-This runs in parallel with vision so it adds zero extra latency to evaluation. Requires `OPENAI_API_KEY` and `AI_IMAGE_DETECTION` not set to `false`.
+This runs in parallel with vision so it adds zero extra latency to evaluation. It is **opt-in** and only runs when `ENABLE_OPENAI_AI_DETECTION=true` plus `OPENAI_API_KEY` is set.
 
 If all vision tiers and OCR fail, the image URL is included for LLM context.
 
@@ -473,11 +473,11 @@ LLM priority: Groq `llama-3.3-70b-versatile` → Cerebras → OpenRouter free mo
 
 Reasoning must be specific and concrete (e.g. "outdoor photo shows '5th April 2026 Dan Xv POIDH' on a note") — vague reasoning like "meets requirements" is explicitly banned by the prompt.
 
-**Date window** — the prompt tells the LLM the bounty creation date and deadline (creation + 72h). Any date within that window is accepted for date-based bounties. Submissions made on April 6th for a bounty created April 5th are valid; the evaluator will not reject them for "wrong date".
+**Date window** — the prompt tells the LLM the bounty creation date and deadline (creation + `MIN_OPEN_DURATION_HOURS`). Any date within that window is accepted for date-based bounties.
 
 **Vision prompt** — all vision tiers (Groq, OpenAI, OpenRouter) receive the full bounty description and are instructed to explicitly check every stated requirement, report all visible text, and note what is missing. This catches partial submissions (e.g. note has date but no username).
 
-Falls back to the deterministic score if all LLMs are exhausted (`fallbackValid = detScore >= 60`). No silent drops.
+If all LLMs are exhausted, the claim is marked invalid (`valid=false`) and retried next cycle (fail-safe, no auto-accept on outage).
 
 **Duplicate detection** — before evaluation, `pickWinner` runs two dedup passes:
 1. **URI dedup** — exact same proof URI submitted by multiple claimants → later submissions disqualified immediately (no API cost)
@@ -552,10 +552,10 @@ Text LLM (final verdict — `valid`, `score`, `reasoning`):
 | Tier | Provider   | Model(s)                                                              | Cost        |
 |------|------------|-----------------------------------------------------------------------|-------------|
 | 1    | Groq       | `llama-4-scout-17b-16e-instruct` → `llama-3.2-90b` → `llama-3.2-11b` | Free        |
-| 2    | OpenAI     | `gpt-4o`                                                              | ~$0.01/img  |
+| 2    | OpenAI     | `gpt-4o`                                                              | ~$0.01/img (only if `ENABLE_OPENAI_VISION_FALLBACK=true`) |
 | 3    | OpenRouter | `qwen/qwen3.6-plus:free` → `google/gemini-3.1-flash-lite-preview`    | Free        |
 
-**Groq quota note**: Groq vision and text calls share the same 500k TPD limit. Vision is skipped for claims with deterministic score < 40 to conserve quota. If Groq is rate-limited, OpenAI `gpt-4o` picks it up automatically.
+**Groq quota note**: Groq vision and text calls share the same 500k TPD limit. Vision is skipped for claims with deterministic score < 20 to conserve quota. If Groq is rate-limited, OpenAI `gpt-4o` is used only when `ENABLE_OPENAI_VISION_FALLBACK=true`; otherwise it falls through to OpenRouter free models.
 
 ---
 
@@ -635,10 +635,12 @@ All modes except `run=1`, `register=1`, and `post=1` are dry-runs — no DB writ
 | `NEYNAR_API_KEY`         | Yes       | Neynar API key — cast publishing and Farcaster user lookups                        |
 | `BOT_SIGNER_UUID`        | Yes       | Neynar managed signer UUID for the bot's Farcaster account                         |
 | `BOT_WALLET_PRIVATE_KEY` | Yes       | Private key of the bot's EVM wallet — hex, with or without `0x` prefix. The public address is derived automatically. |
-| `NEYNAR_WEBHOOK_SECRET`  | Rec.      | HMAC-SHA512 secret for Neynar webhook signature verification                       |
+| `NEYNAR_WEBHOOK_SECRET`  | Required in production | HMAC-SHA512 secret for Neynar webhook signature verification (`/api/webhook/farcaster` fails closed in production if missing) |
 | `GROQ_API_KEY`           | Rec.      | Groq API key — tier 1 LLM (claim eval) + vision (free tier, 500k TPD)             |
-| `OPENAI_API_KEY`         | Optional  | OpenAI API key — AI image detection (`gpt-4o`, ~$0.007/call) + vision fallback    |
-| `AI_IMAGE_DETECTION`     | Optional  | Set to `false` to disable AI image detection entirely (even if `OPENAI_API_KEY` is set) |
+| `OPENAI_API_KEY`         | Optional  | OpenAI API key — used only by optional features below                              |
+| `AI_IMAGE_DETECTION`     | Optional  | Agent-level AI detection toggle (`detectAiImage()` in conversation replies); set `false` to disable |
+| `ENABLE_OPENAI_VISION_FALLBACK` | Optional | `true` enables OpenAI `gpt-4o` as claim-eval vision tier-2 fallback               |
+| `ENABLE_OPENAI_AI_DETECTION` | Optional | `true` enables AI-image detection during claim evaluation                          |
 | `CEREBRAS_API_KEY`       | Optional  | Cerebras API key — tier 1 agent replies, tier 2 eval (~2000 tok/s)                 |
 | `OPENROUTER_API_KEY`     | Optional  | OpenRouter API key — tier 3 LLM and vision fallback (free models)                  |
 | `OCR_SPACE_API_KEY`      | Optional  | ocr.space key — defaults to the public `helloworld` key if unset                   |
@@ -649,7 +651,7 @@ All modes except `run=1`, `register=1`, and `post=1` are dry-runs — no DB writ
 | `BOT_USERNAME`           | Required  | Farcaster username of the bot (e.g. `poidh-sentinel`) — used in casts, system prompt, and UI |
 | `BOT_APP_URL`            | Optional  | Public URL of this app — used as HTTP-Referer for OpenRouter (e.g. `https://poidh-sentinel.neynar.app`) |
 | `BOT_OWNER_HANDLE`       | Optional  | Your Farcaster handle — shown in blocked-cancel DM message (e.g. `0x94t3z.eth`)    |
-| `CRON_SECRET`            | Required  | Bearer token to secure `/api/cron/bounty-loop` — set in Vercel env vars (Vercel injects it automatically for cron routes) |
+| `CRON_SECRET`            | Required in production | Bearer token to secure `/api/cron/bounty-loop` (fails closed in production if missing) |
 | `ADMIN_SECRET`           | Required  | Bearer token to secure admin endpoints (`state`, `test-evaluate`) — set to same value as `CRON_SECRET` |
 | `NEXT_PUBLIC_USER_FID`   | Optional  | Your Farcaster FID — used for admin view gating in the dashboard                   |
 
@@ -737,6 +739,10 @@ OPENAI_API_KEY=
 # Set to false to disable AI image detection even if OPENAI_API_KEY is set
 # AI_IMAGE_DETECTION=false
 
+# Claim evaluator OpenAI usage flags (safe defaults: false)
+ENABLE_OPENAI_VISION_FALLBACK=false
+ENABLE_OPENAI_AI_DETECTION=false
+
 # --- Optional LLM fallbacks ---
 
 # Cerebras — tier-1 agent replies, tier-2 eval (https://cloud.cerebras.ai)
@@ -760,6 +766,11 @@ CRON_SECRET=
 # Bearer token to protect admin/maintenance endpoints — set to same value as CRON_SECRET
 ADMIN_SECRET=
 
+# Optional timing knobs for bounty loop
+MIN_OPEN_DURATION_HOURS=72
+NO_SUBMISSION_NUDGE_HOURS=168
+NO_SUBMISSION_NUDGE_INTERVAL_HOURS=48
+
 # Your Farcaster FID (used for admin view gating)
 NEXT_PUBLIC_USER_FID=
 ```
@@ -776,9 +787,8 @@ The dev server automatically runs `drizzle-kit push` on start to create/migrate 
 **Verify it's working:**
 
 ```bash
-# Bot config + status (requires ADMIN_SECRET)
-curl http://localhost:3000/api/bot/status \
-  -H "Authorization: Bearer $ADMIN_SECRET"
+# Bot config + status
+curl http://localhost:3000/api/bot/status
 
 # Trigger the bounty loop manually (requires CRON_SECRET locally)
 curl http://localhost:3000/api/cron/bounty-loop \
@@ -834,7 +844,7 @@ watch -n 60 curl -s http://localhost:3000/api/cron/bounty-loop -H "Authorization
 vercel deploy --prod
 ```
 
-Vercel Cron is pre-configured in `vercel.json` to run the bounty loop every minute automatically.
+Vercel Cron is pre-configured in `vercel.json` to run the bounty loop every minute automatically. Set `CRON_SECRET` in project env vars; in production the endpoint fails closed if missing.
 
 ---
 
@@ -857,7 +867,7 @@ Vercel Cron is pre-configured in `vercel.json` to run the bounty loop every minu
 - **Cancel flow** — the original depositor sent native tokens (ETH or DEGEN) directly to the bot wallet, so the poidh contract has no record of them. `withdrawTo()` only pulls `pendingWithdrawals[msg.sender]` (bot wallet's own balance) — it cannot route tokens to a third party. The actual creator refund is a **plain native token transfer** (`sendTransaction`) from the bot wallet to the creator's Farcaster custody/verified address resolved via Neynar. Solo cancel: `cancelSoloBounty` → `withdraw()` → `sendTransaction(creatorAddress)`. Open cancel: `cancelOpenBounty` → `claimRefundFromCancelledOpenBounty` → `withdraw()` → `sendTransaction(creatorAddress)`. Other open bounty contributors call `claimRefundFromCancelledOpenBounty` themselves on poidh.xyz — bot cannot do it for them. Bot pings all contributors by @username in the announcement thread after cancel. `creatorFid` stored on `active_bounties` at creation time. **Refund amount** = `parseEther(bountyRecord.amountEth)` from DB — the exact bounty reward the creator put up (no fee). The `pendingWithdrawals` delta (before/after cancel) is computed as a sanity log but the DB value is the definitive source for the actual transfer. **Cancel auth**: only the creator (`creatorFid` match) can trigger cancel. If `creatorFid` is null (bounties created before this field was added), cancel is blocked and the user is directed to DM `@{BOT_OWNER_HANDLE}` for manual handling.
 - **Cron parallelism** — `runBountyLoop()` and `checkDepositsAndCreateBounties()` run in parallel via `Promise.allSettled`. A failure in deposit checking does not block bounty evaluation and vice versa.
 - **Claim identity in thread replies** — when someone replies in the announcement thread, the bot matches the author's Farcaster username against `allEvalResults.issuerUsername` to detect if they submitted a claim. If matched, the prompt includes their specific claim score and reasoning so the bot can address them directly ("your claim #356 scored 70 — outdoor note, date and poidh text present"). For third-party questions (e.g. "why did @user lose?" or "why did claim #362 not win?"), the bot detects `@mentions` and `#claimId` patterns in the cast text and surfaces the relevant claim details. The full `allEvalResults` list is always included in the agent context so any arbitrary question about any claim can be answered accurately.
-- **OpenAI vision cost** — `gpt-4o` charges ~$0.01 per image for claim evaluation. It only activates when all Groq vision models are rate-limited. For a typical bounty with 5-10 submissions, this costs less than $0.10 total.
+- **OpenAI vision cost** — `gpt-4o` charges ~$0.01 per image for claim evaluation. It only activates when `ENABLE_OPENAI_VISION_FALLBACK=true` and Groq vision is rate-limited. For a typical bounty with 5-10 submissions, this costs less than $0.10 total.
 - **AI detection cost** — `gpt-4o` charges ~$0.007 per two-pass detection call. OpenAI caches the image between the two passes so the second call costs roughly half. Only triggered when someone explicitly asks "is this AI?" with an image present.
 - **Pot value accuracy** — when answering "how much is the pot?" in a bounty thread, the agent resolves the live contract value using the exact `bountyId` stored in `bounty_threads`, not by name/chain lookup. This prevents returning the wrong pot value when multiple bounties exist on the same chain.
 - **Image URL extraction** — the webhook extracts image URLs from both the triggering cast's embeds (free, in the payload) and the parent cast's embeds (one Neynar API call, combined with the existing `isReplyToBot` check). Parent images come first since the submission image is typically on the parent cast, not the reply.
