@@ -93,7 +93,7 @@ Built for the [poidh SKILL challenge](https://github.com/picsoritdidnthappen/poi
 
 ### Cron endpoint
 
-`GET /api/cron/bounty-loop` runs `runBountyLoop()` and `checkDepositsAndCreateBounties()` in parallel every minute. Secured via `CRON_SECRET` bearer token. In production, missing `CRON_SECRET` returns HTTP 500 (fail-closed). Set `BOT_ENABLED=false` to pause both cron and webhook processing without deleting the app. Admin endpoints (`state`, `test-evaluate`) are secured via `ADMIN_SECRET` — set both to the same value.
+`GET /api/cron/bounty-loop` runs `runBountyLoop()` and `checkDepositsAndCreateBounties()` in parallel every minute. Secured via `CRON_SECRET` bearer token. In production, missing `CRON_SECRET` returns HTTP 500 (fail-closed). Set `BOT_ENABLED=false` to pause both cron and webhook processing without deleting the app. If you also set `BOT_REDIRECT_URL`, the root mini app page redirects users to your active deployment. Admin endpoints (`state`, `test-evaluate`) are secured via `ADMIN_SECRET` — set both to the same value.
 
 ### Timing reference
 
@@ -645,6 +645,7 @@ All modes except `run=1`, `register=1`, and `post=1` are dry-runs — no DB writ
 | `OPENROUTER_API_KEY`     | Optional  | OpenRouter API key — tier 3 LLM and vision fallback (free models)                  |
 | `OCR_SPACE_API_KEY`      | Optional  | ocr.space key — defaults to the public `helloworld` key if unset                   |
 | `BOT_ENABLED`            | Optional  | Global kill switch. Set `false` to pause webhook + cron processing (`true` by default) |
+| `BOT_REDIRECT_URL`       | Optional  | If set and `BOT_ENABLED=false`, root mini app page redirects users to this URL |
 | `ARBITRUM_RPC_URL`       | Optional  | Custom Arbitrum RPC — defaults to `https://arb1.arbitrum.io/rpc`                   |
 | `BASE_RPC_URL`           | Optional  | Custom Base RPC — defaults to `https://mainnet.base.org`                           |
 | `DEGEN_RPC_URL`          | Optional  | Custom Degen Chain RPC — defaults to `https://rpc.degen.tips`                      |
@@ -759,6 +760,8 @@ OCR_SPACE_API_KEY=
 
 # Global kill switch — set to false to pause webhook + cron processing
 BOT_ENABLED=true
+# Optional redirect target when paused (e.g. your active Vercel app)
+BOT_REDIRECT_URL=
 
 # Custom RPC URLs — public endpoints used if unset
 ARBITRUM_RPC_URL=https://arb1.arbitrum.io/rpc
