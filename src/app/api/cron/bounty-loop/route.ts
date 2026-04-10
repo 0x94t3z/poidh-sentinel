@@ -4,7 +4,15 @@ import { checkDepositsAndCreateBounties } from "@/features/bot/deposit-checker";
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
   const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret) {
+  if (!cronSecret) {
+    if (process.env.NODE_ENV === "production") {
+      return NextResponse.json(
+        { ok: false, error: "Server misconfigured: CRON_SECRET is required in production" },
+        { status: 500 },
+      );
+    }
+    console.warn("[cron] CRON_SECRET missing in non-production — endpoint is unsecured for local/dev use");
+  } else {
     const auth = req.headers.get("authorization");
     if (auth !== `Bearer ${cronSecret}`) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

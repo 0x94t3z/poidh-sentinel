@@ -28,9 +28,6 @@ const BOT_FID = parseInt(process.env.BOT_FID ?? "0", 10);
 if (!Number.isFinite(BOT_FID) || BOT_FID <= 0) {
   console.warn("[webhook] BOT_FID is missing/invalid — self-cast protections may not work correctly");
 }
-if (!process.env.NEYNAR_WEBHOOK_SECRET && process.env.NODE_ENV === "production") {
-  console.warn("[webhook] NEYNAR_WEBHOOK_SECRET missing in production — webhook signature verification is disabled");
-}
 
 function getBotWalletAddress(): string {
   // Derive address directly from BOT_WALLET_PRIVATE_KEY — no need for BOT_WALLET_ADDRESS env var
@@ -429,7 +426,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   const webhookSecret = process.env.NEYNAR_WEBHOOK_SECRET;
-  if (webhookSecret) {
+  if (!webhookSecret) {
+    if (process.env.NODE_ENV === "production") {
+      return NextResponse.json(
+        { ok: false, error: "Server misconfigured: NEYNAR_WEBHOOK_SECRET is required in production" },
+        { status: 500 },
+      );
+    }
+    console.warn("[webhook] NEYNAR_WEBHOOK_SECRET missing in non-production — signature verification disabled");
+  } else {
     const signature = req.headers.get("x-neynar-signature") ?? "";
     if (!signature || !verifySignature(rawBody, signature, webhookSecret)) {
       return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
