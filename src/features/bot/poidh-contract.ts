@@ -1,5 +1,5 @@
 import "server-only";
-import { createPublicClient, createWalletClient, http, parseEther, formatEther, type Hash } from "viem";
+import { createPublicClient, createWalletClient, http, parseEther, formatEther, type Hash, keccak256, toBytes } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { arbitrum, base, degen } from "viem/chains";
 
@@ -348,11 +348,29 @@ export async function createBountyOnChain(
   try {
     const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash, timeout: 60_000 });
 
-    // Extract bountyId from first matching log — topics[1] is the indexed bounty ID
+    // BountyCreated(uint256 indexed id, address indexed issuer, string name, string description, uint256 amount)
+    // topics[0] = event signature hash, topics[1] = id (bountyId), topics[2] = issuer address
+    // Match on event signature to avoid accidentally reading the wrong log (e.g. OpenBountyJoined)
+    const BOUNTY_CREATED_SIG = keccak256(toBytes("BountyCreated(uint256,address,string,string,uint256)"));
     for (const log of receipt.logs) {
-      if (log.address.toLowerCase() === contractAddress.toLowerCase() && log.topics.length >= 2 && log.topics[1]) {
+      if (
+        log.address.toLowerCase() === contractAddress.toLowerCase() &&
+        log.topics[0] === BOUNTY_CREATED_SIG &&
+        log.topics[1]
+      ) {
         bountyId = BigInt(log.topics[1]).toString();
         break;
+      }
+    }
+
+    // Fallback: if signature match fails (unlikely), grab first log with 2+ topics from the contract
+    if (!bountyId) {
+      for (const log of receipt.logs) {
+        if (log.address.toLowerCase() === contractAddress.toLowerCase() && log.topics.length >= 2 && log.topics[1]) {
+          bountyId = BigInt(log.topics[1]).toString();
+          console.warn(`[poidh-contract] BountyCreated sig not matched — fell back to first log topic for ${txHash}`);
+          break;
+        }
       }
     }
 

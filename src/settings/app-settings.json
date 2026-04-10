@@ -1,13 +1,13 @@
 {
-  "name": "poidh sentinel",
-  "shortName": "poidh-bot",
-  "subtitle": "Autonomous bounty agent",
-  "description": "An autonomous poidh bounty agent that suggests open bounties, evaluates submissions, and picks winners in-thread on Farcaster.",
-  "shortDescription": "poidh autonomous bounty agent on Farcaster",
+  "name": "Poidh Sentinel",
+  "shortName": "poidh-sentinel",
+  "subtitle": "Pics or it didn't happen",
+  "description": "Autonomous Poidh bounty bot by 0x94t3z.eth that creates, monitors, evaluates, and resolves real-world action bounties end-to-end.",
+  "shortDescription": "Autonomous Poidh bounty bot by 0x94t3z.eth",
   "primaryCategory": "utility",
   "tags": ["bounty", "autonomous", "agent", "poidh", "farcaster"],
   "splashBackgroundColor": "#0a0a0a",
-  "tagline": "Bounties, automated",
-  "requiredChains": ["eip155:8453", "eip155:1"],
-  "shareButtonTitle": "Try the Bot"
+  "tagline": "Pics or it didn't happen",
+  "requiredChains": ["eip155:8453", "eip155:42161", "eip155:666666666"],
+  "shareButtonTitle": "Create a Bounty"
 }

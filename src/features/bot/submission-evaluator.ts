@@ -1,5 +1,6 @@
 import "server-only";
 import { detectAiImage } from "@/features/bot/agent";
+import sharp from "sharp";
 
 const CEREBRAS_API_URL = "https://api.cerebras.ai/v1/chat/completions";
 const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
@@ -412,6 +413,9 @@ describe what you see in this image in 2-3 sentences. you MUST specifically addr
 
 // Tracks OpenAI vision cost for the current evaluation (reset per claim)
 let _lastOpenAIVisionCost: { promptTokens: number; completionTokens: number; estimatedCostUsd: number } | null = null;
+// Paid fallbacks are opt-in. Free stack is default.
+const ENABLE_OPENAI_VISION_FALLBACK = process.env.ENABLE_OPENAI_VISION_FALLBACK === "true";
+const ENABLE_OPENAI_AI_DETECTION = process.env.ENABLE_OPENAI_AI_DETECTION === "true";
 
 async function describeImageWithVision(imageUrl: string, bountyName: string, bountyDescription: string): Promise<string | null> {
   _lastOpenAIVisionCost = null;
@@ -425,66 +429,69 @@ async function describeImageWithVision(imageUrl: string, bountyName: string, bou
   const groqResult = await describeImageWithGroq(imageData, bountyName, bountyDescription);
   if (groqResult) return groqResult;
 
-  // Tier 2: OpenAI gpt-4o (reliable, best vision quality)
-  const openaiResult = await describeImageWithOpenAI(imageData, bountyName, bountyDescription);
-  if (openaiResult) {
-    _lastOpenAIVisionCost = {
-      promptTokens: openaiResult.promptTokens,
-      completionTokens: openaiResult.completionTokens,
-      estimatedCostUsd: openaiResult.estimatedCostUsd,
-    };
-    return openaiResult.content;
+  // Tier 2: OpenAI gpt-4o paid fallback (explicit opt-in only)
+  if (ENABLE_OPENAI_VISION_FALLBACK) {
+    const openaiResult = await describeImageWithOpenAI(imageData, bountyName, bountyDescription);
+    if (openaiResult) {
+      _lastOpenAIVisionCost = {
+        promptTokens: openaiResult.promptTokens,
+        completionTokens: openaiResult.completionTokens,
+        estimatedCostUsd: openaiResult.estimatedCostUsd,
+      };
+      return openaiResult.content;
+    }
   }
 
-  // Tier 3: OpenRouter free models fallback
+  // Tier 3: OpenRouter fallback
   const openrouterKey = process.env.OPENROUTER_API_KEY;
-  if (!openrouterKey) return null;
-
-  const imageContent = { type: "image_url" as const, image_url: { url: imageData.dataUrl } };
-  const textPrompt = `you are verifying a submission for a real-world bounty.
+  if (openrouterKey) {
+    const imageContent = { type: "image_url" as const, image_url: { url: imageData.dataUrl } };
+    const textPrompt = `you are verifying a submission for a real-world bounty.
 
 bounty: "${bountyName}"
 requirements: "${bountyDescription}"
 
 describe what you see in this image in 2-3 sentences. you MUST specifically address each requirement from the bounty description above — check each one explicitly. mention: every word or piece of text visible in the image, whether it is indoors or outdoors, what action or scene is depicted, and whether the image appears real/unedited. be as specific as possible about what text is written and what is missing.`;
 
-  const visionModels = [
-    "qwen/qwen3.6-plus:free",
-    "google/gemini-3.1-flash-lite-preview",
-  ];
+    const visionModels = [
+      "qwen/qwen3.6-plus:free",
+      "google/gemini-3.1-flash-lite-preview",
+    ];
 
-  for (const model of visionModels) {
-    try {
-      const res = await fetch(OPENROUTER_API_URL, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${openrouterKey}`,
-          "Content-Type": "application/json",
-          "HTTP-Referer": process.env.BOT_APP_URL ?? `https://${process.env.BOT_USERNAME ?? "poidh-sentinel"}.neynar.app`,
-          "X-Title": process.env.BOT_USERNAME ?? "poidh-sentinel",
-        },
-        body: JSON.stringify({
-          model,
-          messages: [{ role: "user", content: [{ type: "text", text: textPrompt }, imageContent] }],
-          max_tokens: 200,
-          temperature: 0.2,
-        }),
-      });
+    for (const model of visionModels) {
+      try {
+        const res = await fetch(OPENROUTER_API_URL, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${openrouterKey}`,
+            "Content-Type": "application/json",
+            "HTTP-Referer": process.env.BOT_APP_URL ?? `https://${process.env.BOT_USERNAME ?? "poidh-sentinel"}.neynar.app`,
+            "X-Title": process.env.BOT_USERNAME ?? "poidh-sentinel",
+          },
+          body: JSON.stringify({
+            model,
+            messages: [{ role: "user", content: [{ type: "text", text: textPrompt }, imageContent] }],
+            max_tokens: 200,
+            temperature: 0.2,
+          }),
+        });
 
-      if (res.ok) {
-        const data = (await res.json()) as { choices: Array<{ message: { content: string } }> };
-        const content = data.choices?.[0]?.message?.content?.trim();
-        if (content) {
-          console.log(`[evaluator] openrouter vision via ${model}: ${content.slice(0, 100)}`);
-          return content;
+        if (res.ok) {
+          const data = (await res.json()) as { choices: Array<{ message: { content: string } }> };
+          const content = data.choices?.[0]?.message?.content?.trim();
+          if (content) {
+            console.log(`[evaluator] openrouter vision via ${model}: ${content.slice(0, 100)}`);
+            return content;
+          }
+        } else {
+          console.warn(`[evaluator] openrouter vision ${model} returned ${res.status}`);
         }
-      } else {
-        console.warn(`[evaluator] openrouter vision ${model} returned ${res.status}`);
+      } catch (err) {
+        console.warn(`[evaluator] openrouter vision ${model} failed:`, err);
       }
-    } catch (err) {
-      console.warn(`[evaluator] openrouter vision ${model} failed:`, err);
     }
   }
+
   return null;
 }
 
@@ -518,11 +525,9 @@ async function resolveImageProof(
     return ocrText ? `OCR TEXT IN IMAGE: "${ocrText}"` : `image proof at ${imageUrl} (no text detected)`;
   }
 
-  // Run vision + AI detection in parallel — detection adds zero extra latency
-  const [vision, aiDetectRaw] = await Promise.all([
-    describeImageWithVision(imageUrl, bountyName, bountyDescription),
-    detectAiImage(imageUrl),
-  ]);
+  // Run free-first vision pipeline first. OpenAI-based AI-image detection is opt-in.
+  const vision = await describeImageWithVision(imageUrl, bountyName, bountyDescription);
+  const aiDetectRaw = ENABLE_OPENAI_AI_DETECTION ? await detectAiImage(imageUrl) : null;
 
   // Parse AI detection result — detectAiImage returns a human-readable string like
   // "🤖 looks ai-generated (80% confident). shadow inconsistency near subject."
@@ -719,30 +724,139 @@ function normalizeProofUri(uri: string): string {
   }
 }
 
+// Compute a difference hash (dHash) for an image URL.
+// Resize to 9x8 grayscale, compare adjacent pixels left→right → 64-bit hash as BigInt.
+// Returns null if the image can't be fetched or processed.
+async function computeDHash(imageUrl: string): Promise<bigint | null> {
+  try {
+    const res = await fetch(imageUrl, { signal: AbortSignal.timeout(10000) });
+    if (!res.ok) return null;
+    const buffer = Buffer.from(await res.arrayBuffer());
+    const { data } = await sharp(buffer)
+      .resize(9, 8, { fit: "fill" })
+      .grayscale()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    let hash = 0n;
+    for (let row = 0; row < 8; row++) {
+      for (let col = 0; col < 8; col++) {
+        const left = data[row * 9 + col];
+        const right = data[row * 9 + col + 1];
+        hash = (hash << 1n) | (left > right ? 1n : 0n);
+      }
+    }
+    return hash;
+  } catch {
+    return null;
+  }
+}
+
+// Hamming distance between two 64-bit hashes
+function hammingDistance(a: bigint, b: bigint): number {
+  let diff = a ^ b;
+  let dist = 0;
+  while (diff > 0n) {
+    dist += Number(diff & 1n);
+    diff >>= 1n;
+  }
+  return dist;
+}
+
+// Maximum Hamming distance to consider two images visually identical (out of 64 bits).
+// ≤ 10 catches re-uploads, minor crops, and compression artifacts without false positives.
+const DHASH_DUPLICATE_THRESHOLD = 10;
+
+// Resolve a claim's proof URI to its actual image URL (handles IPFS JSON metadata)
+async function resolveImageUrl(uri: string): Promise<string | null> {
+  if (!uri) return null;
+  try {
+    const url = normalizeUri(uri);
+    const res = await fetch(url, { method: "HEAD", signal: AbortSignal.timeout(8000) });
+    const contentType = res.headers.get("content-type") ?? "";
+    if (contentType.startsWith("image/")) return url;
+    if (contentType.includes("json")) {
+      const jsonRes = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      const meta = (await jsonRes.json()) as { image?: string; animation_url?: string };
+      const imgUrl = meta.image ?? meta.animation_url;
+      return imgUrl ? normalizeUri(imgUrl) : null;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export async function pickWinner(
   bountyName: string,
   bountyDescription: string,
   claims: ClaimData[],
   bountyCreatedAt?: bigint | number,
+  options?: { returnAllResultsIfNoWinner?: boolean },
 ): Promise<{ winnerClaimId: string; reasoning: string; allResults: EvaluationResult[] } | null> {
   if (claims.length === 0) return null;
 
-  // Duplicate URI detection — same proof submitted by multiple claimants.
-  // Group claims by normalized proof URI. Within each group, only the EARLIEST
-  // submission is considered legitimate; later ones using the exact same URI are
-  // disqualified as plagiarism. We sort by claimId (ascending = creation order)
-  // since contract IDs are monotonically increasing.
-  const uriToFirstClaimId = new Map<string, string>();
+  // Duplicate proof detection (canonicalized):
+  // 1) resolve metadata URI -> underlying image URL when possible
+  // 2) dedupe on that canonical URL (or original URI fallback)
+  // Earliest submission keeps credit; later duplicates are disqualified.
+  const keyToFirstClaimId = new Map<string, string>();
   const plagiarizedClaimIds = new Set<string>();
   const sortedByAge = [...claims].sort((a, b) => Number(BigInt(a.id) - BigInt(b.id)));
-  for (const claim of sortedByAge) {
-    const key = normalizeProofUri(claim.uri);
+  const resolvedImageUrls = await Promise.all(sortedByAge.map((c) => resolveImageUrl(c.uri)));
+  const resolvedImageUrlByClaimId = new Map<string, string>();
+
+  for (let idx = 0; idx < sortedByAge.length; idx++) {
+    const claim = sortedByAge[idx];
+    const resolvedImageUrl = resolvedImageUrls[idx];
+    if (resolvedImageUrl) resolvedImageUrlByClaimId.set(claim.id, resolvedImageUrl);
+
+    // Prefer resolved image URL to catch cases where two different metadata URIs
+    // point to the same underlying image.
+    const canonicalProofUri = resolvedImageUrl ?? claim.uri;
+    const key = normalizeProofUri(canonicalProofUri);
     if (!key || key === "no proof uri provided") continue;
-    if (uriToFirstClaimId.has(key)) {
+    if (keyToFirstClaimId.has(key)) {
       plagiarizedClaimIds.add(claim.id);
-      console.log(`[evaluator] claim ${claim.id} disqualified — duplicate URI of claim ${uriToFirstClaimId.get(key)}`);
+      const originalClaimId = keyToFirstClaimId.get(key);
+      console.log(
+        `[evaluator] claim ${claim.id} disqualified — duplicate proof key of claim ${originalClaimId}` +
+        (resolvedImageUrl ? ` (resolved image URL: ${resolvedImageUrl})` : ""),
+      );
     } else {
-      uriToFirstClaimId.set(key, claim.id);
+      keyToFirstClaimId.set(key, claim.id);
+    }
+  }
+
+  // Perceptual duplicate detection — catches re-uploads of the same image with a
+  // different IPFS hash (different URI, identical pixels). Compute dHash for each
+  // non-URI-duplicate claim in parallel, then flag any pair with Hamming distance ≤ threshold.
+  // Earlier claim (lower ID) wins; later visually-identical claims are disqualified.
+  const nonDupClaims = sortedByAge.filter((c) => !plagiarizedClaimIds.has(c.id));
+  const imageUrls = await Promise.all(
+    nonDupClaims.map((c) => {
+      const cachedResolved = resolvedImageUrlByClaimId.get(c.id);
+      return cachedResolved ? Promise.resolve(cachedResolved) : resolveImageUrl(c.uri);
+    }),
+  );
+  const dHashes = await Promise.all(
+    imageUrls.map((url) => (url ? computeDHash(url) : Promise.resolve(null))),
+  );
+
+  for (let i = 0; i < nonDupClaims.length; i++) {
+    if (plagiarizedClaimIds.has(nonDupClaims[i].id)) continue; // already flagged
+    const hashA = dHashes[i];
+    if (!hashA) continue;
+    for (let j = i + 1; j < nonDupClaims.length; j++) {
+      if (plagiarizedClaimIds.has(nonDupClaims[j].id)) continue;
+      const hashB = dHashes[j];
+      if (!hashB) continue;
+      const dist = hammingDistance(hashA, hashB);
+      if (dist <= DHASH_DUPLICATE_THRESHOLD) {
+        plagiarizedClaimIds.add(nonDupClaims[j].id);
+        console.log(
+          `[evaluator] claim ${nonDupClaims[j].id} disqualified — visually identical to claim ${nonDupClaims[i].id} (hamming=${dist})`,
+        );
+      }
     }
   }
 
@@ -762,7 +876,16 @@ export async function pickWinner(
   );
 
   const validResults = results.filter((r) => r.valid && r.score >= 60);
-  if (validResults.length === 0) return null;
+  if (validResults.length === 0) {
+    if (options?.returnAllResultsIfNoWinner) {
+      return {
+        winnerClaimId: "",
+        reasoning: "",
+        allResults: results,
+      };
+    }
+    return null;
+  }
 
   validResults.sort((a, b) => b.score - a.score);
   const winner = validResults[0];

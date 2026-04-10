@@ -1,4 +1,4 @@
-# Poidh Sentinel
+# poidh sentinel
 
 An autonomous bounty agent for [poidh (pics or it didn't happen)](https://poidh.xyz), deployed as a Farcaster mini app.
 
@@ -60,7 +60,8 @@ Built for the [poidh SKILL challenge](https://github.com/picsoritdidnthappen/poi
                  ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │  conversation-state.ts  (DB-backed state machine, 2h TTL)                   │
-│  awaiting_confirmation -> awaiting_chain -> awaiting_payment -> done         │
+│  awaiting_confirmation -> awaiting_chain -> awaiting_bounty_type ->          │
+│  awaiting_payment -> done                                                    │
 │  awaiting_cancel_confirmation -> done                                        │
 └────────────────┬────────────────────────────────────────────────────────────┘
                  │
@@ -92,7 +93,7 @@ Built for the [poidh SKILL challenge](https://github.com/picsoritdidnthappen/poi
 
 ### Cron endpoint
 
-`GET /api/cron/bounty-loop` runs `runBountyLoop()` and `checkDepositsAndCreateBounties()` in parallel every minute. Secured via `CRON_SECRET` bearer token (Vercel cron convention — optional but recommended). One-shot maintenance endpoints (`migrate`, `fix-bounty88`, `backfill-creator-fids`) are secured separately via `ADMIN_SECRET` — set both to the same value.
+`GET /api/cron/bounty-loop` runs `runBountyLoop()` and `checkDepositsAndCreateBounties()` in parallel every minute. Secured via `CRON_SECRET` bearer token (Vercel cron convention — optional but recommended). Admin endpoints (`state`, `test-evaluate`) are secured via `ADMIN_SECRET` — set both to the same value.
 
 ### Timing reference
 
@@ -119,56 +120,58 @@ Built for the [poidh SKILL challenge](https://github.com/picsoritdidnthappen/poi
 ── CREATION (DM or /poidh thread) ─────────────────────────────────────────
 
 1. User mentions @poidh-sentinel
-   -> bot suggests bounty idea + asks for confirmation
+   -> bot suggests a bounty idea and asks for confirmation
    -> "how about finding a street performer in action — want me to post this on-chain?"
 
-2. User confirms ("yes", "do it", "let's go", etc.)
-   -> bot asks which chain + amount
-   -> "which chain — arbitrum, base, or degen? include how much you want to put up.
+2. User confirms — any natural phrasing works ("yes", "sure!", "yes, let's do that on Arbitrum!", etc.)
+   Intent is detected via LLM — handles any language, case, or wording.
+   If the user mentions a chain in the same message, the bot skips straight to step 4.
+   Otherwise it asks:
+   -> "which chain — arbitrum, base, or degen? and how much do you want to put up?
       minimums: arbitrum/base = 0.001 ETH, degen = 1000 DEGEN."
 
-3. User picks chain + amount
-   -> bot asks bounty type:
+3. User picks chain + amount (LLM-parsed — handles "the cheap one", "half an ETH", etc.)
+   -> bot asks for bounty type:
    -> "got it — Arbitrum, 0.001 ETH. open or solo bounty?
       • open (default) — anyone can contribute funds, community votes on winner.
       • solo — only you decide the winner directly.
       reply 'open' or 'solo' (or just continue and i'll default to open)."
 
-4. User replies "open", "solo", or anything (defaults to open)
-   -> bot replies with exact deposit instruction:
-   -> "open bounty — send exactly 0.0010001 ETH to 0x5186...7199 on Arbitrum —
-      0.001 bounty + 0.0000001 platform fee (2.5%). your wallet handles gas.
+4. User replies with bounty type — or says nothing clear (defaults to open)
+   -> bot replies with exact deposit instructions:
+   -> "open bounty — send exactly 0.001025 ETH to 0x5186...7199 on Arbitrum —
+      0.001 bounty + 0.000025 platform fee (2.5%). your wallet handles gas.
       once i see the deposit i'll create the bounty — submissions stay open
       for 72h before i pick a winner."
-      (unique amount e.g. 0.0010001 to avoid collision with other pending payments)
+      (unique amount e.g. 0.001025 to avoid collision with other pending payments)
 
 5. deposit-checker detects payment on-chain (cron, every minute)
    -> calls createOpenBounty() on poidh contract
-   -> replies in DM/conversation thread (embedUrl = poidhUrl):
+   -> replies in DM/conversation thread with the bounty link:
       "bounty is live — poidh.xyz/arbitrum/bounty/268"
-   -> posts announcement cast to /poidh channel (embedUrl = poidhUrl):
-      open:  "new open bounty: "[name]" ... winner chosen by vote."
-      solo:  "new solo bounty: "[name]" ... winner chosen directly by the creator."
+   -> posts announcement cast to /poidh channel:
+      open: "new open bounty: "[name]" ... winner chosen by vote."
+      solo: "new solo bounty: "[name]" ... winner chosen directly by the creator."
    -> registers announcementCastHash in DB + bounty_threads table
       (all future bot activity targets the announcement thread, not the DM)
 
-   NOTE: the DM thread stays conversational — if the user replies "thanks!"
-   the bot responds naturally. but the bot never initiates back in the DM
-   thread after creation. all proactive activity goes to the announcement.
+   NOTE: the DM thread stays conversational — if the user replies "thanks!" the bot
+   responds naturally. but the bot never initiates back in the DM thread after creation.
+   all proactive activity goes to the announcement thread.
 
 ── WAITING FOR SUBMISSIONS ─────────────────────────────────────────────────
 
 6. Bounty open for 72h minimum (MIN_OPEN_DURATION_HOURS, env-overridable)
 
-   5a. Zero submissions at 72h (first cron check after window):
-       -> bot posts in ANNOUNCEMENT thread only (never DM thread):
+   6a. Zero submissions at 72h (first cron check after window):
+       -> bot posts in announcement thread only (never DM thread):
           "@kenny 72h in — no submissions yet. bounty stays open until someone
            submits proof or you cancel it. to cancel and get your deposit back,
            reply 'cancel bounty' in this thread."
           [embed: poidh.xyz/arbitrum/bounty/268]
        (@kenny = creator's @username resolved from creatorFid via Neynar)
 
-   5b. Still zero submissions after 7 days (NO_SUBMISSION_NUDGE_HOURS):
+   6b. Still zero submissions after 7 days (NO_SUBMISSION_NUDGE_HOURS):
        -> bot posts every 48h in announcement thread:
           "@kenny 7 days open, still no submissions. share the link to attract
            submitters — or reply 'cancel bounty' in this thread to cancel and
@@ -241,10 +244,11 @@ Built for the [poidh SKILL challenge](https://github.com/picsoritdidnthappen/poi
 ### Cancel flow
 
 ```
-User replies in /poidh announcement thread: "cancel bounty"
+User replies in /poidh announcement thread: "cancel bounty" (no @mention required)
   |
   v
 webhook detects: inBountyThread + isCancelRequest()
+  -> resolves creator's refund address via Neynar upfront (blocks if unresolvable)
   -> saves awaiting_cancel_confirmation conversation state
   -> bot replies: "you want to cancel "[name]"? refund will go to 0xabc...def.
                   reply yes to confirm or no to keep it open."
@@ -475,6 +479,10 @@ Reasoning must be specific and concrete (e.g. "outdoor photo shows '5th April 20
 
 Falls back to the deterministic score if all LLMs are exhausted (`fallbackValid = detScore >= 60`). No silent drops.
 
+**Duplicate detection** — before evaluation, `pickWinner` runs two dedup passes:
+1. **URI dedup** — exact same proof URI submitted by multiple claimants → later submissions disqualified immediately (no API cost)
+2. **Perceptual dedup (dHash)** — different IPFS URIs but visually identical images → computed via 8x8 difference hash using `sharp`, Hamming distance ≤ 10/64 bits flags as duplicate → earlier claim wins, later disqualified. Catches re-uploads, minor crops, and compression artifacts without false positives.
+
 **Winner** = highest-scoring claim with `valid: true` and `score >= 60`.
 
 ---
@@ -562,7 +570,7 @@ PostgreSQL via Drizzle ORM (`src/db/schema.ts`):
 | `pending_payments`   | Threads awaiting a deposit before bounty creation                |
 | `active_bounties`    | All bounties created by the bot, with evaluation results         |
 | `bounty_threads`     | Maps announcement cast hashes to bounties for in-thread replies  |
-| `bot_log`            | Activity log (last 50 entries shown in dashboard)                |
+| `bot_log`            | Activity log — paginated in dashboard (10 initial, +20 per page) |
 | `processed_casts`    | Cast dedup — atomic insert prevents duplicate replies            |
 | `wallet_balances`    | Last known on-chain balance per chain for deposit detection      |
 
@@ -580,13 +588,7 @@ PostgreSQL via Drizzle ORM (`src/db/schema.ts`):
 | GET    | `/api/bot/logs`                   | none           | Recent activity log + stats (public — powers dashboard) |
 | GET    | `/api/bot/status`                 | none           | Bot online / config status (public — powers dashboard) |
 | GET    | `/api/bot/state`                  | `ADMIN_SECRET` | Active conversations + pending payments           |
-| GET    | `/api/bot/audit`                  | `ADMIN_SECRET` | Full DB dump + on-chain verification              |
-| GET    | `/api/bot/test-evaluate`          | `ADMIN_SECRET` | Dry-run evaluation and bot operations             |
-| GET    | `/api/bot/register-threads`       | `ADMIN_SECRET` | List all registered bounty threads                |
-| POST   | `/api/bot/register-threads`       | `ADMIN_SECRET` | Backfill: re-register announcement threads        |
-| POST   | `/api/bot/migrate`                | `ADMIN_SECRET` | One-shot DB migration (add columns)               |
-| POST   | `/api/bot/fix-bounty88`           | `ADMIN_SECRET` | One-shot fix: correct amountEth for bounty #88    |
-| POST   | `/api/bot/backfill-creator-fids`  | `ADMIN_SECRET` | One-shot backfill: resolve creatorFid for old bounties |
+| GET    | `/api/bot/test-evaluate`          | `ADMIN_SECRET` | Dry-run evaluation and bot operations (no DB writes, no on-chain tx, no casts) |
 
 ### Test/debug endpoint params (`/api/bot/test-evaluate`)
 
@@ -648,7 +650,7 @@ All modes except `run=1`, `register=1`, and `post=1` are dry-runs — no DB writ
 | `BOT_APP_URL`            | Optional  | Public URL of this app — used as HTTP-Referer for OpenRouter (e.g. `https://poidh-sentinel.neynar.app`) |
 | `BOT_OWNER_HANDLE`       | Optional  | Your Farcaster handle — shown in blocked-cancel DM message (e.g. `0x94t3z.eth`)    |
 | `CRON_SECRET`            | Required  | Bearer token to secure `/api/cron/bounty-loop` — set in Vercel env vars (Vercel injects it automatically for cron routes) |
-| `ADMIN_SECRET`           | Required  | Bearer token to secure admin/maintenance endpoints (`state`, `audit`, `test-evaluate`, `register-threads`, `migrate`, `fix-bounty88`, `backfill-creator-fids`) — set to same value as `CRON_SECRET` |
+| `ADMIN_SECRET`           | Required  | Bearer token to secure admin endpoints (`state`, `test-evaluate`) — set to same value as `CRON_SECRET` |
 | `NEXT_PUBLIC_USER_FID`   | Optional  | Your Farcaster FID — used for admin view gating in the dashboard                   |
 
 ---
@@ -657,11 +659,11 @@ All modes except `run=1`, `register=1`, and `post=1` are dry-runs — no DB writ
 
 The Farcaster mini app renders a live dashboard at the root route (`src/features/bot/components/dashboard.tsx`):
 
-- **Bot status** — online/offline, wallet configured, signer configured
+- **Bot status** — online/offline, wallet address (copy icon), signer configured
 - **Activity stats** — total interactions, success/error counts, last activity timestamp
-- **On-chain bounties** — all bounties with live pot values fetched from the contract, claim counts, status (open/evaluating/closed/cancelled), poidh.xyz links, winner reasoning
+- **On-chain bounties** — sorted open → evaluating → closed → cancelled; live pot values, claim counts, poidh.xyz links, winner `@username` + reasoning, canceller `@username`
 - **How it works** — step-by-step guide for new users
-- **Recent activity** — last 50 log entries with action type and reply text
+- **Activity feed** — paginated log (10 initial, load 20 at a time); filter by errors; accurate error count from full history
 
 Dashboard auto-refreshes every 15 seconds.
 
@@ -670,7 +672,7 @@ Dashboard auto-refreshes every 15 seconds.
 ## Setup
 
 ### Prerequisites
-- Node.js 18+, npm
+- Node.js 18+, pnpm
 - Neynar account ([dev.neynar.com](https://dev.neynar.com)) — Farcaster webhook + managed signer
 - Groq account — free-tier LLM + vision inference ([console.groq.com](https://console.groq.com))
 - EVM wallet for gas — 0.005 ETH on Arbitrum/Base, or ~500 DEGEN on Degen Chain (whichever chains you plan to use)
@@ -687,12 +689,12 @@ The bot's FID and username are read from `BOT_FID` and `BOT_USERNAME` env vars �
 
 ### Run locally
 
-**Prerequisites:** Node.js 18+, npm, PostgreSQL database (Neon free tier works great)
+**Prerequisites:** Node.js 18+, pnpm, PostgreSQL database (Neon free tier works great)
 
 ```bash
 git clone <your-repo-url>
 cd <repo>
-npm install
+pnpm install
 ```
 
 Create a `.env` file in the project root:
@@ -765,7 +767,7 @@ NEXT_PUBLIC_USER_FID=
 Start the dev server:
 
 ```bash
-npm run dev
+pnpm dev
 # -> http://localhost:3000
 ```
 

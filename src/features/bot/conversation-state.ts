@@ -30,75 +30,178 @@ export const CHAIN_CONFIG = {
   },
 } as const;
 
-// Parse chain from user text
-export function parseChain(text: string): "arbitrum" | "base" | "degen" | null {
+// Shared LLM caller for intent parsing — uses the smallest/fastest model available.
+// Returns the raw text response or null on failure.
+async function askLLM(systemPrompt: string, userPrompt: string): Promise<string | null> {
+  try {
+    const apiKey = process.env.CEREBRAS_API_KEY ?? process.env.GROQ_API_KEY ?? process.env.OPENROUTER_API_KEY;
+    if (!apiKey) return null;
+    const endpoint = process.env.CEREBRAS_API_KEY
+      ? "https://api.cerebras.ai/v1/chat/completions"
+      : process.env.GROQ_API_KEY
+      ? "https://api.groq.com/openai/v1/chat/completions"
+      : "https://openrouter.ai/api/v1/chat/completions";
+    const model = process.env.CEREBRAS_API_KEY
+      ? "llama3.1-8b"
+      : process.env.GROQ_API_KEY
+      ? "llama-3.1-8b-instant"
+      : "meta-llama/llama-3.3-70b-instruct:free";
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
+        max_tokens: 20,
+        temperature: 0,
+      }),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return null;
+    const data = await res.json() as { choices: Array<{ message: { content: string } }> };
+    return data.choices?.[0]?.message?.content?.trim() ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// Parse chain from user text — keyword-first, LLM fallback for ambiguous phrasing
+export async function parseChain(text: string): Promise<"arbitrum" | "base" | "degen" | null> {
   const lower = text.toLowerCase();
   if (lower.includes("arbitrum") || lower.includes("arb")) return "arbitrum";
   if (lower.includes("base")) return "base";
   if (lower.includes("degen")) return "degen";
+  // LLM fallback — handles "the ethereum one", "cheap chain", etc.
+  const answer = await askLLM(
+    "Extract which blockchain the user wants to use. Reply with only one word: arbitrum, base, degen, or none.",
+    `Message: "${text}"\n\nWhich chain? Reply: arbitrum, base, degen, or none.`,
+  );
+  if (!answer) return null;
+  const a = answer.toLowerCase().trim();
+  if (a.includes("arbitrum")) return "arbitrum";
+  if (a.includes("base")) return "base";
+  if (a.includes("degen")) return "degen";
   return null;
 }
 
-// Parse amount from user text — returns string like "0.005" or "2000"
-export function parseAmount(text: string): string | null {
+// Parse amount from user text — regex-first, LLM fallback for written numbers
+export async function parseAmount(text: string): Promise<string | null> {
   const match = text.match(/(\d+(?:\.\d+)?)\s*(?:eth|degen)?/i);
-  if (!match) return null;
-  const val = parseFloat(match[1]);
-  if (isNaN(val) || val <= 0) return null;
-  return val.toString();
+  if (match) {
+    const val = parseFloat(match[1]);
+    if (!isNaN(val) && val > 0) return val.toString();
+  }
+  // LLM fallback — handles "half an ETH", "a thousand DEGEN", etc.
+  const answer = await askLLM(
+    "Extract the numeric amount from the message. Reply with only the number (e.g. 0.5, 1000) or none.",
+    `Message: "${text}"\n\nWhat amount? Reply with just the number or none.`,
+  );
+  if (!answer) return null;
+  const val = parseFloat(answer.trim());
+  if (!isNaN(val) && val > 0) return val.toString();
+  return null;
 }
 
-// Check if text is a clear confirmation — must be unambiguous
-// Deliberately conservative: don't match casual filler words like "ok", "great", "perfect"
-export function isConfirmation(text: string): boolean {
+// Check if text is a clear confirmation using an LLM — handles any language, case, or phrasing.
+// Falls back to a simple keyword check if no LLM key is available.
+export async function isConfirmation(text: string): Promise<boolean> {
+  // Fast keyword pre-check — catches obvious cases without an LLM call
   const lower = text.toLowerCase().trim();
+  const obviousYes =
+    /^(yes|yeah|yep|yup|y|sure|do it|lfg|wagmi|w|pls|plz|please)[\s!,.]?$/.test(lower) ||
+    lower.startsWith("yes,") || lower.startsWith("yes ") || lower.startsWith("yes!") ||
+    lower.startsWith("yeah,") || lower.startsWith("yeah ") || lower.startsWith("yeah!") ||
+    lower.startsWith("sure,") || lower.startsWith("sure ") || lower.startsWith("sure!") ||
+    lower.includes("let's do") || lower.includes("lets do") ||
+    lower.includes("let's go") || lower.includes("lets go") ||
+    lower.includes("go for it") || lower.includes("create it") ||
+    lower.includes("make it") || lower.includes("post it") || lower.includes("deploy it");
+  if (obviousYes) return true;
 
-  // Exact short confirmations
-  if (lower === "yes" || lower === "y" || lower === "yep" || lower === "yup") return true;
-  if (lower === "yeah" || lower === "sure" || lower === "do it") return true;
-  if (lower === "pls" || lower === "plz" || lower === "please") return true;
-  if (lower === "w" || lower === "wagmi" || lower === "lfg") return true;
+  // Obvious rejections — skip LLM call entirely
+  const obviousNo =
+    /^(no|n|nope|nah)[\s!,.]?$/.test(lower) ||
+    lower.startsWith("no,") || lower.startsWith("no ") ||
+    lower.includes("don't") || lower.includes("do not") || lower.includes("cancel");
+  if (obviousNo) return false;
 
-  // Phrases that clearly signal bounty creation intent
-  if (lower.includes("let's go") || lower.includes("lets go")) return true;
-  if (lower.includes("go for it")) return true;
-  if (lower.includes("create it") || lower.includes("create the bounty")) return true;
-  if (lower.includes("deploy it") || lower.includes("deploy the bounty")) return true;
-  if (lower.includes("make it") || lower.includes("post it")) return true;
-  if (lower.includes("launch it") || lower.includes("launch the bounty")) return true;
-  if (lower.includes("i want it") || lower.includes("i'll take it")) return true;
-  if (lower.includes("yes please") || lower.includes("yes pls") || lower.includes("yeah please") || lower.includes("yeah pls")) return true;
-  if (lower.includes("that works") || lower.includes("that's good") || lower.includes("thats good")) return true;
-  if (lower.includes("sounds good") && lower.length < 20) return true; // only when it's the whole message
-  if (lower.includes("looks good") && lower.length < 20) return true;
+  // Ambiguous — ask the LLM
+  try {
+    const apiKey = process.env.CEREBRAS_API_KEY ?? process.env.GROQ_API_KEY ?? process.env.OPENROUTER_API_KEY;
+    if (!apiKey) return false;
 
-  return false;
+    const endpoint = process.env.CEREBRAS_API_KEY
+      ? "https://api.cerebras.ai/v1/chat/completions"
+      : process.env.GROQ_API_KEY
+      ? "https://api.groq.com/openai/v1/chat/completions"
+      : "https://openrouter.ai/api/v1/chat/completions";
+    const model = process.env.CEREBRAS_API_KEY
+      ? "llama3.1-8b"
+      : process.env.GROQ_API_KEY
+      ? "llama-3.1-8b-instant"
+      : "meta-llama/llama-3.3-70b-instruct:free";
+
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        messages: [
+          {
+            role: "system",
+            content: "You decide if a message is agreeing to proceed with creating a bounty. Reply with only YES or NO.",
+          },
+          {
+            role: "user",
+            content: `Message: "${text}"\n\nIs this person agreeing to proceed? YES or NO only.`,
+          },
+        ],
+        max_tokens: 5,
+        temperature: 0,
+      }),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return false;
+    const data = await res.json() as { choices: Array<{ message: { content: string } }> };
+    const answer = data.choices?.[0]?.message?.content?.trim().toUpperCase() ?? "";
+    return answer.startsWith("YES");
+  } catch {
+    return false;
+  }
 }
 
-// Parse bounty type from user text — default is "open" if unclear
-export function parseBountyType(text: string): "open" | "solo" | null {
+// Parse bounty type — keyword-first, LLM fallback for natural phrasing
+export async function parseBountyType(text: string): Promise<"open" | "solo" | null> {
   const lower = text.toLowerCase().trim();
   if (lower.includes("solo") || lower.includes("just me") || lower.includes("i decide") || lower.includes("myself")) return "solo";
   if (lower.includes("open") || lower.includes("community") || lower.includes("vote") || lower.includes("crowdfund") || lower.includes("anyone")) return "open";
-  // Clear confirmations with no type hint → accept default (open)
   if (lower === "open" || lower === "o") return "open";
   if (lower === "solo" || lower === "s") return "solo";
+  // LLM fallback — handles "I want to pick the winner myself", "let the crowd decide", etc.
+  const answer = await askLLM(
+    "Determine if the user wants an open bounty (community votes on winner) or a solo bounty (creator picks winner). Reply with only: open, solo, or unclear.",
+    `Message: "${text}"\n\nBounty type? Reply: open, solo, or unclear.`,
+  );
+  if (!answer) return null;
+  const a = answer.toLowerCase().trim();
+  if (a.includes("solo")) return "solo";
+  if (a.includes("open")) return "open";
   return null;
 }
 
-// Check if text is a rejection
-export function isRejection(text: string): boolean {
+// Check if text is a rejection — keyword-first, LLM fallback
+export async function isRejection(text: string): Promise<boolean> {
   const lower = text.toLowerCase().trim();
-  return (
-    lower === "no" ||
-    lower === "n" ||
-    lower.includes("nope") ||
-    lower.includes("nah") ||
-    lower.includes("not") ||
-    lower.includes("different") ||
-    lower.includes("another") ||
-    lower.includes("other idea")
+  if (/^(no|n|nope|nah)[\s!,.]?$/.test(lower)) return true;
+  if (lower.startsWith("no,") || lower.startsWith("no ") || lower.startsWith("no!")) return true;
+  if (lower.includes("different") || lower.includes("another idea") || lower.includes("other idea")) return true;
+  if (lower.includes("don't want") || lower.includes("do not want") || lower.includes("not interested")) return true;
+  // LLM fallback — handles "nah not feeling it", "skip this one", etc.
+  const answer = await askLLM(
+    "Is this person declining or rejecting a proposal? Reply with only YES or NO.",
+    `Message: "${text}"\n\nAre they declining? YES or NO only.`,
   );
+  return (answer?.trim().toUpperCase() ?? "NO").startsWith("YES");
 }
 
 // Platform fee charged on top of the bounty amount (kept by the bot wallet)

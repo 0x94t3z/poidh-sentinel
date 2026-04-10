@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getClaimsForBounty, getBountyDetails, resolvePoidhUrl, POIDH_FRONTEND_OFFSETS, POIDH_CONTRACTS, POIDH_ABI, getPublicClient } from "@/features/bot/poidh-contract";
-import { evaluateClaim, deterministicScore, type ClaimData } from "@/features/bot/submission-evaluator";
+import { pickWinner, deterministicScore, type ClaimData } from "@/features/bot/submission-evaluator";
 import { addActiveBounty } from "@/features/bot/bounty-store";
 import { runBountyLoop } from "@/features/bot/bounty-loop";
 import { fetchCastThread } from "@/features/bot/cast-reply";
@@ -334,54 +334,47 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       });
     }
 
-    // --- Run full evaluation pipeline on each claim ---
-    const evaluations = await Promise.all(
-      claims.map(async (c) => {
-        const claimData: ClaimData = {
-          id: c.id.toString(),
-          issuer: c.issuer,
-          name: c.name,
-          description: c.description,
-          uri: c.uri,
-        };
+    // --- Run the same winner pipeline as production (includes duplicate-image handling) ---
+    const claimData: ClaimData[] = claims.map((c) => ({
+      id: c.id.toString(),
+      issuer: c.issuer,
+      name: c.name,
+      description: c.description,
+      uri: c.uri,
+    }));
 
-        const detScore = deterministicScore(details.name, details.description, claimData);
-
-        if (detScore < 15) {
-          return {
-            claimId: claimData.id,
-            issuer: claimData.issuer,
-            name: claimData.name,
-            description: claimData.description,
-            uri: claimData.uri,
-            deterministicScore: detScore,
-            score: 0,
-            valid: false,
-            reasoning: "rejected by deterministic pre-filter",
-            skippedFullEval: true,
-          };
-        }
-
-        const result = await evaluateClaim(details.name, details.description, claimData, details.createdAt);
-        return {
-          claimId: claimData.id,
-          issuer: claimData.issuer,
-          name: claimData.name,
-          description: claimData.description,
-          uri: claimData.uri,
-          deterministicScore: result.deterministicScore ?? detScore,
-          score: result.score,
-          valid: result.valid,
-          reasoning: result.reasoning,
-          skippedFullEval: false,
-          openaiVisionCost: result.openaiVisionCost ?? null,
-        };
-      }),
+    const winnerResult = await pickWinner(
+      details.name,
+      details.description,
+      claimData,
+      details.createdAt,
+      { returnAllResultsIfNoWinner: true },
     );
 
-    const validResults = evaluations.filter((r) => r.valid && r.score >= 60);
-    validResults.sort((a, b) => b.score - a.score);
-    const winner = validResults[0] ?? null;
+    const resultByClaimId = new Map((winnerResult?.allResults ?? []).map((r) => [r.claimId, r]));
+    const evaluations = claimData.map((c) => {
+      const result = resultByClaimId.get(c.id);
+      const detScore = deterministicScore(details.name, details.description, c);
+      const reasoning = result?.reasoning ?? "evaluation unavailable";
+      const skippedFullEval = reasoning === "rejected by deterministic pre-filter" || reasoning.startsWith("duplicate proof");
+      return {
+        claimId: c.id,
+        issuer: c.issuer,
+        name: c.name,
+        description: c.description,
+        uri: c.uri,
+        deterministicScore: result?.deterministicScore ?? detScore,
+        score: result?.score ?? 0,
+        valid: result?.valid ?? false,
+        reasoning,
+        skippedFullEval,
+        openaiVisionCost: result?.openaiVisionCost ?? null,
+      };
+    });
+
+    const winner = winnerResult?.winnerClaimId
+      ? evaluations.find((r) => r.claimId === winnerResult.winnerClaimId) ?? null
+      : null;
 
     // Aggregate OpenAI vision cost across all claims
     const totalOpenAICost = evaluations.reduce((sum, e) => sum + (e.openaiVisionCost?.estimatedCostUsd ?? 0), 0);

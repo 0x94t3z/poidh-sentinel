@@ -108,32 +108,15 @@ const publicConfigSchema = z.object({
 
 type PublicConfig = z.infer<typeof publicConfigSchema>;
 
-function normalizeDomain(input?: string): string | undefined {
-  if (!input) return undefined;
-  const value = input.trim();
-  if (!value) return undefined;
-  try {
-    const url = new URL(value.startsWith("http") ? value : `https://${value}`);
-    const host = url.hostname.trim().toLowerCase();
-    if (!host) return undefined;
-    // Keep schema happy for local/dev hostnames that don't have a TLD
-    return host === "localhost" ? "localhost.local" : host;
-  } catch {
-    return undefined;
-  }
-}
+// Ensure domain is domain and url is url
+// NEXT_PUBLIC_VERCEL_PRODUCTION_URL is exposed via next.config.ts from VERCEL_PROJECT_PRODUCTION_URL
+const canonicalDomain =
+  process.env.NEXT_PUBLIC_VERCEL_PRODUCTION_URL ??
+  process.env.NEXT_PUBLIC_LOCAL_URL ??
+  process.env.NEXT_PUBLIC_BASE_URL ??
+  "";
 
-const configuredDomain =
-  normalizeDomain(process.env.NEXT_PUBLIC_VERCEL_PRODUCTION_URL) ??
-  normalizeDomain(process.env.NEXT_PUBLIC_BASE_URL) ??
-  normalizeDomain(process.env.NEXT_PUBLIC_LOCAL_URL);
-
-const canonicalDomain = configuredDomain ?? "localhost.local";
-
-const homeUrl =
-  process.env.NEXT_PUBLIC_BASE_URL?.trim() ||
-  process.env.NEXT_PUBLIC_LOCAL_URL?.trim() ||
-  `https://${canonicalDomain}`;
+const homeUrl = `https://${canonicalDomain}`;
 
 /**
  * Resolves an image URL:
@@ -148,7 +131,7 @@ function resolveImageUrl(value: string): string {
 
 const rawPublicConfig: PublicConfig = {
   appEnv: (process.env.NODE_ENV as AppEnv) ?? "production",
-  fid: parseInt(process.env.NEXT_PUBLIC_USER_FID || "3273077", 10),
+  fid: parseInt(process.env.NEXT_PUBLIC_USER_FID || "0", 10),
   name: appSettings.name,
   shortName: appSettings.shortName,
   homeUrl,
@@ -166,7 +149,7 @@ const rawPublicConfig: PublicConfig = {
   requiredChains: appSettings.requiredChains,
   canonicalDomain,
   shareButtonTitle: appSettings.shareButtonTitle,
-  webhookUrl: process.env.WEBHOOK_URL?.trim() || undefined,
+  webhookUrl: process.env.WEBHOOK_URL,
 };
 
 const parsedPublicConfig = publicConfigSchema.safeParse(rawPublicConfig);

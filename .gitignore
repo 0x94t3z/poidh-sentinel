@@ -55,3 +55,4 @@ core.[0-9]*
 
 keys.txt
 requirements.txt
+results.json
