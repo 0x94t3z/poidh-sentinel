@@ -1,5 +1,6 @@
 import "server-only";
 import { detectAiImage } from "@/features/bot/agent";
+import { MIN_OPEN_DURATION_HOURS } from "@/features/bot/constants";
 import sharp from "sharp";
 
 const CEREBRAS_API_URL = "https://api.cerebras.ai/v1/chat/completions";
@@ -143,7 +144,7 @@ async function callOpenRouter(prompt: string, modelIndex = 0): Promise<string> {
 // Returns a 0-100 score. Claims scoring < DETERMINISTIC_REJECT_THRESHOLD
 // are rejected immediately without calling vision AI or the LLM evaluator.
 
-const DETERMINISTIC_REJECT_THRESHOLD = 15;
+const DETERMINISTIC_REJECT_THRESHOLD = 10;
 
 // Phrases that indicate submission is off-topic, spam, or gaming the system
 const PENALTY_SIGNALS = [
@@ -509,7 +510,7 @@ describe what you see in this image in 2-3 sentences. you MUST specifically addr
 const OCR_SUFFICIENT_CHARS = 30;
 
 // Minimum deterministic score required before spending a vision API call
-const VISION_SCORE_GATE = 40;
+const VISION_SCORE_GATE = 20;
 
 async function resolveImageProof(
   imageUrl: string,
@@ -635,16 +636,18 @@ export async function evaluateClaim(
 
   // --- Step 3: LLM final evaluation ---
   const bountyDate = formatBountyDate(bountyCreatedAt);
-  // Compute the deadline date (creation + 72h) so we can accept submissions from any day in the window
+  // Compute the deadline date (creation + MIN_OPEN_DURATION_HOURS) so we can
+  // accept submissions from any day in the configured open window
+  const openDurationSeconds = MIN_OPEN_DURATION_HOURS * 3600;
   const bountyDeadlineDate = bountyCreatedAt
     ? formatBountyDate(
         typeof bountyCreatedAt === "bigint"
-          ? bountyCreatedAt + BigInt(72 * 3600)
-          : Number(bountyCreatedAt) + 72 * 3600,
+          ? bountyCreatedAt + BigInt(openDurationSeconds)
+          : Number(bountyCreatedAt) + openDurationSeconds,
       )
     : null;
   const dateContext = bountyDate
-    ? `\nIMPORTANT: this bounty was created on ${bountyDate} and is open for 72 hours (until ${bountyDeadlineDate ?? "72h later"}). if the bounty requires "today's date", any date from ${bountyDate} through ${bountyDeadlineDate ?? "72h after creation"} is valid — do NOT reject a submission just because it shows a date one or two days after the creation date. evaluate against this window, not the current date.`
+    ? `\nIMPORTANT: this bounty was created on ${bountyDate} and is open for ${MIN_OPEN_DURATION_HOURS} hours (until ${bountyDeadlineDate ?? `${MIN_OPEN_DURATION_HOURS}h later`}). if the bounty requires "today's date", any date from ${bountyDate} through ${bountyDeadlineDate ?? `${MIN_OPEN_DURATION_HOURS}h after creation`} is valid — do NOT reject a submission just because it shows a date one or two days after the creation date. evaluate against this window, not the current date.`
     : "";
 
   const prompt = `you are evaluating a submission for a real-world bounty on poidh (pics or it didn't happen).
@@ -691,11 +694,11 @@ respond with ONLY a JSON object (no markdown, no explanation outside the JSON):
       openaiVisionCost: _lastOpenAIVisionCost ?? undefined,
     };
   } catch {
-    // All LLMs exhausted — fall back to deterministic score as a proxy
-    // so quota outages don't silently discard valid submissions
+    // All LLMs exhausted — fail safe as invalid so outage conditions never
+    // accidentally auto-accept submissions.
     const fallbackScore = detScore;
-    const fallbackValid = detScore >= 60;
-    console.warn(`[evaluator] claim ${claim.id} — all LLMs failed, using deterministic fallback score=${fallbackScore}`);
+    const fallbackValid = false;
+    console.warn(`[evaluator] claim ${claim.id} — all LLMs failed, marking invalid (fail-safe) score=${fallbackScore}`);
     return {
       claimId: claim.id,
       issuer: claim.issuer,
