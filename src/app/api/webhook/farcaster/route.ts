@@ -418,6 +418,11 @@ async function isInActiveThread(threadHash: string): Promise<boolean> {
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  const botEnabled = (process.env.BOT_ENABLED ?? "true").toLowerCase() !== "false";
+  if (!botEnabled) {
+    return NextResponse.json({ ok: true, paused: true, reason: "BOT_ENABLED=false" });
+  }
+
   let rawBody: string;
   try {
     rawBody = await req.text();

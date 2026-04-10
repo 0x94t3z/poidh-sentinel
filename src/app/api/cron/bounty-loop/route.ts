@@ -3,6 +3,16 @@ import { runBountyLoop } from "@/features/bot/bounty-loop";
 import { checkDepositsAndCreateBounties } from "@/features/bot/deposit-checker";
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
+  const botEnabled = (process.env.BOT_ENABLED ?? "true").toLowerCase() !== "false";
+  if (!botEnabled) {
+    return NextResponse.json({
+      ok: true,
+      paused: true,
+      reason: "BOT_ENABLED=false",
+      timestamp: new Date().toISOString(),
+    });
+  }
+
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
     if (process.env.NODE_ENV === "production") {
