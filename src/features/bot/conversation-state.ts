@@ -1,4 +1,5 @@
 import "server-only";
+import { PLATFORM_FEE_PCT } from "@/features/bot/constants";
 
 // Re-export everything from DB actions so existing imports keep working
 export type { ConversationState, ConversationStep } from "@/db/actions/bot-actions";
@@ -204,8 +205,8 @@ export async function isRejection(text: string): Promise<boolean> {
   return (answer?.trim().toUpperCase() ?? "NO").startsWith("YES");
 }
 
-// Platform fee charged on top of the bounty amount (kept by the bot wallet)
-export const PLATFORM_FEE_PCT = 2.5;
+// Re-export from constants so existing imports remain stable.
+export { PLATFORM_FEE_PCT };
 
 // Returns total amount user must send = bountyAmount + platform fee
 // e.g. bountyAmount=0.001, fee=2.5% → total=0.0010250

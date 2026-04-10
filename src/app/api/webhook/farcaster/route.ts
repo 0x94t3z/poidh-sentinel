@@ -25,6 +25,12 @@ import { resolveAddressesToUsernames, MIN_OPEN_DURATION_HOURS } from "@/features
 import type { WebhookPayload, BotLogEntry } from "@/features/bot/types";
 
 const BOT_FID = parseInt(process.env.BOT_FID ?? "0", 10);
+if (!Number.isFinite(BOT_FID) || BOT_FID <= 0) {
+  console.warn("[webhook] BOT_FID is missing/invalid — self-cast protections may not work correctly");
+}
+if (!process.env.NEYNAR_WEBHOOK_SECRET && process.env.NODE_ENV === "production") {
+  console.warn("[webhook] NEYNAR_WEBHOOK_SECRET missing in production — webhook signature verification is disabled");
+}
 
 function getBotWalletAddress(): string {
   // Derive address directly from BOT_WALLET_PRIVATE_KEY — no need for BOT_WALLET_ADDRESS env var
@@ -161,8 +167,6 @@ function isCancelRequest(text: string): boolean {
     lower.includes("please cancel") ||
     lower.includes("want to cancel") ||
     lower.includes("wanna cancel") ||
-    lower === "cancel" ||
-    lower === "cancel!" ||
     (lower.includes("cancel") && lower.includes("refund")) ||
     (lower.startsWith("cancel") && lower.includes("bounty")) ||
     (lower.includes("bounty") && lower.includes("cancel"))

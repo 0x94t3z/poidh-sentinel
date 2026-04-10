@@ -4,11 +4,16 @@ import { pickWinner, type ClaimData, type EvaluationResult } from "@/features/bo
 import { updateBounty, getAllBounties } from "@/features/bot/bounty-store";
 import { publishReply, publishCast } from "@/features/bot/cast-reply";
 import { registerBountyThread } from "@/db/actions/bot-actions";
+import { keccak256, toBytes } from "viem";
 
 const BOT_SIGNER_UUID = process.env.BOT_SIGNER_UUID ?? "";
 
 // Minimum time a bounty must be open before evaluation (72h default, env-overridable)
-import { MIN_OPEN_DURATION_HOURS } from "@/features/bot/constants";
+import {
+  MIN_OPEN_DURATION_HOURS,
+  NO_SUBMISSION_NUDGE_HOURS,
+  NO_SUBMISSION_NUDGE_INTERVAL_HOURS,
+} from "@/features/bot/constants";
 export { MIN_OPEN_DURATION_HOURS };
 const MIN_OPEN_DURATION_MS = MIN_OPEN_DURATION_HOURS * 60 * 60 * 1000;
 const MIN_CLAIMS_TO_EVALUATE = 1;
@@ -16,9 +21,10 @@ const MIN_CLAIMS_TO_EVALUATE = 1;
 // After "none met criteria", wait this long before re-evaluating (prevents spam)
 const EVAL_COOLDOWN_MS = 6 * 60 * 60 * 1000; // 6 hours
 
-// If a bounty has been open this long with zero submissions, post a nudge reminder (168h = 7 days)
-const NO_SUBMISSION_NUDGE_MS = parseInt(process.env.NO_SUBMISSION_NUDGE_HOURS ?? "168") * 60 * 60 * 1000;
-const NO_SUBMISSION_NUDGE_INTERVAL_MS = 48 * 60 * 60 * 1000; // nudge at most once every 48h
+// If a bounty has been open this long with zero submissions, post a nudge reminder (default: 168h = 7 days)
+const NO_SUBMISSION_NUDGE_MS = NO_SUBMISSION_NUDGE_HOURS * 60 * 60 * 1000;
+// Nudge at most once every 48h by default
+const NO_SUBMISSION_NUDGE_INTERVAL_MS = NO_SUBMISSION_NUDGE_INTERVAL_HOURS * 60 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
 // Neynar: resolve ETH addresses → Farcaster @usernames
@@ -245,30 +251,12 @@ function buildRankedSummary(allResults: AnnotatedResult[], winnerClaimId: string
 }
 
 // Build a "none won" reply that includes per-claim reasoning so submitters
-// know exactly why their proof was rejected. Uses full evaluation pipeline.
-async function buildNoWinnerFeedback(
-  bountyName: string,
-  bountyDescription: string,
+// know exactly why their proof was rejected. Reuses allResults from pickWinner()
+// to avoid duplicate API calls.
+function buildNoWinnerFeedback(
   claimData: ClaimData[],
-  bountyCreatedAt?: bigint | number,
-): Promise<string> {
-  const { evaluateClaim, deterministicScore } = await import("@/features/bot/submission-evaluator");
-
-  const results = await Promise.all(
-    claimData.map(async (c) => {
-      const detScore = deterministicScore(bountyName, bountyDescription, c);
-      if (detScore < 15) {
-        return { claimId: c.id, reasoning: "doesn't match bounty requirements", score: 0 };
-      }
-      try {
-        const r = await evaluateClaim(bountyName, bountyDescription, c, bountyCreatedAt);
-        return { claimId: c.id, reasoning: r.reasoning, score: r.score };
-      } catch {
-        return { claimId: c.id, reasoning: "could not evaluate", score: 0 };
-      }
-    }),
-  );
-
+  results: EvaluationResult[],
+): string {
   // Cap at 5 feedback lines to stay under cast limit
   const lines = results.slice(0, 5).map((r) => `claim #${r.claimId} (${r.score}/100): ${r.reasoning}`);
   const header = `reviewed ${claimData.length} submission${claimData.length !== 1 ? "s" : ""}, none qualified yet:\n`;
@@ -277,20 +265,38 @@ async function buildNoWinnerFeedback(
 }
 
 // Resolve a pending- bounty ID from the stored txHash receipt logs
-// Same approach as local poidh-sentinel: topics[1] of first matching contract log = raw bountyId
+// Prefer strict BountyCreated event signature matching; fall back to first matching log topic
+// for backwards compatibility with edge-case receipts.
 async function resolvePendingBountyId(txHash: string, chain: string): Promise<string | null> {
   try {
     const publicClient = getPublicClient(chain);
     const contractAddress = (POIDH_CONTRACTS[chain] ?? POIDH_CONTRACT).toLowerCase();
     const receipt = await publicClient.getTransactionReceipt({ hash: txHash as `0x${string}` });
+    const bountyCreatedSig = keccak256(toBytes("BountyCreated(uint256,address,string,string,uint256)")).toLowerCase();
+
+    let fallbackTopic: string | null = null;
 
     for (const log of receipt.logs) {
-      if (log.address.toLowerCase() === contractAddress && log.topics.length >= 2 && log.topics[1]) {
+      if (log.address.toLowerCase() !== contractAddress || log.topics.length < 2 || !log.topics[1]) continue;
+
+      // Save first candidate as a fallback
+      if (!fallbackTopic) fallbackTopic = log.topics[1];
+
+      // Strict match: exact event signature
+      const topic0 = log.topics[0]?.toLowerCase();
+      if (topic0 === bountyCreatedSig) {
         const rawId = BigInt(log.topics[1]).toString();
-        console.log(`[bounty-loop] resolved pending ${txHash.slice(0,10)} → rawId=${rawId} → url=${resolvePoidhUrl(chain, rawId)}`);
+        console.log(`[bounty-loop] resolved pending ${txHash.slice(0,10)} via BountyCreated sig → rawId=${rawId} → url=${resolvePoidhUrl(chain, rawId)}`);
         return rawId;
       }
     }
+
+    if (fallbackTopic) {
+      const rawId = BigInt(fallbackTopic).toString();
+      console.warn(`[bounty-loop] BountyCreated sig not found for ${txHash.slice(0,10)} — using fallback topic rawId=${rawId}`);
+      return rawId;
+    }
+
     console.warn(`[bounty-loop] no matching log in receipt for ${txHash.slice(0,10)}`);
   } catch (err) {
     console.warn(`[bounty-loop] could not resolve pending bounty ID from receipt:`, err);
@@ -565,11 +571,17 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
         uri: c.uri,
       }));
 
-      const result = await pickWinner(bounty.name, bounty.description, claimData, details.createdAt);
+      const result = await pickWinner(
+        bounty.name,
+        bounty.description,
+        claimData,
+        details.createdAt,
+        { returnAllResultsIfNoWinner: true },
+      );
 
-      if (!result) {
-        // Build per-claim feedback so submitters know why they didn't win
-        const noWinnerFeedback = await buildNoWinnerFeedback(bounty.name, bounty.description, claimData, details.createdAt);
+      if (!result || !result.winnerClaimId) {
+        // Build per-claim feedback from the already-computed evaluation results
+        const noWinnerFeedback = buildNoWinnerFeedback(claimData, result?.allResults ?? []);
         const bountyLinkForFeedback = resolvePoidhUrl(bountyChain, bounty.bountyId);
         await postReply(getReplyTarget(bounty), noWinnerFeedback, bountyLinkForFeedback);
         // Stamp lastCheckedAt so cooldown prevents re-posting every minute

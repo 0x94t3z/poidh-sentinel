@@ -69,6 +69,7 @@ export async function getConversation(threadHash: string): Promise<ConversationS
     cancelBountyId: isCancelData ? raw.cancelBountyId : undefined,
     cancelBountyChain: isCancelData ? raw.cancelBountyChain : undefined,
     cancelBountyName: isCancelData ? raw.cancelBountyName : undefined,
+    cancelRefundAddress: isCancelData ? raw.cancelRefundAddress : undefined,
     chain: row.chain as "arbitrum" | "base" | "degen" | undefined,
     amountEth: row.amountEth ?? undefined,
     uniqueAmount: row.uniqueAmount ?? undefined,
@@ -79,7 +80,12 @@ export async function getConversation(threadHash: string): Promise<ConversationS
 export async function setConversation(threadHash: string, state: ConversationState): Promise<void> {
   // Pack cancel-flow fields into suggestedIdea JSONB when present (cancel step doesn't use suggestedIdea)
   const cancelData = state.cancelBountyId
-    ? { cancelBountyId: state.cancelBountyId, cancelBountyChain: state.cancelBountyChain, cancelBountyName: state.cancelBountyName }
+    ? {
+        cancelBountyId: state.cancelBountyId,
+        cancelBountyChain: state.cancelBountyChain,
+        cancelBountyName: state.cancelBountyName,
+        cancelRefundAddress: state.cancelRefundAddress,
+      }
     : null;
   const ideaPayload = cancelData ?? state.suggestedIdea ?? null;
 

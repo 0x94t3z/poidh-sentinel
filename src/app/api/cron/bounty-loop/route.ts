@@ -13,13 +13,34 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
   try {
     // Run both in parallel — check deposits + evaluate existing bounties
-    const [loopResult] = await Promise.allSettled([
+    const [loopResult, depositResult] = await Promise.allSettled([
       runBountyLoop(),
       checkDepositsAndCreateBounties(),
     ]);
 
-    const result = loopResult.status === "fulfilled" ? loopResult.value : { processed: 0, winners: 0, errors: 1 };
-    return NextResponse.json({ ok: true, ...result, timestamp: new Date().toISOString() });
+    const loop = loopResult.status === "fulfilled"
+      ? loopResult.value
+      : { processed: 0, winners: 0, errors: 1 };
+    const depositOk = depositResult.status === "fulfilled";
+
+    if (loopResult.status === "rejected") {
+      const reason = loopResult.reason instanceof Error ? loopResult.reason.message : String(loopResult.reason);
+      console.error("[cron] runBountyLoop failed:", reason);
+    }
+    if (depositResult.status === "rejected") {
+      const reason = depositResult.reason instanceof Error ? depositResult.reason.message : String(depositResult.reason);
+      console.error("[cron] checkDepositsAndCreateBounties failed:", reason);
+    }
+
+    const ok = loopResult.status === "fulfilled" && depositOk;
+    const payload = {
+      ok,
+      ...loop,
+      depositCheckerOk: depositOk,
+      timestamp: new Date().toISOString(),
+    };
+
+    return NextResponse.json(payload, { status: ok ? 200 : 500 });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("[cron] error:", message);
