@@ -851,7 +851,33 @@ watch -n 60 curl -s http://localhost:3000/api/cron/bounty-loop -H "Authorization
 vercel deploy --prod
 ```
 
-Vercel Cron is pre-configured in `vercel.json` to run the bounty loop every minute automatically. Set `CRON_SECRET` in project env vars; in production the endpoint fails closed if missing.
+### Cron scheduling on Vercel
+
+Vercel **Hobby** only supports cron schedules that run at most once per day.  
+This bot is designed for minute-level polling, so on Hobby use an external scheduler.
+
+#### Option A — Vercel Pro
+
+- Keep minute cron in Vercel (`* * * * *`)
+- Set `CRON_SECRET` in project env vars
+
+#### Option B — Vercel Hobby + external scheduler (recommended)
+
+Use a free scheduler (e.g. cron-job.org) to call your cron endpoint every minute:
+
+- URL: `https://<your-vercel-domain>/api/cron/bounty-loop`
+- Method: `GET`
+- Header: `Authorization: Bearer <CRON_SECRET>`
+- Interval: every 1 minute
+
+Quick test:
+
+```bash
+curl -i "https://<your-vercel-domain>/api/cron/bounty-loop" \
+  -H "Authorization: Bearer <CRON_SECRET>"
+```
+
+In production, if `CRON_SECRET` is missing, `/api/cron/bounty-loop` fails closed with HTTP 500.
 
 ---
 
