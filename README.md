@@ -1,4 +1,4 @@
-# poidh sentinel
+# Poidh Sentinel
 
 An autonomous bounty agent for [poidh (pics or it didn't happen)](https://poidh.xyz), deployed as a Farcaster mini app.
 
@@ -672,7 +672,7 @@ Dashboard auto-refreshes every 15 seconds.
 ## Setup
 
 ### Prerequisites
-- Node.js 18+, pnpm
+- Node.js 18+, npm
 - Neynar account ([dev.neynar.com](https://dev.neynar.com)) — Farcaster webhook + managed signer
 - Groq account — free-tier LLM + vision inference ([console.groq.com](https://console.groq.com))
 - EVM wallet for gas — 0.005 ETH on Arbitrum/Base, or ~500 DEGEN on Degen Chain (whichever chains you plan to use)
@@ -689,12 +689,12 @@ The bot's FID and username are read from `BOT_FID` and `BOT_USERNAME` env vars �
 
 ### Run locally
 
-**Prerequisites:** Node.js 18+, pnpm, PostgreSQL database (Neon free tier works great)
+**Prerequisites:** Node.js 18+, npm, PostgreSQL database (Neon free tier works great)
 
 ```bash
 git clone <your-repo-url>
 cd <repo>
-pnpm install
+npm install
 ```
 
 Create a `.env` file in the project root:
@@ -767,7 +767,7 @@ NEXT_PUBLIC_USER_FID=
 Start the dev server:
 
 ```bash
-pnpm dev
+npm run dev
 # -> http://localhost:3000
 ```
 
