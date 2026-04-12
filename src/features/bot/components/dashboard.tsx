@@ -38,6 +38,8 @@ interface BountiesResponse {
   bounties: ActiveBounty[];
 }
 
+type BountyTab = "open" | "closed" | "cancelled";
+
 const STATUS_COLOR: Record<string, string> = {
   open: "text-green-400",
   evaluating: "text-amber-400",
@@ -72,6 +74,7 @@ export function Dashboard({ botUsername }: { botUsername: string }) {
   const [bounties, setBounties] = useState<ActiveBounty[]>([]);
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
+  const [bountyTab, setBountyTab] = useState<BountyTab>("open");
 
   const fetchAll = useCallback(async () => {
     try {
@@ -97,7 +100,6 @@ export function Dashboard({ botUsername }: { botUsername: string }) {
     return () => clearInterval(interval);
   }, [fetchAll]);
 
-  const openBounties = bounties.filter((b) => b.status === "open").length;
   const currency = (b: ActiveBounty) => CHAIN_CURRENCY[b.chain] ?? "ETH";
 
   const STATUS_ORDER: Record<string, number> = { open: 0, evaluating: 1, closed: 2 };
@@ -109,8 +111,17 @@ export function Dashboard({ botUsername }: { botUsername: string }) {
 
   const [showAllBounties, setShowAllBounties] = useState(false);
   const BOUNTIES_INITIAL = 5;
-  const visibleBounties = showAllBounties ? sortedBounties : sortedBounties.slice(0, BOUNTIES_INITIAL);
-  const hasMoreBounties = sortedBounties.length > BOUNTIES_INITIAL;
+  const toBountyTab = (b: ActiveBounty): BountyTab => {
+    if (b.winnerReasoning?.startsWith("bounty cancelled by")) return "cancelled";
+    if (b.status === "closed") return "closed";
+    return "open"; // includes open + evaluating
+  };
+  const openBounties = sortedBounties.filter((b) => toBountyTab(b) === "open").length;
+  const closedBounties = sortedBounties.filter((b) => toBountyTab(b) === "closed").length;
+  const cancelledBounties = sortedBounties.filter((b) => toBountyTab(b) === "cancelled").length;
+  const filteredBounties = sortedBounties.filter((b) => toBountyTab(b) === bountyTab);
+  const visibleBounties = showAllBounties ? filteredBounties : filteredBounties.slice(0, BOUNTIES_INITIAL);
+  const hasMoreBounties = filteredBounties.length > BOUNTIES_INITIAL;
 
   return (
     <div className="min-h-dvh bg-[#0a0a0a] text-white font-mono">
@@ -158,10 +169,47 @@ export function Dashboard({ botUsername }: { botUsername: string }) {
               <span className="text-[10px] text-green-500 font-mono">{openBounties} open</span>
             )}
           </div>
-          <div className="bg-[#111] rounded-xl border border-white/10 divide-y divide-white/5">
-            {bounties.length === 0 ? (
+          <div className="bg-[#111] rounded-xl border border-white/10 overflow-hidden">
+            <div className="flex items-center gap-1 px-2 pt-2 border-b border-white/5">
+              <button
+                onClick={() => {
+                  setBountyTab("open");
+                  setShowAllBounties(false);
+                }}
+                className={`text-[11px] font-mono px-2.5 py-1 rounded transition-colors ${
+                  bountyTab === "open" ? "bg-white/12 text-white" : "text-gray-500 hover:text-gray-300"
+                }`}
+              >
+                open ({openBounties})
+              </button>
+              <button
+                onClick={() => {
+                  setBountyTab("closed");
+                  setShowAllBounties(false);
+                }}
+                className={`text-[11px] font-mono px-2.5 py-1 rounded transition-colors ${
+                  bountyTab === "closed" ? "bg-white/12 text-white" : "text-gray-500 hover:text-gray-300"
+                }`}
+              >
+                closed ({closedBounties})
+              </button>
+              <button
+                onClick={() => {
+                  setBountyTab("cancelled");
+                  setShowAllBounties(false);
+                }}
+                className={`text-[11px] font-mono px-2.5 py-1 rounded transition-colors ${
+                  bountyTab === "cancelled" ? "bg-red-500/20 text-red-400" : "text-gray-500 hover:text-gray-300"
+                }`}
+              >
+                cancelled ({cancelledBounties})
+              </button>
+            </div>
+
+            <div className="divide-y divide-white/5">
+            {filteredBounties.length === 0 ? (
               <div className="px-4 py-6 text-center">
-                <p className="text-gray-500 text-xs">no bounties yet</p>
+                <p className="text-gray-500 text-xs">no {bountyTab} bounties yet</p>
                 <p className="text-gray-600 text-[10px] mt-1">mention @{botUsername} to create one</p>
               </div>
             ) : (
@@ -230,6 +278,7 @@ export function Dashboard({ botUsername }: { botUsername: string }) {
                 );
               })
             )}
+            </div>
             {hasMoreBounties && (
               <button
                 onClick={() => setShowAllBounties((v) => !v)}
@@ -237,7 +286,7 @@ export function Dashboard({ botUsername }: { botUsername: string }) {
               >
                 {showAllBounties
                   ? "show less ↑"
-                  : `show ${sortedBounties.length - BOUNTIES_INITIAL} more ↓`}
+                  : `show ${filteredBounties.length - BOUNTIES_INITIAL} more ↓`}
               </button>
             )}
           </div>
