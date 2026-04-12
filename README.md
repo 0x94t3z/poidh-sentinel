@@ -583,7 +583,7 @@ PostgreSQL via Drizzle ORM (`src/db/schema.ts`):
 | Method | Path                              | Auth           | Description                                       |
 |--------|-----------------------------------|----------------|---------------------------------------------------|
 | POST   | `/api/webhook/farcaster`          | HMAC signature | Neynar webhook receiver                           |
-| GET    | `/api/cron/bounty-loop`           | `CRON_SECRET`  | Cron: evaluate bounties + check deposits (Vercel auto-calls every minute) |
+| GET    | `/api/cron/bounty-loop`           | `CRON_SECRET`  | Cron: evaluate bounties + check deposits (trigger via external scheduler on Hobby, or Vercel Cron on Pro) |
 | GET    | `/api/bot/bounties`               | none           | Dashboard: all bounties with live pot values (public — powers UI) |
 | GET    | `/api/bot/logs`                   | none           | Recent activity log + stats (public — powers dashboard) |
 | GET    | `/api/bot/status`                 | none           | Bot online / config status (public — powers dashboard) |
