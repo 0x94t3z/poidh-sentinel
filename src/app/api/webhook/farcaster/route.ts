@@ -112,15 +112,28 @@ function inferSuggestedIdeaFromParentText(parentText: string, authorUsername: st
     };
   }
 
-  const name = cleaned
+  // Prefer the short phrase before em-dash/colon as the title, and keep it word-safe.
+  const lead = cleaned
+    .split(/[—:]/)[0]
     .split(/[.!?]/)[0]
     .toLowerCase()
-    .trim()
-    .slice(0, 80);
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const words = lead.split(" ").filter(Boolean).slice(0, 12);
+  let name = words.join(" ").slice(0, 72).trim();
+  if (name.length === 72 && name.includes(" ")) {
+    name = name.slice(0, name.lastIndexOf(" ")).trim();
+  }
+  if (name.endsWith("-")) name = name.slice(0, -1).trim();
+
+  const description = /proof must be/i.test(cleaned)
+    ? cleaned
+    : `${cleaned} proof must be original and unedited.`;
 
   return {
     name: name || `bounty by @${authorUsername}`.slice(0, 80),
-    description: cleaned.slice(0, 500),
+    description: description.slice(0, 500),
   };
 }
 
@@ -452,6 +465,9 @@ async function handleConversationFlow(
             await clearConversation(threadHash);
 
             const ownerHandle = process.env.BOT_OWNER_HANDLE ?? "0x94t3z.eth";
+            if (lowerMsg.includes("exceeds the balance")) {
+              return `bounty is cancelled on-chain, but refund transfer failed due to low bot gas reserve. DM @${ownerHandle} and include this cast hash for immediate retry.`;
+            }
             return `bounty is already cancelled on-chain, but the refund step hit an error. if funds don't arrive soon, DM @${ownerHandle} and include this: ${msg.slice(0, 120)}`;
           }
         }

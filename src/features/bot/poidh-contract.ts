@@ -688,27 +688,13 @@ export async function cancelBounty(
     return { cancelTxHash, withdrawTxHash: cancelTxHash, refundTxHash: undefined, method: functionName, refundAddress: account.address, externalContributors: [] };
   }
 
-  // Step 1: withdraw pendingWithdrawals if there is any balance to pull.
-  // If none is pending (e.g. already withdrawn earlier or issuer credited directly),
-  // skip this step and continue to plain wallet refund transfer.
+  // Step 1: prefer direct contract payout via withdrawTo(refundAddress) when pending funds exist.
+  // This avoids requiring the bot wallet to hold both refund value + gas at send time.
   let withdrawTxHash = cancelTxHash;
-  if (pendingAfter > BigInt(0)) {
-    withdrawTxHash = await client.writeContract({
-      address: contractAddress,
-      abi: POIDH_ABI,
-      functionName: "withdraw",
-      args: [],
-      account,
-    });
-    await publicClient.waitForTransactionReceipt({ hash: withdrawTxHash, timeout: 60_000 });
-    console.log(`[poidh-contract] withdraw to bot wallet: ${withdrawTxHash}`);
-  } else {
-    console.log(
-      `[poidh-contract] cancelBounty: pendingWithdrawals is zero after cancel for bountyId=${bountyId}; skipping withdraw`,
-    );
-  }
+  let refundTxHash: `0x${string}` | undefined;
 
-  // Step 2: plain native token transfer from bot wallet → creator wallet for exactly bountyRefundAmount.
+  // Step 2: plain native token transfer from bot wallet → creator wallet for exactly bountyRefundAmount
+  // is only used as a fallback when direct withdrawTo isn't possible.
   // ETH on arbitrum/base, DEGEN on degen chain. The poidh contract has no record of the original
   // depositor — refund is a direct sendTransaction outside the contract.
   //
@@ -722,6 +708,36 @@ export async function cancelBounty(
     creatorRefundAddress.startsWith("0x") &&
     creatorRefundAddress.length === 42 &&
     creatorRefundAddress.toLowerCase() !== account.address.toLowerCase();
+
+  if (pendingAfter > BigInt(0)) {
+    if (isValidRefundTarget) {
+      withdrawTxHash = await client.writeContract({
+        address: contractAddress,
+        abi: POIDH_ABI,
+        functionName: "withdrawTo",
+        args: [creatorRefundAddress as `0x${string}`],
+        account,
+      });
+      await publicClient.waitForTransactionReceipt({ hash: withdrawTxHash, timeout: 60_000 });
+      refundTxHash = withdrawTxHash as `0x${string}`;
+      console.log(`[poidh-contract] withdrawTo creator wallet: ${withdrawTxHash} -> ${creatorRefundAddress}`);
+    } else {
+      // Invalid target (or bot wallet): keep current safe behavior and pull to bot wallet only.
+      withdrawTxHash = await client.writeContract({
+        address: contractAddress,
+        abi: POIDH_ABI,
+        functionName: "withdraw",
+        args: [],
+        account,
+      });
+      await publicClient.waitForTransactionReceipt({ hash: withdrawTxHash, timeout: 60_000 });
+      console.log(`[poidh-contract] withdraw to bot wallet: ${withdrawTxHash}`);
+    }
+  } else {
+    console.log(
+      `[poidh-contract] cancelBounty: pendingWithdrawals is zero after cancel for bountyId=${bountyId}; skipping withdraw`,
+    );
+  }
 
   if (!isValidRefundTarget) {
     // This should never happen in normal flow — means the caller didn't validate upfront.
@@ -741,15 +757,15 @@ export async function cancelBounty(
   }
 
   const refundAddress = creatorRefundAddress;
-  let refundTxHash: string | undefined;
-
-  refundTxHash = await client.sendTransaction({
-    to: refundAddress as `0x${string}`,
-    value: bountyRefundAmount,
-    account,
-  });
-  await publicClient.waitForTransactionReceipt({ hash: refundTxHash as `0x${string}`, timeout: 60_000 });
-  console.log(`[poidh-contract] refund ${formatEther(bountyRefundAmount)} ${nativeCurrency} sent to ${refundAddress}: ${refundTxHash}`);
+  if (!refundTxHash) {
+    refundTxHash = await client.sendTransaction({
+      to: refundAddress as `0x${string}`,
+      value: bountyRefundAmount,
+      account,
+    });
+    await publicClient.waitForTransactionReceipt({ hash: refundTxHash as `0x${string}`, timeout: 60_000 });
+    console.log(`[poidh-contract] refund ${formatEther(bountyRefundAmount)} ${nativeCurrency} sent to ${refundAddress}: ${refundTxHash}`);
+  }
 
   // Collect external contributor addresses (all participants except the bot itself)
   // These must claim their own refund on poidh.xyz via claimRefundFromCancelledOpenBounty
