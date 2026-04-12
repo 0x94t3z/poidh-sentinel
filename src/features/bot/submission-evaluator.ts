@@ -663,8 +663,12 @@ submission:
 evaluate this submission. does it satisfy the bounty requirements?
 
 important rules:
+- only enforce requirements that are explicitly in the bounty name/description. do NOT invent extra requirements.
 - if the bounty asks for "your username", any username written in the image counts — do NOT try to verify it matches a wallet address or on-chain identity
+- do NOT require a visible username unless the bounty explicitly asks for a username
+- do NOT require a visible date or timestamp unless the bounty explicitly asks for a date/timestamp in the proof
 - judge only what is visible in the proof image and the submission text
+- if the bounty says "within the last 7 days", evaluate recency using visible/contextual evidence; do not auto-fail only because no timestamp text is visible
 - be generous with minor variations (e.g. "5th April" vs "April 5th" both count as the same date)
 - if the proof contains an "AI DETECTION WARNING", the image is likely AI-generated — set valid=false and penalize the score heavily (max 20). poidh requires real-world photographic proof, not AI-generated images
 - if the proof contains "AI DETECTION: authenticity uncertain", reduce the score by 20-30 points to reflect the doubt
