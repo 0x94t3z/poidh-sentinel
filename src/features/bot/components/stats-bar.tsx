@@ -32,7 +32,7 @@ export function StatsBar({ total, success, errors, lastActivity }: StatsBarProps
   return (
     <div className="space-y-2">
       <div className="flex gap-2">
-        <StatPill label="total" value={total} color="text-white" />
+        <StatPill label="logs" value={total} color="text-white" />
         <StatPill label="ok" value={success} color="text-green-400" />
         <StatPill label="errors" value={errors} color={errors > 0 ? "text-red-400" : "text-gray-600"} />
       </div>

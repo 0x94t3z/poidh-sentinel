@@ -76,7 +76,7 @@ export function Dashboard({ botUsername }: { botUsername: string }) {
   const fetchAll = useCallback(async () => {
     try {
       const [logsRes, bountiesRes] = await Promise.all([
-        fetch("/api/bot/logs?limit=10"),
+        fetch("/api/bot/logs?limit=all"),
         fetch("/api/bot/bounties"),
       ]);
       const logsJson = (await logsRes.json()) as LogsResponse;
