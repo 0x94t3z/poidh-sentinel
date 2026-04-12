@@ -11,16 +11,47 @@ const ACTION_LABELS: Record<string, { label: string; color: string }> = {
   create_bounty_onchain: { label: "ONCHAIN", color: "text-indigo-400" },
   wallet_address: { label: "WALLET", color: "text-teal-400" },
   deposit_detected: { label: "DEPOSIT", color: "text-green-300" },
+  bounty_posted_ui: { label: "BOUNTY", color: "text-indigo-300" },
   general_reply: { label: "REPLY", color: "text-gray-400" },
 };
 const FALLBACK_ACTION = { label: "EVENT", color: "text-gray-500" };
 const PAGE_SIZE = 20;
+const CHAT_ACTIONS = new Set([
+  "general_reply",
+  "suggest_bounty",
+  "evaluate_submission",
+  "pick_winner",
+  "create_bounty",
+  "create_bounty_onchain",
+  "wallet_address",
+]);
+
+interface FeedBountyItem {
+  bountyId: string;
+  name: string;
+  chain: string;
+  amountEth: string;
+  createdAt: string;
+}
+
+interface FeedItem {
+  id: string;
+  timestamp: string;
+  triggerCastHash: string;
+  triggerAuthor: string;
+  triggerText: string;
+  action: string;
+  replyText: string;
+  status: "success" | "error";
+  errorMessage?: string;
+  txHash?: string;
+}
 
 function truncate(text: string, max: number): string {
   return text.length > max ? text.slice(0, max) + "…" : text;
 }
 
-function LogRow({ entry }: { entry: BotLogEntry }) {
+function LogRow({ entry }: { entry: FeedItem }) {
   const actionMeta = ACTION_LABELS[entry.action] ?? FALLBACK_ACTION;
   const isError = entry.status === "error";
   const time = new Date(entry.timestamp).toLocaleTimeString([], {
@@ -69,21 +100,44 @@ function LogRow({ entry }: { entry: BotLogEntry }) {
 
 interface ActivityFeedProps {
   logs: BotLogEntry[];
+  bounties: FeedBountyItem[];
   total: number;
   totalErrors: number; // from stats — accurate across full history, not just loaded slice
   botUsername: string;
 }
 
-export function ActivityFeed({ logs: initialLogs, total, totalErrors, botUsername }: ActivityFeedProps) {
-  const [filter, setFilter] = useState<"all" | "errors">("all");
+function buildBountyEvents(bounties: FeedBountyItem[], botUsername: string): FeedItem[] {
+  return bounties.map((b) => ({
+    id: `bounty-posted-${b.bountyId}`,
+    timestamp: b.createdAt,
+    triggerCastHash: "",
+    triggerAuthor: botUsername,
+    triggerText: `bounty #${b.bountyId} posted`,
+    action: "bounty_posted_ui",
+    replyText: `"${b.name}" · ${b.amountEth} ${b.chain === "degen" ? "DEGEN" : "ETH"} · ${b.chain}`,
+    status: "success",
+  }));
+}
+
+export function ActivityFeed({ logs: initialLogs, bounties, total, totalErrors, botUsername }: ActivityFeedProps) {
+  const [filter, setFilter] = useState<"all" | "chat" | "system" | "errors">("all");
   const [logs, setLogs] = useState<BotLogEntry[]>(initialLogs);
   const [loadedTotal, setLoadedTotal] = useState(total);
   const [loading, setLoading] = useState(false);
+  const bountyEvents = buildBountyEvents(bounties, botUsername);
+  const merged = [...logs, ...bountyEvents].sort(
+    (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
+  );
 
   const hasMore = logs.length < loadedTotal;
   // Count errors only in loaded logs — used to decide whether errors filter has visible results
-  const loadedErrorCount = logs.filter((l) => l.status === "error").length;
-  const filtered = filter === "errors" ? logs.filter((l) => l.status === "error") : logs;
+  const loadedErrorCount = merged.filter((l) => l.status === "error").length;
+  const filtered = merged.filter((l) => {
+    if (filter === "errors") return l.status === "error";
+    if (filter === "chat") return CHAT_ACTIONS.has(l.action);
+    if (filter === "system") return !CHAT_ACTIONS.has(l.action) && l.status !== "error";
+    return true;
+  });
 
   const loadMore = useCallback(async () => {
     if (loading || !hasMore) return;
@@ -123,7 +177,7 @@ export function ActivityFeed({ logs: initialLogs, total, totalErrors, botUsernam
     }
   }, [loadedErrorCount, loading, logs, loadedTotal]);
 
-  if (logs.length === 0) {
+  if (merged.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
         <span className="text-4xl mb-3">👻</span>
@@ -146,7 +200,23 @@ export function ActivityFeed({ logs: initialLogs, total, totalErrors, botUsernam
               filter === "all" ? "bg-white/10 text-white" : "text-gray-500 hover:text-gray-300"
             }`}
           >
-            all ({loadedTotal})
+            all ({merged.length})
+          </button>
+          <button
+            onClick={() => setFilter("chat")}
+            className={`text-[10px] font-mono px-2.5 py-1 rounded transition-colors ${
+              filter === "chat" ? "bg-white/10 text-white" : "text-gray-500 hover:text-gray-300"
+            }`}
+          >
+            chat
+          </button>
+          <button
+            onClick={() => setFilter("system")}
+            className={`text-[10px] font-mono px-2.5 py-1 rounded transition-colors ${
+              filter === "system" ? "bg-white/10 text-white" : "text-gray-500 hover:text-gray-300"
+            }`}
+          >
+            system
           </button>
           <button
             onClick={() => { setFilter("errors"); void loadUntilErrors(); }}
@@ -168,7 +238,7 @@ export function ActivityFeed({ logs: initialLogs, total, totalErrors, botUsernam
             {totalErrors === 0 && " (0)"}
           </button>
         </div>
-        {hasMore && filter === "all" && (
+        {hasMore && filter !== "errors" && (
           <span className="text-[10px] text-gray-600 font-mono">
             {logs.length}/{loadedTotal}
           </span>
@@ -195,7 +265,7 @@ export function ActivityFeed({ logs: initialLogs, total, totalErrors, botUsernam
       ))}
 
       {/* Load more */}
-      {hasMore && filter === "all" && (
+      {hasMore && filter !== "errors" && (
         <div className="px-4 py-3 border-t border-white/5">
           <button
             onClick={() => void loadMore()}

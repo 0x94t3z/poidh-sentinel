@@ -293,7 +293,13 @@ export function Dashboard({ botUsername }: { botUsername: string }) {
                 ))}
               </div>
             ) : (
-              <ActivityFeed logs={data?.logs ?? []} total={data?.total ?? 0} totalErrors={data?.stats?.errors ?? 0} botUsername={botUsername} />
+              <ActivityFeed
+                logs={data?.logs ?? []}
+                bounties={bounties}
+                total={data?.total ?? 0}
+                totalErrors={data?.stats?.errors ?? 0}
+                botUsername={botUsername}
+              />
             )}
           </div>
         </section>
