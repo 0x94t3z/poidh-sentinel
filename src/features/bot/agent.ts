@@ -270,6 +270,21 @@ async function detectAction(text: string): Promise<BountyAction> {
   return "general_reply";
 }
 
+function hasExplicitCreateIntent(text: string): boolean {
+  const lower = text.toLowerCase();
+  return (
+    lower.includes("suggest a bounty") ||
+    lower.includes("bounty idea") ||
+    lower.includes("what bounty should i") ||
+    lower.includes("help me create a bounty") ||
+    lower.includes("create a bounty") ||
+    lower.includes("make a bounty") ||
+    lower.includes("start a bounty") ||
+    lower.includes("launch a bounty") ||
+    lower.includes("post a bounty")
+  );
+}
+
 async function callLLM(
   messages: Array<{ role: string; content: string }>,
   modelIndex = 0,
@@ -627,10 +642,12 @@ export async function runAgent(ctx: AgentContext): Promise<AgentResponse> {
     // detectAiImage failed (no API key, timeout, etc.) — fall through to LLM
   }
 
-  // If we're in a bounty thread OR this is a direct reply to the bot's cast,
-  // skip intent detection entirely — just have a natural conversation.
-  // Prevents celebratory posts from accidentally triggering a new bounty flow.
-  const inContext = !!(ctx.bountyContext ?? ctx.replyToBot);
+  // If we're in a bounty thread, keep natural conversation context.
+  // For plain replies to the bot (outside bounty threads), allow explicit
+  // "create/suggest bounty" intent to break out and start creation flow.
+  const inBountyThread = !!ctx.bountyContext;
+  const explicitCreateIntent = hasExplicitCreateIntent(ctx.castText);
+  const inContext = inBountyThread || (!!ctx.replyToBot && !explicitCreateIntent);
   const action = inContext ? "general_reply" : await detectAction(ctx.castText);
 
   // Wallet address — no LLM needed
