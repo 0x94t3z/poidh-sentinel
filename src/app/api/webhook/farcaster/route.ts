@@ -72,29 +72,56 @@ function isFromBot(payload: WebhookPayload): boolean {
 async function fetchParentCastInfo(parentHash: string | null): Promise<{
   isFromBot: boolean;
   imageUrls: string[];
+  text: string;
 }> {
-  if (!parentHash) return { isFromBot: false, imageUrls: [] };
+  if (!parentHash) return { isFromBot: false, imageUrls: [], text: "" };
   const apiKey = process.env.NEYNAR_API_KEY;
-  if (!apiKey) return { isFromBot: false, imageUrls: [] };
+  if (!apiKey) return { isFromBot: false, imageUrls: [], text: "" };
   try {
     const res = await fetch(
       `https://api.neynar.com/v2/farcaster/cast?identifier=${parentHash}&type=hash`,
       { headers: { "x-api-key": apiKey } },
     );
-    if (!res.ok) return { isFromBot: false, imageUrls: [] };
+    if (!res.ok) return { isFromBot: false, imageUrls: [], text: "" };
     const data = (await res.json()) as {
       cast?: {
         author?: { fid?: number };
         embeds?: Array<{ url?: string }>;
+        text?: string;
       };
     };
     const cast = data.cast;
     const isFromBot = cast?.author?.fid === BOT_FID;
     const imageUrls = extractImageUrls(cast?.embeds ?? []);
-    return { isFromBot, imageUrls };
+    return { isFromBot, imageUrls, text: cast?.text ?? "" };
   } catch {
-    return { isFromBot: false, imageUrls: [] };
+    return { isFromBot: false, imageUrls: [], text: "" };
   }
+}
+
+function inferSuggestedIdeaFromParentText(parentText: string, authorUsername: string): { name: string; description: string } {
+  const cleaned = parentText
+    .replace(/\s*want me to create.*$/i, "")
+    .replace(/\s*reply with.*$/i, "")
+    .trim();
+
+  if (!cleaned) {
+    return {
+      name: `bounty by @${authorUsername}`.slice(0, 80),
+      description: "real-world bounty idea from thread context",
+    };
+  }
+
+  const name = cleaned
+    .split(/[.!?]/)[0]
+    .toLowerCase()
+    .trim()
+    .slice(0, 80);
+
+  return {
+    name: name || `bounty by @${authorUsername}`.slice(0, 80),
+    description: cleaned.slice(0, 500),
+  };
 }
 
 // Extract image URLs from Neynar embed objects
@@ -644,6 +671,28 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       logEntry.action = "cancel_bounty_confirmation";
       logEntry.replyText = cancelReply;
       await reply(cancelReply, hash);
+      await appendLog(logEntry);
+      return NextResponse.json({ ok: true });
+    }
+
+    // Recovery path:
+    // If user confirms ("yes"/"ok"/etc.) directly under a bot proposal but the conversation
+    // state was lost/cleared, rebuild state and continue deterministic chain+amount flow.
+    if (replyToBot && !inBountyThread && !inActiveThread && await isConfirmation(text)) {
+      const recoveredState = {
+        step: "awaiting_chain" as const,
+        authorFid: author.fid,
+        authorUsername: author.username,
+        suggestedIdea: inferSuggestedIdeaFromParentText(parentInfo.text, author.username),
+        lastUpdated: new Date().toISOString(),
+      };
+      await setConversation(thread_hash, recoveredState);
+      if (hash !== thread_hash) await setConversation(hash, recoveredState);
+
+      const flowReply = `nice! which chain — arbitrum, base, or degen? and how much do you want to put up? minimums: arbitrum/base = 0.001 ETH, degen = 1000 DEGEN.`;
+      logEntry.action = "conversation_recovered";
+      logEntry.replyText = flowReply;
+      await reply(flowReply, hash);
       await appendLog(logEntry);
       return NextResponse.json({ ok: true });
     }
