@@ -586,22 +586,35 @@ export async function cancelBounty(
   const { client, account } = getWalletClient(chain);
   const contractAddress = POIDH_CONTRACTS[chain] ?? POIDH_CONTRACT;
 
-  // Use everHadExternalContributor to determine cancel path.
-  // If the contract call fails (e.g. not supported on this chain version), fall back to
-  // the DB bountyType — "open" bounties always use cancelOpenBounty regardless of contributors.
-  let isOpen = false;
-  try {
-    isOpen = await publicClient.readContract({
-      address: contractAddress,
-      abi: POIDH_ABI,
-      functionName: "everHadExternalContributor",
-      args: [bountyId],
-    }) as boolean;
-  } catch {
-    // everHadExternalContributor failed — use DB bountyType as authoritative fallback.
-    // "open" = cancelOpenBounty, "solo" or unknown = cancelSoloBounty.
+  // Determine cancel path.
+  // DB bountyType is authoritative when present:
+  // - open -> cancelOpenBounty
+  // - solo -> cancelSoloBounty
+  //
+  // Rationale: open bounties can still have zero external contributors at cancel time,
+  // so everHadExternalContributor=false does NOT imply solo.
+  let isOpen: boolean;
+  if (bountyType === "open" || bountyType === "solo") {
     isOpen = bountyType === "open";
-    console.warn(`[poidh-contract] cancelBounty: everHadExternalContributor failed for bountyId=${bountyId} chain=${chain}, falling back to DB bountyType=${bountyType} → isOpen=${isOpen}`);
+    console.log(
+      `[poidh-contract] cancelBounty: using DB bountyType=${bountyType} for bountyId=${bountyId} chain=${chain} -> isOpen=${isOpen}`,
+    );
+  } else {
+    // Legacy/unknown rows: fall back to contract signal.
+    try {
+      isOpen = await publicClient.readContract({
+        address: contractAddress,
+        abi: POIDH_ABI,
+        functionName: "everHadExternalContributor",
+        args: [bountyId],
+      }) as boolean;
+    } catch {
+      // Conservative fallback for unknown rows: assume solo path.
+      isOpen = false;
+      console.warn(
+        `[poidh-contract] cancelBounty: could not resolve type for bountyId=${bountyId} chain=${chain}, defaulting to solo cancel path`,
+      );
+    }
   }
 
   // Snapshot pendingWithdrawals BEFORE cancel — so we can isolate exactly what was credited by this cancel
