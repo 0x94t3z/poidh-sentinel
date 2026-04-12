@@ -165,7 +165,7 @@ export async function GET(): Promise<NextResponse> {
       try {
         const details = await getBountyDetails(BigInt(b.bountyId), b.chain);
         const isOnChainClosed = details.claimer !== ZERO_ADDR;
-        if (isOnChainClosed && b.status !== "closed") {
+        if (isOnChainClosed) {
           const wasCancelled = details.claimer.toLowerCase() === details.issuer.toLowerCase();
           const nextReasoning = wasCancelled
             ? (base.winnerReasoning ?? "bounty cancelled by issuer")
