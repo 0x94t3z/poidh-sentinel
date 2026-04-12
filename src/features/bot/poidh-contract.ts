@@ -730,8 +730,9 @@ export async function cancelBounty(
     );
   }
 
-  if (!refundTxHash && pendingAfter > BigInt(0)) {
+  if (pendingAfter > BigInt(0)) {
     const canUseDirectWithdrawTo =
+      !refundTxHash &&
       isValidRefundTarget &&
       pendingAfter === bountyRefundAmount;
 
@@ -747,13 +748,15 @@ export async function cancelBounty(
       refundTxHash = withdrawTxHash as `0x${string}`;
       console.log(`[poidh-contract] withdrawTo creator wallet: ${withdrawTxHash} -> ${creatorRefundAddress}`);
     } else {
-      if (isValidRefundTarget && pendingAfter !== bountyRefundAmount) {
+      if (!refundTxHash && isValidRefundTarget && pendingAfter !== bountyRefundAmount) {
         console.warn(
           `[poidh-contract] cancelBounty: skipping withdrawTo because pending=${formatEther(pendingAfter)} ` +
           `!= refundAmount=${formatEther(bountyRefundAmount)} for bountyId=${bountyId}`,
         );
       }
-      // Invalid target (or bot wallet): keep current safe behavior and pull to bot wallet only.
+      // Pull pending funds to bot wallet in all non-withdrawTo cases:
+      // - fallback path before a manual sendTransaction refund
+      // - reimbursement path after a direct wallet refund already succeeded
       withdrawTxHash = await client.writeContract({
         address: contractAddress,
         abi: POIDH_ABI,
@@ -762,7 +765,11 @@ export async function cancelBounty(
         account,
       });
       await publicClient.waitForTransactionReceipt({ hash: withdrawTxHash, timeout: 60_000 });
-      console.log(`[poidh-contract] withdraw to bot wallet: ${withdrawTxHash}`);
+      if (refundTxHash) {
+        console.log(`[poidh-contract] withdraw reimbursement to bot wallet: ${withdrawTxHash}`);
+      } else {
+        console.log(`[poidh-contract] withdraw to bot wallet: ${withdrawTxHash}`);
+      }
     }
   } else {
     console.log(
