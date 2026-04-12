@@ -637,18 +637,28 @@ export async function cancelBounty(
   // Wait for cancel tx to be mined
   await publicClient.waitForTransactionReceipt({ hash: cancelTxHash, timeout: 60_000 });
 
-  // For open bounties: bot must first call claimRefundFromCancelledOpenBounty
-  // to move its own contribution into pendingWithdrawals[botWallet]
+  // For open bounties: best-effort claim of issuer refund from cancelled bounty.
+  // Some contract states already credit the issuer, or the claim may have been
+  // executed in a previous attempt. In those cases this call can revert even
+  // though cancellation succeeded, so treat it as recoverable.
+  let claimRefundTxHash: string | undefined;
   if (isOpen) {
-    const claimRefundTx = await client.writeContract({
-      address: contractAddress,
-      abi: POIDH_ABI,
-      functionName: "claimRefundFromCancelledOpenBounty",
-      args: [bountyId],
-      account,
-    });
-    await publicClient.waitForTransactionReceipt({ hash: claimRefundTx, timeout: 60_000 });
-    console.log(`[poidh-contract] claimRefundFromCancelledOpenBounty bountyId=${bountyId}: ${claimRefundTx}`);
+    try {
+      claimRefundTxHash = await client.writeContract({
+        address: contractAddress,
+        abi: POIDH_ABI,
+        functionName: "claimRefundFromCancelledOpenBounty",
+        args: [bountyId],
+        account,
+      });
+      await publicClient.waitForTransactionReceipt({ hash: claimRefundTxHash, timeout: 60_000 });
+      console.log(`[poidh-contract] claimRefundFromCancelledOpenBounty bountyId=${bountyId}: ${claimRefundTxHash}`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(
+        `[poidh-contract] claimRefundFromCancelledOpenBounty failed for bountyId=${bountyId} chain=${chain}: ${msg}`,
+      );
+    }
   }
 
   // Read pendingWithdrawals AFTER cancel — the delta is exactly what this bounty credited
@@ -678,18 +688,25 @@ export async function cancelBounty(
     return { cancelTxHash, withdrawTxHash: cancelTxHash, refundTxHash: undefined, method: functionName, refundAddress: account.address, externalContributors: [] };
   }
 
-  // Step 1: withdraw the full pendingWithdrawals[botWallet] balance back to the bot wallet.
-  // withdraw() pulls everything — we then send exactly bountyRefundAmount to the creator,
-  // which preserves any pre-existing balance in the bot wallet.
-  const withdrawTxHash = await client.writeContract({
-    address: contractAddress,
-    abi: POIDH_ABI,
-    functionName: "withdraw",
-    args: [],
-    account,
-  });
-  await publicClient.waitForTransactionReceipt({ hash: withdrawTxHash, timeout: 60_000 });
-  console.log(`[poidh-contract] withdraw to bot wallet: ${withdrawTxHash}`);
+  // Step 1: withdraw pendingWithdrawals if there is any balance to pull.
+  // If none is pending (e.g. already withdrawn earlier or issuer credited directly),
+  // skip this step and continue to plain wallet refund transfer.
+  let withdrawTxHash = cancelTxHash;
+  if (pendingAfter > BigInt(0)) {
+    withdrawTxHash = await client.writeContract({
+      address: contractAddress,
+      abi: POIDH_ABI,
+      functionName: "withdraw",
+      args: [],
+      account,
+    });
+    await publicClient.waitForTransactionReceipt({ hash: withdrawTxHash, timeout: 60_000 });
+    console.log(`[poidh-contract] withdraw to bot wallet: ${withdrawTxHash}`);
+  } else {
+    console.log(
+      `[poidh-contract] cancelBounty: pendingWithdrawals is zero after cancel for bountyId=${bountyId}; skipping withdraw`,
+    );
+  }
 
   // Step 2: plain native token transfer from bot wallet → creator wallet for exactly bountyRefundAmount.
   // ETH on arbitrum/base, DEGEN on degen chain. The poidh contract has no record of the original
@@ -754,6 +771,10 @@ export async function cancelBounty(
         break;
       }
     }
+  }
+
+  if (claimRefundTxHash) {
+    console.log(`[poidh-contract] cancelBounty: claimRefund tx observed ${claimRefundTxHash}`);
   }
 
   return { cancelTxHash, withdrawTxHash, refundTxHash, method: functionName, refundAddress, externalContributors };
