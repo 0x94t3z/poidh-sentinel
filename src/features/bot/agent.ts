@@ -2,7 +2,7 @@ import "server-only";
 import type { AgentContext, AgentResponse, BountyAction } from "@/features/bot/types";
 import { fetchCastThread } from "@/features/bot/cast-reply";
 import { getBountyDetails } from "@/features/bot/poidh-contract";
-import { getActiveBounties } from "@/features/bot/bounty-store";
+import { getActiveBounties, getAllBounties } from "@/features/bot/bounty-store";
 import { formatEther } from "viem";
 import { validateRealWorldBounty } from "@/features/bot/bounty-validation";
 import { MIN_OPEN_DURATION_HOURS } from "@/features/bot/constants";
@@ -46,6 +46,97 @@ const OPENROUTER_MODELS = [
 
 const BOT_USERNAME = process.env.BOT_USERNAME ?? "poidh-sentinel";
 const BOT_APP_URL = process.env.BOT_APP_URL ?? `https://${BOT_USERNAME}.neynar.app`;
+
+function normalizeIdeaText(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/[^\w\s@'-]/g, "")
+    .trim();
+}
+
+function ideaKey(name: string, description: string): string {
+  return `${normalizeIdeaText(name)}::${normalizeIdeaText(description)}`;
+}
+
+interface ExistingIdeaIndex {
+  keys: Set<string>;
+  titles: Set<string>;
+  descriptions: Set<string>;
+}
+
+async function getExistingIdeaIndex(): Promise<ExistingIdeaIndex> {
+  try {
+    const all = await getAllBounties();
+    return {
+      keys: new Set(all.map((b) => ideaKey(b.name, b.description))),
+      titles: new Set(all.map((b) => normalizeIdeaText(b.name))),
+      descriptions: new Set(all.map((b) => normalizeIdeaText(b.description))),
+    };
+  } catch {
+    return {
+      keys: new Set(),
+      titles: new Set(),
+      descriptions: new Set(),
+    };
+  }
+}
+
+function withTrimmedSuffix(base: string, suffix: string, limit: number): string {
+  if (!suffix) return base.slice(0, limit);
+  const trimmedBase = base.slice(0, Math.max(0, limit - suffix.length)).trim();
+  return `${trimmedBase}${suffix}`.slice(0, limit);
+}
+
+function makeUniqueIdea(
+  name: string,
+  description: string,
+  existing: ExistingIdeaIndex,
+): { name: string; description: string } {
+  const baseName = name.trim().slice(0, 80);
+  const baseDesc = description.trim().slice(0, 500);
+  const normalizedBaseName = normalizeIdeaText(baseName);
+  const normalizedBaseDesc = normalizeIdeaText(baseDesc);
+  const initialKey = ideaKey(baseName, baseDesc);
+  if (
+    !existing.keys.has(initialKey) &&
+    !existing.titles.has(normalizedBaseName) &&
+    !existing.descriptions.has(normalizedBaseDesc)
+  ) {
+    existing.keys.add(initialKey);
+    existing.titles.add(normalizedBaseName);
+    existing.descriptions.add(normalizedBaseDesc);
+    return { name: baseName, description: baseDesc };
+  }
+
+  for (let i = 2; i <= 99; i++) {
+    const suffix = ` v${i}`;
+    const candidateName = withTrimmedSuffix(baseName, suffix, 80);
+    const candidateDesc = `${baseDesc} variant ${i}: different location and subject required.`.slice(0, 500);
+    const normalizedName = normalizeIdeaText(candidateName);
+    const normalizedDesc = normalizeIdeaText(candidateDesc);
+    const key = ideaKey(candidateName, candidateDesc);
+    if (
+      !existing.keys.has(key) &&
+      !existing.titles.has(normalizedName) &&
+      !existing.descriptions.has(normalizedDesc)
+    ) {
+      existing.keys.add(key);
+      existing.titles.add(normalizedName);
+      existing.descriptions.add(normalizedDesc);
+      return { name: candidateName, description: candidateDesc };
+    }
+  }
+
+  const fallbackToken = Date.now().toString().slice(-6);
+  const fallbackName = withTrimmedSuffix(baseName, ` ${fallbackToken}`, 80);
+  const fallbackDesc = `${baseDesc} unique run ${fallbackToken}.`.slice(0, 500);
+  const key = ideaKey(fallbackName, fallbackDesc);
+  existing.keys.add(key);
+  existing.titles.add(normalizeIdeaText(fallbackName));
+  existing.descriptions.add(normalizeIdeaText(fallbackDesc));
+  return { name: fallbackName, description: fallbackDesc };
+}
 
 const SYSTEM_PROMPT = `you are ${BOT_USERNAME}, an autonomous bounty agent for the poidh (pics or it didn't happen) platform on farcaster.
 
@@ -668,9 +759,16 @@ export async function runAgent(ctx: AgentContext): Promise<AgentResponse> {
   if (action === "create_bounty_onchain") {
     const idea = AUTONOMOUS_BOUNTY_IDEAS[Math.floor(Math.random() * AUTONOMOUS_BOUNTY_IDEAS.length)];
     const authorSuffix = ctx.authorUsername ? ` by @${ctx.authorUsername}` : "";
+    const existingIdeaIndex = await getExistingIdeaIndex();
+    const uniqueIdea = makeUniqueIdea(
+      `${idea.name}${authorSuffix}`.slice(0, 80),
+      idea.description,
+      existingIdeaIndex,
+    );
     const namedIdea = {
       ...idea,
-      name: `${idea.name}${authorSuffix}`.slice(0, 80),
+      name: uniqueIdea.name,
+      description: uniqueIdea.description,
     };
     const reply = `on it — deploying "${namedIdea.name}" on-chain now with ${idea.amountEth} ETH. anyone can add funds at poidh.xyz. stand by.`;
     return { reply, action, onChainBounty: namedIdea };
@@ -732,6 +830,7 @@ export async function runAgent(ctx: AgentContext): Promise<AgentResponse> {
 
   // suggest_bounty — expects JSON back, with plain text fallback
   if (action === "suggest_bounty") {
+    const existingIdeaIndex = await getExistingIdeaIndex();
     const jsonMatch = raw.match(/\{[\s\S]*?\}/);
     if (jsonMatch) {
       try {
@@ -744,9 +843,14 @@ export async function runAgent(ctx: AgentContext): Promise<AgentResponse> {
         // Strip any hallucinated ETH/reward amounts from the description
         const rawDesc = (parsed.description ?? replyText).slice(0, 500);
         const bountyDescription = rawDesc.replace(/\b\d+(\.\d+)?\s*(eth|degen|usdc|usd|\$)/gi, "").replace(/winner gets.*?[.!]/gi, "").trim();
+        const uniqueIdea = makeUniqueIdea(
+          fullName || `bounty by @${ctx.authorUsername}`,
+          bountyDescription,
+          existingIdeaIndex,
+        );
 
         // Validate the suggested bounty is real-world (not digital-only)
-        const validation = validateRealWorldBounty(fullName, bountyDescription);
+        const validation = validateRealWorldBounty(uniqueIdea.name, uniqueIdea.description);
         if (!validation.valid) {
           console.log(`[agent] suggested bounty rejected by validation: ${validation.reason}`);
           // Re-prompt the user toward a real-world idea instead
@@ -760,8 +864,8 @@ export async function runAgent(ctx: AgentContext): Promise<AgentResponse> {
           reply: replyText,
           action,
           suggestedIdea: {
-            name: fullName || `bounty by @${ctx.authorUsername}`,
-            description: bountyDescription,
+            name: uniqueIdea.name,
+            description: uniqueIdea.description,
           },
         };
       } catch {
@@ -777,12 +881,17 @@ export async function runAgent(ctx: AgentContext): Promise<AgentResponse> {
       : stripMarkdown(raw).slice(0, 320);
     const authorSuffix = ctx.authorUsername ? ` by @${ctx.authorUsername}` : "";
     const nameGuess = plain.split(/[.!?]/)[0].slice(0, 50).toLowerCase().trim();
+    const uniqueIdea = makeUniqueIdea(
+      `${nameGuess}${authorSuffix}`.slice(0, 80) || `bounty by @${ctx.authorUsername}`,
+      plain,
+      existingIdeaIndex,
+    );
     return {
       reply: plain,
       action,
       suggestedIdea: {
-        name: `${nameGuess}${authorSuffix}`.slice(0, 80) || `bounty by @${ctx.authorUsername}`,
-        description: plain,
+        name: uniqueIdea.name,
+        description: uniqueIdea.description,
       },
     };
   }

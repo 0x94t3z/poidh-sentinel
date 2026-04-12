@@ -20,7 +20,12 @@ import {
 } from "@/features/bot/conversation-state";
 import { registerPendingPayment, getAllAwaitingPayment } from "@/features/bot/conversation-state-registry";
 import { markCastProcessed, pruneProcessedCasts, getBountyThread, updateBounty, getActiveBounty } from "@/db/actions/bot-actions";
-import { cancelBounty, getBountyDetails, getTxExplorerUrl } from "@/features/bot/poidh-contract";
+import {
+  cancelBounty,
+  getBountyDetails,
+  getTxExplorerUrl,
+  retryCancelledBountyRefundFromPending,
+} from "@/features/bot/poidh-contract";
 import { resolveAddressesToUsernames, MIN_OPEN_DURATION_HOURS } from "@/features/bot/bounty-loop";
 import type { WebhookPayload, BotLogEntry } from "@/features/bot/types";
 
@@ -627,15 +632,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // Cancel request: creator says "cancel bounty" in the bounty thread — @mention not required
     // since the bot is already monitoring all replies in bounty threads
     if (inBountyThread && bountyThread && isCancelRequest(text)) {
-      // Check if already closed before starting the confirmation flow
       const existingBounty = await getActiveBounty(bountyThread.bountyId);
-      if (existingBounty?.status === "closed") {
-        logEntry.action = "cancel_already_closed";
-        logEntry.replyText = "already closed";
-        await reply(`"${bountyThread.bountyName}" is already closed — nothing to cancel.`, hash);
-        await appendLog(logEntry);
-        return NextResponse.json({ ok: true });
-      }
 
       // Only the bounty creator can cancel — reject everyone else.
       // creatorFid may be null for bounties created before this field was added.
@@ -667,6 +664,59 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         await reply(`couldn't resolve your wallet address — can't safely send the refund. DM @${ownerHandle} to arrange a manual cancel and refund.`, hash);
         await appendLog(logEntry);
         return NextResponse.json({ ok: true });
+      }
+
+      if (existingBounty?.status === "closed") {
+        // Closed + cancelled thread can still need a safe refund retry if a prior transfer failed.
+        const lookedCancelled = (existingBounty.winnerReasoning ?? "").toLowerCase().includes("cancelled");
+        if (!lookedCancelled) {
+          logEntry.action = "cancel_already_closed";
+          logEntry.replyText = "already closed";
+          await reply(`"${bountyThread.bountyName}" is already closed — nothing to cancel.`, hash);
+          await appendLog(logEntry);
+          return NextResponse.json({ ok: true });
+        }
+
+        try {
+          const bountyAmountWei = existingBounty.amountEth ? parseEther(existingBounty.amountEth) : undefined;
+          if (!bountyAmountWei) {
+            throw new Error("missing bounty amount for refund retry");
+          }
+          const retry = await retryCancelledBountyRefundFromPending(
+            BigInt(bountyThread.bountyId),
+            bountyThread.chain,
+            resolvedRefundAddress,
+            bountyAmountWei,
+          );
+          if (retry.refundTxHash) {
+            const explorer = getTxExplorerUrl(bountyThread.chain, retry.refundTxHash);
+            logEntry.action = "cancel_refund_retry_success";
+            logEntry.replyText = "refund retry success";
+            await reply(
+              `this bounty was already cancelled, but i retried the refund and sent it now.\n\n${explorer}`,
+              hash,
+            );
+            await appendLog(logEntry);
+            return NextResponse.json({ ok: true });
+          }
+
+          logEntry.action = "cancel_already_closed";
+          logEntry.replyText = "already closed (no pending refund)";
+          await reply(`"${bountyThread.bountyName}" is already closed and no pending refund was found.`, hash);
+          await appendLog(logEntry);
+          return NextResponse.json({ ok: true });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          const ownerHandle = process.env.BOT_OWNER_HANDLE ?? "0x94t3z.eth";
+          logEntry.action = "cancel_refund_retry_failed";
+          logEntry.replyText = `refund retry failed: ${msg.slice(0, 120)}`;
+          await reply(
+            `this bounty is already cancelled, but refund retry failed: ${msg.slice(0, 120)}. DM @${ownerHandle} and include this cast hash.`,
+            hash,
+          );
+          await appendLog(logEntry);
+          return NextResponse.json({ ok: true });
+        }
       }
 
       const shortRefund = `${resolvedRefundAddress.slice(0, 6)}...${resolvedRefundAddress.slice(-4)}`;

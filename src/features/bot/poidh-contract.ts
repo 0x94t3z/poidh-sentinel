@@ -637,12 +637,17 @@ export async function cancelBounty(
   // Wait for cancel tx to be mined
   await publicClient.waitForTransactionReceipt({ hash: cancelTxHash, timeout: 60_000 });
 
-  // For open bounties: best-effort claim of issuer refund from cancelled bounty.
-  // Some contract states already credit the issuer, or the claim may have been
-  // executed in a previous attempt. In those cases this call can revert even
-  // though cancellation succeeded, so treat it as recoverable.
+  // Read pendingWithdrawals AFTER cancel.
+  // On current official PoidhV3, cancelOpenBounty already credits issuer refund to pendingWithdrawals.
+  // We only fallback to claimRefundFromCancelledOpenBounty if no new pending credit was observed.
+  let pendingAfter = await publicClient.readContract({
+    address: contractAddress,
+    abi: POIDH_ABI,
+    functionName: "pendingWithdrawals",
+    args: [account.address],
+  }) as bigint;
   let claimRefundTxHash: `0x${string}` | undefined;
-  if (isOpen) {
+  if (isOpen && pendingAfter <= pendingBefore) {
     try {
       claimRefundTxHash = await client.writeContract({
         address: contractAddress,
@@ -652,22 +657,20 @@ export async function cancelBounty(
         account,
       });
       await publicClient.waitForTransactionReceipt({ hash: claimRefundTxHash, timeout: 60_000 });
+      pendingAfter = await publicClient.readContract({
+        address: contractAddress,
+        abi: POIDH_ABI,
+        functionName: "pendingWithdrawals",
+        args: [account.address],
+      }) as bigint;
       console.log(`[poidh-contract] claimRefundFromCancelledOpenBounty bountyId=${bountyId}: ${claimRefundTxHash}`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.warn(
-        `[poidh-contract] claimRefundFromCancelledOpenBounty failed for bountyId=${bountyId} chain=${chain}: ${msg}`,
+        `[poidh-contract] claimRefundFromCancelledOpenBounty fallback failed for bountyId=${bountyId} chain=${chain}: ${msg}`,
       );
     }
   }
-
-  // Read pendingWithdrawals AFTER cancel — the delta is exactly what this bounty credited
-  const pendingAfter = await publicClient.readContract({
-    address: contractAddress,
-    abi: POIDH_ABI,
-    functionName: "pendingWithdrawals",
-    args: [account.address],
-  }) as bigint;
 
   // Compute delta for sanity logging — how much this cancel actually credited
   const deltaAmount = pendingAfter > pendingBefore ? pendingAfter - pendingBefore : BigInt(0);
@@ -832,6 +835,89 @@ export async function cancelBounty(
   }
 
   return { cancelTxHash, withdrawTxHash, refundTxHash, method: functionName, refundAddress, externalContributors };
+}
+
+// Retry refund for a bounty that is already cancelled on-chain.
+// Safe mode: only proceeds when there are pending withdrawals for the bot wallet.
+export async function retryCancelledBountyRefundFromPending(
+  bountyId: bigint,
+  chain: string,
+  creatorRefundAddress: string,
+  bountyAmountWei: bigint,
+): Promise<{ refundTxHash?: string; withdrawTxHash?: string; pendingBefore: bigint; pendingAfter: bigint }> {
+  const publicClient = getPublicClient(chain);
+  const { client, account } = getWalletClient(chain);
+  const contractAddress = POIDH_CONTRACTS[chain] ?? POIDH_CONTRACT;
+
+  const details = await getBountyDetails(bountyId, chain);
+  const isCancelled = details.claimer.toLowerCase() === details.issuer.toLowerCase();
+  if (!isCancelled) {
+    throw new Error("bounty is not cancelled on-chain");
+  }
+
+  const isValidRefundTarget =
+    creatorRefundAddress &&
+    creatorRefundAddress.startsWith("0x") &&
+    creatorRefundAddress.length === 42 &&
+    creatorRefundAddress.toLowerCase() !== account.address.toLowerCase();
+  if (!isValidRefundTarget) {
+    throw new Error("invalid refund address");
+  }
+
+  const pendingBefore = await publicClient.readContract({
+    address: contractAddress,
+    abi: POIDH_ABI,
+    functionName: "pendingWithdrawals",
+    args: [account.address],
+  }) as bigint;
+
+  if (pendingBefore === BigInt(0)) {
+    return { pendingBefore, pendingAfter: BigInt(0) };
+  }
+
+  let withdrawTxHash: `0x${string}` | undefined;
+  // Exact match => safest single-tx payout directly to creator.
+  if (pendingBefore === bountyAmountWei) {
+    withdrawTxHash = await client.writeContract({
+      address: contractAddress,
+      abi: POIDH_ABI,
+      functionName: "withdrawTo",
+      args: [creatorRefundAddress as `0x${string}`],
+      account,
+    });
+    await publicClient.waitForTransactionReceipt({ hash: withdrawTxHash, timeout: 60_000 });
+    return { refundTxHash: withdrawTxHash, withdrawTxHash, pendingBefore, pendingAfter: BigInt(0) };
+  }
+
+  // Mixed pending pool: withdraw to bot wallet first, then send exact bounty amount.
+  withdrawTxHash = await client.writeContract({
+    address: contractAddress,
+    abi: POIDH_ABI,
+    functionName: "withdraw",
+    args: [],
+    account,
+  });
+  await publicClient.waitForTransactionReceipt({ hash: withdrawTxHash, timeout: 60_000 });
+
+  const botBalance = await publicClient.getBalance({ address: account.address });
+  if (botBalance < bountyAmountWei) {
+    throw new Error("insufficient bot balance after withdraw for refund transfer");
+  }
+
+  const refundTxHash = await client.sendTransaction({
+    to: creatorRefundAddress as `0x${string}`,
+    value: bountyAmountWei,
+    account,
+  });
+  await publicClient.waitForTransactionReceipt({ hash: refundTxHash, timeout: 60_000 });
+
+  const pendingAfter = await publicClient.readContract({
+    address: contractAddress,
+    abi: POIDH_ABI,
+    functionName: "pendingWithdrawals",
+    args: [account.address],
+  }) as bigint;
+  return { refundTxHash, withdrawTxHash, pendingBefore, pendingAfter };
 }
 
 export async function getBountyDetails(bountyId: bigint, chain = "arbitrum") {
