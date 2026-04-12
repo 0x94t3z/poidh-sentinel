@@ -641,7 +641,7 @@ export async function cancelBounty(
   // Some contract states already credit the issuer, or the claim may have been
   // executed in a previous attempt. In those cases this call can revert even
   // though cancellation succeeded, so treat it as recoverable.
-  let claimRefundTxHash: string | undefined;
+  let claimRefundTxHash: `0x${string}` | undefined;
   if (isOpen) {
     try {
       claimRefundTxHash = await client.writeContract({
