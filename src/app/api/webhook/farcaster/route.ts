@@ -202,11 +202,6 @@ async function handleConversationFlow(
 
   // --- Step: awaiting_confirmation ---
   if (state.step === "awaiting_confirmation") {
-    if (await isRejection(text)) {
-      await clearConversation(threadHash);
-      return "no worries — mention me anytime if you want a different idea.";
-    }
-
     if (await isConfirmation(text)) {
       // Bonus: if they also mentioned a chain + amount in the same message, skip ahead
       const earlyChain = await parseChain(text);
@@ -225,6 +220,11 @@ async function handleConversationFlow(
       }
       await setConversation(threadHash, { ...state, step: "awaiting_chain" });
       return `nice! which chain — arbitrum, base, or degen? and how much do you want to put up? minimums: arbitrum/base = 0.001 ETH, degen = 1000 DEGEN.`;
+    }
+
+    if (await isRejection(text)) {
+      await clearConversation(threadHash);
+      return "no worries — mention me anytime if you want a different idea.";
     }
 
     // Not a clear yes or no — only re-prompt if they explicitly @mentioned the bot,

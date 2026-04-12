@@ -193,6 +193,13 @@ export async function parseBountyType(text: string): Promise<"open" | "solo" | n
 // Check if text is a rejection — keyword-first, LLM fallback
 export async function isRejection(text: string): Promise<boolean> {
   const lower = text.toLowerCase().trim();
+  const obviousYes =
+    /^(yes|yeah|yep|yup|y|sure|do it|lfg|wagmi|w|pls|plz|please)[\s!,.]?$/.test(lower) ||
+    lower.startsWith("yes,") || lower.startsWith("yes ") || lower.startsWith("yes!") ||
+    lower.startsWith("yeah,") || lower.startsWith("yeah ") || lower.startsWith("yeah!") ||
+    lower.startsWith("sure,") || lower.startsWith("sure ") || lower.startsWith("sure!");
+  if (obviousYes) return false;
+
   if (/^(no|n|nope|nah)[\s!,.]?$/.test(lower)) return true;
   if (lower.startsWith("no,") || lower.startsWith("no ") || lower.startsWith("no!")) return true;
   if (lower.includes("different") || lower.includes("another idea") || lower.includes("other idea")) return true;
