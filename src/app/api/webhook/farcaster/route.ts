@@ -325,16 +325,25 @@ async function handleConversationFlow(
     const bountyId = state.cancelBountyId;
     const bountyChain = state.cancelBountyChain ?? "arbitrum";
 
-    if (
-      lower.includes("nevermind") || lower.includes("never mind") || lower.includes("keep it") ||
-      await isRejection(text)
-    ) {
+    const cancelRejected =
+      /^(no|n|nope|nah)[\s!,.]*$/.test(lower) ||
+      lower.includes("nevermind") ||
+      lower.includes("never mind") ||
+      lower.includes("keep it") ||
+      lower.includes("keep it open") ||
+      lower.includes("don't cancel") ||
+      lower.includes("do not cancel");
+
+    if (cancelRejected) {
       await clearConversation(threadHash);
       return `ok, bounty stays open. good luck!`;
     }
 
-    // Use LLM to decide if this is a clear cancel confirmation
-    const isYesCancel = await isConfirmation(text);
+    // Cancel confirmation is safety-critical: use deterministic parsing only.
+    // Accept either "yes cancel" (preferred) or a plain "yes" at this step.
+    const isYesCancel =
+      /^(yes|y|confirm|confirmed|proceed|ok|okay|do it)(\s+cancel)?[\s!,.]*$/.test(lower) ||
+      ((lower.includes("yes") || lower.includes("confirm")) && lower.includes("cancel"));
 
     if (!isYesCancel) {
       // Re-prompt only if they explicitly @mentioned the bot, otherwise stay silent

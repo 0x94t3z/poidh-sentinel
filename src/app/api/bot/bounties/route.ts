@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { getAllBounties } from "@/features/bot/bounty-store";
 import { getBountyDetails, getClaimIssuer } from "@/features/bot/poidh-contract";
 import { updateBounty } from "@/db/actions/bot-actions";
+import { db } from "@/neynar-db-sdk/db";
+import { bountyThreads } from "@/db/schema";
 import { formatEther } from "viem";
 
 // Batch-resolve ETH addresses → Farcaster usernames via Neynar bulk-by-address.
@@ -30,7 +32,71 @@ async function resolveAddressesToFarcasterUsernames(addresses: string[]): Promis
 }
 
 export async function GET(): Promise<NextResponse> {
+  const ZERO_ADDR = "0x0000000000000000000000000000000000000000";
   const bounties = await getAllBounties();
+
+  // Fallback source for mini app visibility:
+  // if a bounty announcement thread exists but active_bounties row is missing,
+  // synthesize a read-only bounty card so it still appears in the dashboard.
+  const existingByChainAndId = new Set(
+    bounties.map((b) => `${b.chain}:${b.bountyId}`),
+  );
+  const existingThreadHashes = new Set(
+    bounties
+      .map((b) => b.announcementCastHash ?? b.castHash)
+      .filter((h): h is string => !!h),
+  );
+
+  const threadRows = await db.select().from(bountyThreads);
+  const missingFromActive = threadRows.filter(
+    (t) =>
+      !existingByChainAndId.has(`${t.chain}:${t.bountyId}`) &&
+      !existingThreadHashes.has(t.castHash),
+  );
+
+  const synthesizedFromThreads = await Promise.all(
+    missingFromActive.map(async (t) => {
+      let amountEth = "0";
+      let status: "open" | "evaluating" | "closed" = t.winnerClaimId ? "closed" : "open";
+      let liveAmountEth: string | null = null;
+
+      if (!t.bountyId.startsWith("pending-")) {
+        try {
+          const details = await getBountyDetails(BigInt(t.bountyId), t.chain);
+          liveAmountEth = parseFloat(formatEther(details.amount))
+            .toFixed(6)
+            .replace(/\.?0+$/, "");
+          amountEth = liveAmountEth || "0";
+          if (details.claimer !== ZERO_ADDR) status = "closed";
+        } catch {
+          // non-critical fallback
+        }
+      }
+
+      return {
+        bountyId: t.bountyId,
+        txHash: "",
+        name: t.bountyName,
+        description: t.bountyDescription,
+        amountEth,
+        liveAmountEth,
+        chain: t.chain,
+        castHash: t.castHash,
+        creatorFid: undefined,
+        announcementCastHash: t.castHash,
+        bountyType: "open" as const,
+        status,
+        winnerClaimId: t.winnerClaimId ?? undefined,
+        winnerIssuer: t.winnerIssuer ?? undefined,
+        winnerTxHash: undefined,
+        winnerReasoning: t.winnerReasoning ?? undefined,
+        allEvalResults: undefined,
+        lastCheckedAt: undefined,
+        claimCount: 0,
+        createdAt: t.createdAt.toISOString(),
+      };
+    }),
+  );
 
   // Step 1: backfill winnerIssuer for old closed bounties that have a winnerClaimId but no address.
   // Fetch from contract in parallel, then persist so we only do this once per bounty.
@@ -103,9 +169,14 @@ export async function GET(): Promise<NextResponse> {
   );
 
   // Step 3: batch-resolve all winner addresses → Farcaster usernames
-  const winnerAddresses = enriched
+  const winnerAddresses = [
+    ...enriched
     .filter((b) => b.status === "closed" && b.winnerIssuer)
-    .map((b) => b.winnerIssuer as string);
+    .map((b) => b.winnerIssuer as string),
+    ...synthesizedFromThreads
+      .filter((b) => b.status === "closed" && b.winnerIssuer)
+      .map((b) => b.winnerIssuer as string),
+  ];
 
   const usernameMap = await resolveAddressesToFarcasterUsernames(winnerAddresses);
 
@@ -117,5 +188,17 @@ export async function GET(): Promise<NextResponse> {
     return { ...b, winnerUsername: null };
   });
 
-  return NextResponse.json({ bounties: withUsernames });
+  const synthesizedWithUsernames = synthesizedFromThreads.map((b) => {
+    if (b.status === "closed" && b.winnerIssuer) {
+      const username = usernameMap.get(b.winnerIssuer.toLowerCase());
+      return { ...b, winnerUsername: username ?? null };
+    }
+    return { ...b, winnerUsername: null };
+  });
+
+  const merged = [...withUsernames, ...synthesizedWithUsernames].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  );
+
+  return NextResponse.json({ bounties: merged });
 }
