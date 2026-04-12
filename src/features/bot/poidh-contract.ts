@@ -710,7 +710,11 @@ export async function cancelBounty(
     creatorRefundAddress.toLowerCase() !== account.address.toLowerCase();
 
   if (pendingAfter > BigInt(0)) {
-    if (isValidRefundTarget) {
+    const canUseDirectWithdrawTo =
+      isValidRefundTarget &&
+      pendingAfter === bountyRefundAmount;
+
+    if (canUseDirectWithdrawTo) {
       withdrawTxHash = await client.writeContract({
         address: contractAddress,
         abi: POIDH_ABI,
@@ -722,6 +726,12 @@ export async function cancelBounty(
       refundTxHash = withdrawTxHash as `0x${string}`;
       console.log(`[poidh-contract] withdrawTo creator wallet: ${withdrawTxHash} -> ${creatorRefundAddress}`);
     } else {
+      if (isValidRefundTarget && pendingAfter !== bountyRefundAmount) {
+        console.warn(
+          `[poidh-contract] cancelBounty: skipping withdrawTo because pending=${formatEther(pendingAfter)} ` +
+          `!= refundAmount=${formatEther(bountyRefundAmount)} for bountyId=${bountyId}`,
+        );
+      }
       // Invalid target (or bot wallet): keep current safe behavior and pull to bot wallet only.
       withdrawTxHash = await client.writeContract({
         address: contractAddress,
