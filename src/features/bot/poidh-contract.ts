@@ -709,7 +709,28 @@ export async function cancelBounty(
     creatorRefundAddress.length === 42 &&
     creatorRefundAddress.toLowerCase() !== account.address.toLowerCase();
 
-  if (pendingAfter > BigInt(0)) {
+  // Prefer a plain wallet refund first if the bot already has enough free balance.
+  // This keeps the user-facing refund path as a normal transfer to creator wallet.
+  const gasReserve = chain === "degen" ? parseEther("0.01") : parseEther("0.00005");
+  const botBalanceNow = await publicClient.getBalance({ address: account.address });
+  const canDirectSendFromWallet =
+    !!isValidRefundTarget &&
+    botBalanceNow > bountyRefundAmount + gasReserve;
+
+  if (canDirectSendFromWallet) {
+    refundTxHash = await client.sendTransaction({
+      to: creatorRefundAddress as `0x${string}`,
+      value: bountyRefundAmount,
+      account,
+    });
+    await publicClient.waitForTransactionReceipt({ hash: refundTxHash as `0x${string}`, timeout: 60_000 });
+    console.log(
+      `[poidh-contract] direct refund ${formatEther(bountyRefundAmount)} ${nativeCurrency} sent ` +
+      `to ${creatorRefundAddress}: ${refundTxHash}`,
+    );
+  }
+
+  if (!refundTxHash && pendingAfter > BigInt(0)) {
     const canUseDirectWithdrawTo =
       isValidRefundTarget &&
       pendingAfter === bountyRefundAmount;
