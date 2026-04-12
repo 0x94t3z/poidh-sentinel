@@ -6,6 +6,10 @@ import { db } from "@/neynar-db-sdk/db";
 import { bountyThreads } from "@/db/schema";
 import { formatEther } from "viem";
 
+// This endpoint powers live mini-app state; never serve a build-time snapshot.
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 // Batch-resolve ETH addresses → Farcaster usernames via Neynar bulk-by-address.
 // Returns a map of lowercase address → username. Missing = no Farcaster account found.
 async function resolveAddressesToFarcasterUsernames(addresses: string[]): Promise<Map<string, string>> {
@@ -160,6 +164,22 @@ export async function GET(): Promise<NextResponse> {
       }
       try {
         const details = await getBountyDetails(BigInt(b.bountyId), b.chain);
+        const isOnChainClosed = details.claimer !== ZERO_ADDR;
+        if (isOnChainClosed && b.status !== "closed") {
+          const wasCancelled = details.claimer.toLowerCase() === details.issuer.toLowerCase();
+          const nextReasoning = wasCancelled
+            ? (base.winnerReasoning ?? "bounty cancelled by issuer")
+            : base.winnerReasoning;
+
+          // Auto-heal stale DB rows when on-chain state is already finalized.
+          await updateBounty(b.bountyId, {
+            status: "closed",
+            ...(nextReasoning ? { winnerReasoning: nextReasoning } : {}),
+          }).catch(() => {});
+
+          return { ...base, status: "closed" as const, winnerReasoning: nextReasoning, liveAmountEth: null };
+        }
+
         const liveAmountEth = parseFloat(formatEther(details.amount)).toFixed(6).replace(/\.?0+$/, "");
         return { ...base, liveAmountEth };
       } catch {
@@ -200,5 +220,8 @@ export async function GET(): Promise<NextResponse> {
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
   );
 
-  return NextResponse.json({ bounties: merged });
+  return NextResponse.json(
+    { bounties: merged },
+    { headers: { "Cache-Control": "no-store, max-age=0" } },
+  );
 }

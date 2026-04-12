@@ -20,7 +20,7 @@ import {
 } from "@/features/bot/conversation-state";
 import { registerPendingPayment, getAllAwaitingPayment } from "@/features/bot/conversation-state-registry";
 import { markCastProcessed, pruneProcessedCasts, getBountyThread, updateBounty, getActiveBounty } from "@/db/actions/bot-actions";
-import { cancelBounty, getTxExplorerUrl } from "@/features/bot/poidh-contract";
+import { cancelBounty, getBountyDetails, getTxExplorerUrl } from "@/features/bot/poidh-contract";
 import { resolveAddressesToUsernames, MIN_OPEN_DURATION_HOURS } from "@/features/bot/bounty-loop";
 import type { WebhookPayload, BotLogEntry } from "@/features/bot/types";
 
@@ -406,9 +406,34 @@ async function handleConversationFlow(
       return `"${bountyName}" cancelled — ${refundLine}\n\n${cancelExplorerUrl}`;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      await clearConversation(threadHash);
+      const lowerMsg = msg.toLowerCase();
 
-      if (msg.toLowerCase().includes("voting") || msg.toLowerCase().includes("vote")) {
+      // If a post-cancel step fails (e.g. claimRefundFromCancelledOpenBounty),
+      // verify the bounty's on-chain terminal state before reporting failure.
+      try {
+        if (bountyId) {
+          const details = await getBountyDetails(BigInt(bountyId), bountyChain);
+          const wasClosedOnChain = details.claimer !== "0x0000000000000000000000000000000000000000";
+          const wasCancelledOnChain = wasClosedOnChain &&
+            details.claimer.toLowerCase() === details.issuer.toLowerCase();
+
+          if (wasCancelledOnChain) {
+            await updateBounty(bountyId, {
+              status: "closed",
+              winnerReasoning: `bounty cancelled by @${state.authorUsername}`,
+            }).catch(() => {});
+            await clearConversation(threadHash);
+
+            const ownerHandle = process.env.BOT_OWNER_HANDLE ?? "0x94t3z.eth";
+            return `bounty is already cancelled on-chain, but the refund step hit an error. if funds don't arrive soon, DM @${ownerHandle} and include this: ${msg.slice(0, 120)}`;
+          }
+        }
+      } catch {
+        // non-critical fallback — preserve original error handling below
+      }
+
+      await clearConversation(threadHash);
+      if (lowerMsg.includes("voting") || lowerMsg.includes("vote")) {
         return `can't cancel right now — a community vote is in progress. wait for the vote to resolve first, then try again.`;
       }
       return `cancel failed: ${msg.slice(0, 150)}`;
