@@ -14,6 +14,7 @@ interface ActiveBounty {
   liveAmountEth: string | null;
   chain: string;
   createdAt: string;
+  lastCheckedAt?: string;
   status: "open" | "evaluating" | "closed";
   claimCount: number;
   winnerClaimId?: string;
@@ -109,13 +110,6 @@ export function Dashboard({ botUsername }: { botUsername: string }) {
 
   const currency = (b: ActiveBounty) => CHAIN_CURRENCY[b.chain] ?? "ETH";
 
-  const STATUS_ORDER: Record<string, number> = { open: 0, evaluating: 1, closed: 2 };
-  const sortedBounties = [...bounties].sort((a, b) => {
-    const aOrder = a.winnerReasoning?.startsWith("bounty cancelled by") ? 3 : (STATUS_ORDER[a.status] ?? 2);
-    const bOrder = b.winnerReasoning?.startsWith("bounty cancelled by") ? 3 : (STATUS_ORDER[b.status] ?? 2);
-    return aOrder - bOrder;
-  });
-
   const [showAllBounties, setShowAllBounties] = useState(false);
   const BOUNTIES_INITIAL = 5;
   const toBountyTab = (b: ActiveBounty): BountyTab => {
@@ -123,6 +117,24 @@ export function Dashboard({ botUsername }: { botUsername: string }) {
     if (b.status === "closed") return "closed";
     return "open"; // includes open + evaluating
   };
+  const TAB_ORDER: Record<BountyTab, number> = { open: 0, closed: 1, cancelled: 2 };
+  const asTime = (value?: string): number => {
+    if (!value) return 0;
+    const ts = new Date(value).getTime();
+    return Number.isFinite(ts) ? ts : 0;
+  };
+  const sortTimestamp = (b: ActiveBounty): number => {
+    // Closed/cancelled should prioritize most recently finalized/retried rows.
+    if (toBountyTab(b) !== "open") return asTime(b.lastCheckedAt) || asTime(b.createdAt);
+    // Open/evaluating should prioritize newest created bounty.
+    return asTime(b.createdAt);
+  };
+  const sortedBounties = [...bounties].sort((a, b) => {
+    const tabDelta = TAB_ORDER[toBountyTab(a)] - TAB_ORDER[toBountyTab(b)];
+    if (tabDelta !== 0) return tabDelta;
+    return sortTimestamp(b) - sortTimestamp(a);
+  });
+
   const openBounties = sortedBounties.filter((b) => toBountyTab(b) === "open").length;
   const closedBounties = sortedBounties.filter((b) => toBountyTab(b) === "closed").length;
   const cancelledBounties = sortedBounties.filter((b) => toBountyTab(b) === "cancelled").length;
