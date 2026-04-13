@@ -79,6 +79,25 @@ function shortenAddress(addr: string): string {
   return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
 }
 
+function buildThanksLine(mentions: string[], maxChars = 220): string {
+  if (mentions.length === 0) return "";
+
+  const prefix = " thanks ";
+  const bang = "!";
+  const compactOnly = `${prefix}${mentions.length} contributors${bang}`;
+
+  let included = [...mentions];
+  while (included.length > 0) {
+    const omitted = mentions.length - included.length;
+    const more = omitted > 0 ? ` +${omitted} more` : "";
+    const candidate = `${prefix}${included.join(", ")}${more}${bang}`;
+    if (candidate.length <= maxChars) return candidate;
+    included.pop();
+  }
+
+  return compactOnly;
+}
+
 // Resolve a single Farcaster FID → @username using the Neynar bulk endpoint
 async function resolveFidToUsername(fid: number): Promise<string | null> {
   const apiKey = process.env.NEYNAR_API_KEY;
@@ -183,9 +202,8 @@ async function postChannelWinnerAnnouncement(
       ...(creatorMention ? [creatorMention] : []),
       ...contributorMentions,
     ]
-      .filter((m, i, arr) => m !== winnerMention && arr.indexOf(m) === i)
-      .slice(0, 5);
-    const contribLine = allThanks.length > 0 ? ` thanks ${allThanks.join(", ")}!` : "";
+      .filter((m, i, arr) => m !== winnerMention && arr.indexOf(m) === i);
+    const contribLine = buildThanksLine(allThanks);
 
     // Currency label + pot amount
     const currency = chain === "degen" ? "DEGEN" : "ETH";
@@ -406,13 +424,12 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
               const humanContribsV = resolvedContributors
                 .filter((a) => a.toLowerCase() !== botAddrV && a.toLowerCase() !== (winnerAddr ?? "").toLowerCase())
                 .map((a) => uMap.get(a.toLowerCase()) ?? shortenAddress(a))
-                .filter((m, i, arr) => arr.indexOf(m) === i)
-                .slice(0, 4);
+                .filter((m, i, arr) => arr.indexOf(m) === i);
               const allThanksV = [
                 ...(creatorTag ? [creatorTag] : []),
                 ...humanContribsV,
-              ].filter((m, i, arr) => m !== wMention && arr.indexOf(m) === i).slice(0, 5);
-              const creatorLine = allThanksV.length > 0 ? ` thanks ${allThanksV.join(", ")}!` : "";
+              ].filter((m, i, arr) => m !== wMention && arr.indexOf(m) === i);
+              const creatorLine = buildThanksLine(allThanksV);
 
               // Short pointer reply in original thread
               await postReply(getReplyTarget(bounty), `🏆 vote closed — ${wMention} wins. see /poidh for the full announcement.`, bountyLink);
@@ -623,8 +640,7 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
       const humanContributorMentions = contributorAddresses
         .filter((a) => a.toLowerCase() !== botAddr && a.toLowerCase() !== (winnerIssuer ?? "").toLowerCase())
         .map((a) => usernameMap.get(a.toLowerCase()) ?? shortenAddress(a))
-        .filter((m, i, arr) => arr.indexOf(m) === i)
-        .slice(0, 4);
+        .filter((m, i, arr) => arr.indexOf(m) === i);
 
       if (method === "vote_submitted") {
         // Store full ranked results (with resolved usernames) so re-nomination + thread replies can use them
