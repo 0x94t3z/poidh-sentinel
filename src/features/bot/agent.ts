@@ -253,6 +253,16 @@ function isAskingAboutPot(text: string): boolean {
 async function detectAction(text: string): Promise<BountyAction> {
   const lower = text.toLowerCase();
 
+  // Deterministic shortcut for common "idea request" phrasing.
+  // This avoids LLM classifier miss-routing obvious prompts like
+  // "any ideas about bounty?" to general_reply.
+  if (
+    (lower.includes("any idea") || lower.includes("any ideas") || lower.includes("got any ideas") || lower.includes("idea for")) &&
+    (lower.includes("bounty") || lower.includes("bounties"))
+  ) {
+    return "suggest_bounty";
+  }
+
   // Deterministic shortcuts — these phrases are unambiguous, no LLM needed
   if (
     lower.includes("who wins") ||

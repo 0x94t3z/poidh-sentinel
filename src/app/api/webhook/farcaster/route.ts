@@ -142,6 +142,17 @@ function inferSuggestedIdeaFromParentText(parentText: string, authorUsername: st
   };
 }
 
+function isRecoverableCreationPrompt(parentText: string): boolean {
+  const lower = parentText.toLowerCase();
+  return (
+    lower.includes("want me to create this on-chain") ||
+    lower.includes("want me to create it on-chain") ||
+    lower.includes("want me to post this as a bounty") ||
+    lower.includes("reply yes to continue") ||
+    lower.includes("reply yes to proceed")
+  );
+}
+
 // Extract image URLs from Neynar embed objects
 function extractImageUrls(embeds: Array<{ url?: string }>): string[] {
   return embeds
@@ -724,7 +735,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // Recovery path:
     // If user confirms ("yes"/"ok"/etc.) directly under a bot proposal but the conversation
     // state was lost/cleared, rebuild state and continue deterministic chain+amount flow.
-    if (replyToBot && !inBountyThread && !inActiveThread && await isConfirmation(text)) {
+    if (
+      replyToBot &&
+      !inBountyThread &&
+      !inActiveThread &&
+      await isConfirmation(text) &&
+      isRecoverableCreationPrompt(parentInfo.text)
+    ) {
       const recoveredState = {
         step: "awaiting_chain" as const,
         authorFid: author.fid,
