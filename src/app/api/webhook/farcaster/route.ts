@@ -209,6 +209,25 @@ async function resolveFidToRefundAddress(fid: number): Promise<string | null> {
   }
 }
 
+// Best-effort recovery for legacy rows where creatorFid was not recorded:
+// read the original creation-thread cast and infer its author FID.
+async function resolveCreatorFidFromCastHash(castHash: string): Promise<number | null> {
+  const apiKey = process.env.NEYNAR_API_KEY;
+  if (!apiKey || !castHash) return null;
+  try {
+    const res = await fetch(
+      `https://api.neynar.com/v2/farcaster/cast?identifier=${castHash}&type=hash`,
+      { headers: { "x-api-key": apiKey } },
+    );
+    if (!res.ok) return null;
+    const data = await res.json() as { cast?: { author?: { fid?: number } } };
+    const fid = data.cast?.author?.fid;
+    return typeof fid === "number" && Number.isFinite(fid) && fid > 0 ? fid : null;
+  } catch {
+    return null;
+  }
+}
+
 
 // Detect cancel intent — in a bounty thread context, be generous: any "cancel" signal counts.
 // The creator confirmation step acts as the safety gate, not this detector.
@@ -431,7 +450,6 @@ async function handleConversationFlow(
       if (bountyRecord?.status === "closed") {
         const lookedCancelled = (bountyRecord.winnerReasoning ?? "").toLowerCase().includes("cancelled");
         const hasRecordedRefundTx = !!bountyRecord.winnerTxHash;
-        const refundPendingMarker = (bountyRecord.winnerReasoning ?? "").toLowerCase().includes("refund pending");
         if (!lookedCancelled) {
           await clearConversation(threadHash);
           return `"${bountyName}" is already closed — nothing to cancel.`;
@@ -443,18 +461,19 @@ async function handleConversationFlow(
           return `"${bountyName}" is already cancelled and refunded.\n\n${explorer}`;
         }
 
-        // Safety guard: if we don't have an explicit "refund pending" marker, avoid
-        // auto-sending again to prevent accidental double refund on legacy rows.
-        if (!refundPendingMarker) {
-          await clearConversation(threadHash);
-          const ownerHandle = process.env.BOT_OWNER_HANDLE ?? "0x94t3z.eth";
-          return `"${bountyName}" is already cancelled, but refund state is not marked pending. to avoid double send, auto-retry is blocked. DM @${ownerHandle} for manual verification.`;
+        // Auto-heal legacy rows that were cancelled but not marked pending.
+        const currentReason = bountyRecord.winnerReasoning ?? `bounty cancelled by @${state.authorUsername}`;
+        const pendingReason = /refund pending/i.test(currentReason)
+          ? currentReason
+          : `${currentReason} (refund pending - auto)`;
+        if (pendingReason !== currentReason) {
+          await updateBounty(bountyId, { winnerReasoning: pendingReason }).catch(() => {});
         }
 
         const bountyAmountWei = bountyRecord.amountEth ? parseEther(bountyRecord.amountEth) : undefined;
         if (!bountyAmountWei) {
           await clearConversation(threadHash);
-          return `this bounty is already cancelled, but refund retry could not run (missing bounty amount). DM @${process.env.BOT_OWNER_HANDLE ?? "0x94t3z.eth"} with this cast hash.`;
+          return `this bounty is already cancelled. refund retry is queued automatically once amount metadata is available.`;
         }
 
         try {
@@ -473,14 +492,17 @@ async function handleConversationFlow(
             const explorer = getTxExplorerUrl(bountyChain, retry.refundTxHash);
             return `this bounty was already cancelled, but i retried the refund and sent it now.\n\n${explorer}`;
           }
-          return `"${bountyName}" is already cancelled and no pending refund was found to retry.`;
+          return `"${bountyName}" is already cancelled. refund retry is queued and will continue automatically.`;
         } catch (retryErr) {
           const msg = retryErr instanceof Error ? retryErr.message : String(retryErr);
-          const ownerHandle = process.env.BOT_OWNER_HANDLE ?? "0x94t3z.eth";
           const txHashInError = extractTxHash(msg);
           const txLink = txHashInError ? `\n\n${getTxExplorerUrl(bountyChain, txHashInError)}` : "";
+          const pendingLowGas = msg.toLowerCase().includes("insufficient") || msg.toLowerCase().includes("balance");
+          await updateBounty(bountyId, {
+            winnerReasoning: `bounty cancelled by @${state.authorUsername} (${pendingLowGas ? "refund pending - low gas" : "refund pending"})`,
+          }).catch(() => {});
           await clearConversation(threadHash);
-          return `this bounty is already cancelled, but refund retry failed: ${msg.slice(0, 120)}. DM @${ownerHandle} and include this cast hash.${txLink}`;
+          return `this bounty is already cancelled. refund retry failed this run (${msg.slice(0, 120)}), but auto-retry will continue.${txLink}`;
         }
       }
       // Use the stored bounty amount as the exact refund — this is what the creator put up
@@ -504,7 +526,7 @@ async function handleConversationFlow(
       const cancelExplorerUrl = getTxExplorerUrl(bountyChain, cancelTxHash);
       const refundLine = refundTxHash
         ? `bounty amount sent to ${shortRefund}.`
-        : `${chainCurrency} held in bot wallet — DM to arrange refund.`;
+        : `${chainCurrency} refund is pending and will auto-retry from cron.`;
 
       if (method === "cancelOpenBounty" && externalContributors.length > 0) {
         // Resolve contributor addresses to @usernames and post a follow-up ping
@@ -549,11 +571,10 @@ async function handleConversationFlow(
             }).catch(() => {});
             await clearConversation(threadHash);
 
-            const ownerHandle = process.env.BOT_OWNER_HANDLE ?? "0x94t3z.eth";
             if (lowerMsg.includes("exceeds the balance")) {
-              return `bounty is cancelled on-chain, but refund transfer failed due to low bot gas reserve. i'll auto-retry once gas is topped up — no extra reply needed. if it still doesn't arrive, DM @${ownerHandle}.`;
+              return `bounty is cancelled on-chain, but refund transfer failed due to low bot gas reserve. i'll auto-retry once gas is topped up — no extra reply needed.`;
             }
-            return `bounty is already cancelled on-chain, but the refund step hit an error. if funds don't arrive soon, DM @${ownerHandle} and include this: ${msg.slice(0, 120)}`;
+            return `bounty is already cancelled on-chain, but the refund step hit an error. auto-retry is now queued: ${msg.slice(0, 120)}`;
           }
         }
       } catch {
@@ -715,20 +736,29 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // since the bot is already monitoring all replies in bounty threads
     if (inBountyThread && bountyThread && isCancelRequest(text)) {
       const existingBounty = await getActiveBounty(bountyThread.bountyId);
+      let creatorFid = existingBounty?.creatorFid;
+
+      // Legacy recovery: derive creatorFid from creation cast when missing.
+      if (!creatorFid && existingBounty?.castHash) {
+        const recoveredFid = await resolveCreatorFidFromCastHash(existingBounty.castHash);
+        if (recoveredFid) {
+          creatorFid = recoveredFid;
+          await updateBounty(existingBounty.bountyId, { creatorFid: recoveredFid }).catch(() => {});
+        }
+      }
 
       // Only the bounty creator can cancel — reject everyone else.
       // creatorFid may be null for bounties created before this field was added.
       // In that case we can't verify ownership — block the cancel and ask them to DM.
-      if (!existingBounty?.creatorFid) {
+      if (!creatorFid) {
         logEntry.action = "cancel_no_creator_fid";
         logEntry.replyText = "no creator fid on record";
-        const ownerHandle = process.env.BOT_OWNER_HANDLE ?? "0x94t3z.eth";
-        await reply(`this bounty was created before creator tracking was added — can't verify ownership automatically. DM @${ownerHandle} to arrange a manual cancel and refund.`, hash);
+        await reply(`couldn't verify creator identity yet for this legacy bounty. please retry "cancel bounty" once more in this thread and i'll re-check automatically.`, hash);
         await appendLog(logEntry);
         return NextResponse.json({ ok: true });
       }
 
-      if (existingBounty.creatorFid !== author.fid) {
+      if (creatorFid !== author.fid) {
         logEntry.action = "cancel_unauthorized";
         logEntry.replyText = "not creator";
         await reply(`only the person who created this bounty can cancel it.`, hash);
@@ -740,10 +770,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       // If we can't resolve it we block the cancel rather than risk sending to the bot wallet.
       const resolvedRefundAddress = await resolveFidToRefundAddress(author.fid);
       if (!resolvedRefundAddress) {
-        const ownerHandle = process.env.BOT_OWNER_HANDLE ?? "0x94t3z.eth";
         logEntry.action = "cancel_no_refund_address";
         logEntry.replyText = "could not resolve refund address";
-        await reply(`couldn't resolve your wallet address — can't safely send the refund. DM @${ownerHandle} to arrange a manual cancel and refund.`, hash);
+        await reply(`couldn't resolve your wallet address yet, so i can't safely run cancel+refund. please reply "cancel bounty" again in this thread and i'll retry address resolution automatically.`, hash);
         await appendLog(logEntry);
         return NextResponse.json({ ok: true });
       }

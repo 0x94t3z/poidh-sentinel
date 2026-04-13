@@ -363,17 +363,24 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
   const nowMs = Date.now();
   const pendingRefundBounties = allBounties.filter((b) => {
     const reason = (b.winnerReasoning ?? "").toLowerCase();
-    const isPending = reason.includes("refund pending");
+    const isCancelled = reason.includes("bounty cancelled by");
+    const alreadySent = reason.includes("refund sent");
     const needsTx = !b.winnerTxHash;
     const isClosed = b.status === "closed";
     const notPendingId = !b.bountyId.startsWith("pending-");
     const lastAttemptMs = b.lastCheckedAt ? new Date(b.lastCheckedAt).getTime() : 0;
     const staleEnough = !lastAttemptMs || nowMs - lastAttemptMs >= REFUND_RETRY_INTERVAL_MS;
-    return isClosed && isPending && needsTx && notPendingId && staleEnough;
+    return isClosed && isCancelled && !alreadySent && needsTx && notPendingId && staleEnough;
   });
 
   for (const bounty of pendingRefundBounties) {
     try {
+      const currentReason = bounty.winnerReasoning ?? "bounty cancelled by creator";
+      if (!/refund pending/i.test(currentReason)) {
+        const nextReason = `${currentReason} (refund pending - auto)`;
+        await updateBounty(bounty.bountyId, { winnerReasoning: nextReason }).catch(() => {});
+      }
+
       if (!bounty.creatorFid) {
         await updateBounty(bounty.bountyId, { lastCheckedAt: new Date().toISOString() });
         continue;

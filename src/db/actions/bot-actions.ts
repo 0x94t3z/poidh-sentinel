@@ -293,6 +293,7 @@ export async function updateBounty(bountyId: string, updates: Partial<ActiveBoun
     .update(activeBounties)
     .set({
       ...(updates.newBountyId !== undefined && { bountyId: updates.newBountyId }),
+      ...(updates.creatorFid !== undefined && { creatorFid: updates.creatorFid }),
       ...(updates.status !== undefined && { status: updates.status }),
       ...(updates.winnerClaimId !== undefined && { winnerClaimId: updates.winnerClaimId }),
       ...(updates.winnerIssuer !== undefined && { winnerIssuer: updates.winnerIssuer }),
