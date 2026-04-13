@@ -376,6 +376,24 @@ function hasExplicitCreateIntent(text: string): boolean {
   );
 }
 
+function isAmbiguousIdeaPrompt(text: string): boolean {
+  const normalized = text
+    .toLowerCase()
+    .trim()
+    .replace(/^@\S+\s+/, "")
+    .replace(/[!?.,]+$/g, "")
+    .trim();
+  return (
+    normalized === "idea" ||
+    normalized === "any idea" ||
+    normalized === "any ideas" ||
+    normalized === "got any idea" ||
+    normalized === "got any ideas" ||
+    normalized === "have any idea" ||
+    normalized === "have any ideas"
+  );
+}
+
 async function callLLM(
   messages: Array<{ role: string; content: string }>,
   modelIndex = 0,
@@ -740,6 +758,15 @@ export async function runAgent(ctx: AgentContext): Promise<AgentResponse> {
   const explicitCreateIntent = hasExplicitCreateIntent(ctx.castText);
   const inContext = inBountyThread || (!!ctx.replyToBot && !explicitCreateIntent);
   const action = inContext ? "general_reply" : await detectAction(ctx.castText);
+
+  // In bounty threads, "any idea?" is usually ambiguous (new bounty vs improving this bounty).
+  // Ask for clarification instead of letting the LLM make a random assumption.
+  if (action === "general_reply" && inBountyThread && isAmbiguousIdeaPrompt(ctx.castText)) {
+    return {
+      action,
+      reply: "do you mean an idea for this bounty submission, or a new bounty idea? reply \"submission idea\" or \"new bounty\".",
+    };
+  }
 
   // Wallet address — no LLM needed
   if (action === "wallet_address") {
