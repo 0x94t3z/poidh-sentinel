@@ -631,7 +631,9 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
         ...r,
         issuerUsername: r.issuer ? (usernameMap.get(r.issuer.toLowerCase()) ?? shortenAddress(r.issuer)) : undefined,
       }));
-      const winnerMention = winnerIssuer ? (usernameMap.get(winnerIssuer.toLowerCase()) ?? shortenAddress(winnerIssuer)) : "unknown";
+      const winnerMention = winnerIssuer
+        ? (usernameMap.get(winnerIssuer.toLowerCase()) ?? shortenAddress(winnerIssuer))
+        : (result.winnerClaimId ? `claim #${result.winnerClaimId}` : "winner");
       const creatorMention = bounty.creatorFid ? (await resolveFidToUsername(bounty.creatorFid)) : null;
 
       // On-chain contributors excluding the bot wallet (participant[0]) and the winner

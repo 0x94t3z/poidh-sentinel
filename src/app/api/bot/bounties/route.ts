@@ -35,6 +35,24 @@ async function resolveAddressesToFarcasterUsernames(addresses: string[]): Promis
   return map;
 }
 
+function winnerIssuerFromEvalResults(
+  winnerClaimId?: string,
+  allEvalResults?: unknown,
+): string | undefined {
+  if (!winnerClaimId || !Array.isArray(allEvalResults)) return undefined;
+
+  for (const row of allEvalResults) {
+    if (!row || typeof row !== "object") continue;
+    const rec = row as { claimId?: unknown; issuer?: unknown };
+    if (String(rec.claimId ?? "") !== winnerClaimId) continue;
+    if (typeof rec.issuer === "string" && rec.issuer.startsWith("0x") && rec.issuer.length === 42) {
+      return rec.issuer;
+    }
+  }
+
+  return undefined;
+}
+
 export async function GET(): Promise<NextResponse> {
   const ZERO_ADDR = "0x0000000000000000000000000000000000000000";
   const bounties = await getAllBounties();
@@ -102,10 +120,27 @@ export async function GET(): Promise<NextResponse> {
     }),
   );
 
-  // Step 1: backfill winnerIssuer for old closed bounties that have a winnerClaimId but no address.
-  // Fetch from contract in parallel, then persist so we only do this once per bounty.
+  // Step 1a: cheap/local backfill — recover winner issuer from stored allEvalResults first.
+  // This avoids unnecessary chain calls and fixes "unknown winner" display for legacy rows.
+  const backfillMap = new Map<string, string>();
+  const localBackfilled = bounties
+    .filter((b) => b.status === "closed" && b.winnerClaimId && !b.winnerIssuer)
+    .map((b) => ({
+      bountyId: b.bountyId,
+      issuer: winnerIssuerFromEvalResults(b.winnerClaimId, b.allEvalResults),
+    }))
+    .filter((r): r is { bountyId: string; issuer: string } => !!r.issuer);
+
+  await Promise.all(
+    localBackfilled.map(async (r) => {
+      backfillMap.set(r.bountyId, r.issuer);
+      await updateBounty(r.bountyId, { winnerIssuer: r.issuer }).catch(() => {});
+    }),
+  );
+
+  // Step 1b: on-chain backfill for remaining rows with missing winner issuer.
   const needsBackfill = bounties.filter(
-    (b) => b.status === "closed" && b.winnerClaimId && !b.winnerIssuer,
+    (b) => b.status === "closed" && b.winnerClaimId && !b.winnerIssuer && !backfillMap.has(b.bountyId),
   );
 
   const backfilledAddresses = await Promise.all(
@@ -119,8 +154,7 @@ export async function GET(): Promise<NextResponse> {
     }),
   );
 
-  // Persist backfilled winnerIssuer addresses
-  const backfillMap = new Map<string, string>();
+  // Persist on-chain backfilled winnerIssuer addresses
   await Promise.all(
     backfilledAddresses
       .filter((r) => r.issuer !== null)
