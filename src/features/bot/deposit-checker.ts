@@ -179,12 +179,13 @@ async function _checkDeposits(): Promise<void> {
           poidhUrl,
         });
       } else {
-        // bountyId not resolved yet — post plain text with tx hash, no embed
+        // bountyId not resolved yet — post tx explorer link (with embed), no poidh URL yet
         const explorerUrl = getTxExplorerUrl(chain, txHash);
         await publishReply({
-          text: `bounty tx confirmed — waiting for id to resolve. tx: ${explorerUrl}`,
+          text: `bounty tx confirmed — waiting for id to resolve. tx link: ${explorerUrl}`,
           parentHash: castHash,
           signerUuid,
+          embedUrl: explorerUrl,
         });
 
         const isSoloFallback = state.bountyType === "solo";
@@ -197,7 +198,7 @@ async function _checkDeposits(): Promise<void> {
           text: channelAnnouncement.slice(0, 1024),
           signerUuid,
           channelId: "poidh",
-          // no embedUrl — don't embed an explorer link as if it's the bounty page
+          embedUrl: explorerUrl,
         });
 
         // Save announcement hash and register thread even without a resolved bountyId

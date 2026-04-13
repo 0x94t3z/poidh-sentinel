@@ -172,6 +172,11 @@ function extractImageUrls(embeds: Array<{ url?: string }>): string[] {
     });
 }
 
+function extractTxHash(input: string): `0x${string}` | null {
+  const match = input.match(/0x[a-fA-F0-9]{64}/);
+  return (match?.[0] as `0x${string}`) ?? null;
+}
+
 async function reply(text: string, parentHash: string): Promise<void> {
   const signerUuid = process.env.BOT_SIGNER_UUID ?? "";
   if (!signerUuid) return;
@@ -472,8 +477,10 @@ async function handleConversationFlow(
         } catch (retryErr) {
           const msg = retryErr instanceof Error ? retryErr.message : String(retryErr);
           const ownerHandle = process.env.BOT_OWNER_HANDLE ?? "0x94t3z.eth";
+          const txHashInError = extractTxHash(msg);
+          const txLink = txHashInError ? `\n\n${getTxExplorerUrl(bountyChain, txHashInError)}` : "";
           await clearConversation(threadHash);
-          return `this bounty is already cancelled, but refund retry failed: ${msg.slice(0, 120)}. DM @${ownerHandle} and include this cast hash.`;
+          return `this bounty is already cancelled, but refund retry failed: ${msg.slice(0, 120)}. DM @${ownerHandle} and include this cast hash.${txLink}`;
         }
       }
       // Use the stored bounty amount as the exact refund — this is what the creator put up
@@ -557,7 +564,9 @@ async function handleConversationFlow(
       if (lowerMsg.includes("voting") || lowerMsg.includes("vote")) {
         return `can't cancel right now — a community vote is in progress. wait for the vote to resolve first, then try again.`;
       }
-      return `cancel failed: ${msg.slice(0, 150)}`;
+      const txHashInError = extractTxHash(msg);
+      const txLink = txHashInError ? `\n\n${getTxExplorerUrl(bountyChain, txHashInError)}` : "";
+      return `cancel failed: ${msg.slice(0, 150)}${txLink}`;
     }
   }
 

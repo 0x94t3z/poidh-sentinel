@@ -69,6 +69,13 @@ function poidhUrl(chain: string, rawBountyId: string): string {
   return `https://poidh.xyz/${slug}/bounty/${displayId}`;
 }
 
+function txExplorerUrl(chain: string, txHash?: string): string | null {
+  if (!txHash || !txHash.startsWith("0x")) return null;
+  if (chain === "base") return `https://basescan.org/tx/${txHash}`;
+  if (chain === "degen") return `https://explorer.degen.tips/tx/${txHash}`;
+  return `https://arbiscan.io/tx/${txHash}`;
+}
+
 export function Dashboard({ botUsername }: { botUsername: string }) {
   const [data, setData] = useState<LogsResponse | null>(null);
   const [bounties, setBounties] = useState<ActiveBounty[]>([]);
@@ -215,6 +222,8 @@ export function Dashboard({ botUsername }: { botUsername: string }) {
             ) : (
               visibleBounties.map((b) => {
                 const isPending = b.bountyId.startsWith("pending-");
+                const createTxUrl = txExplorerUrl(b.chain, b.txHash);
+                const payoutTxUrl = txExplorerUrl(b.chain, b.winnerTxHash);
                 return (
                   <div key={b.bountyId} className="px-4 py-3">
                     <div className="flex items-start justify-between gap-2 mb-1">
@@ -251,6 +260,16 @@ export function Dashboard({ botUsername }: { botUsername: string }) {
                           poidh.xyz ↗
                         </a>
                       )}
+                      {createTxUrl && (
+                        <a
+                          href={createTxUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-cyan-400 hover:text-cyan-300 transition-colors"
+                        >
+                          tx ↗
+                        </a>
+                      )}
                     </div>
                     {/* Winner row — show on closed non-cancelled bounties */}
                     {b.status === "closed" && b.winnerIssuer && !b.winnerReasoning?.startsWith("bounty cancelled by") && (
@@ -263,6 +282,19 @@ export function Dashboard({ botUsername }: { botUsername: string }) {
                           <>
                             <span className="text-amber-600 text-[10px]">·</span>
                             <span className="text-amber-400 text-[10px] italic">{b.winnerReasoning}</span>
+                          </>
+                        )}
+                        {payoutTxUrl && (
+                          <>
+                            <span className="text-amber-600 text-[10px]">·</span>
+                            <a
+                              href={payoutTxUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-cyan-400 hover:text-cyan-300 text-[10px] transition-colors"
+                            >
+                              payout tx ↗
+                            </a>
                           </>
                         )}
                       </div>
