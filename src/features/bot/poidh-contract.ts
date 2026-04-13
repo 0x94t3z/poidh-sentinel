@@ -863,7 +863,14 @@ export async function retryCancelledBountyRefundFromPending(
   creatorRefundAddress: string,
   bountyAmountWei: bigint,
   options?: { allowDirectWalletFallback?: boolean },
-): Promise<{ refundTxHash?: string; withdrawTxHash?: string; pendingBefore: bigint; pendingAfter: bigint }> {
+): Promise<{
+  refundTxHash?: string;
+  withdrawTxHash?: string;
+  pendingBefore: bigint;
+  pendingAfter: bigint;
+  noPendingRefund?: boolean;
+  lowBalanceForDirectRetry?: boolean;
+}> {
   const publicClient = getPublicClient(chain);
   const { client, account } = getWalletClient(chain);
   const contractAddress = POIDH_CONTRACTS[chain] ?? POIDH_CONTRACT;
@@ -922,7 +929,7 @@ export async function retryCancelledBountyRefundFromPending(
 
   if (pendingBefore === BigInt(0)) {
     if (!allowDirectWalletFallback) {
-      throw new Error("no pending refund available after claim step");
+      return { pendingBefore, pendingAfter: BigInt(0), noPendingRefund: true };
     }
     // Explicit fallback mode only: if pending is still zero, prior attempts may have
     // withdrawn to bot wallet and failed on final transfer. Retry direct wallet send.
@@ -930,10 +937,12 @@ export async function retryCancelledBountyRefundFromPending(
     const nativeCurrency = chain === "degen" ? "DEGEN" : "ETH";
     const botBalance = await publicClient.getBalance({ address: account.address });
     if (botBalance < bountyAmountWei + gasReserve) {
-      throw new Error(
-        `no pending refund and insufficient bot balance for direct retry ` +
-        `(need ${formatEther(bountyAmountWei + gasReserve)} ${nativeCurrency}, have ${formatEther(botBalance)} ${nativeCurrency})`,
-      );
+      return {
+        pendingBefore,
+        pendingAfter: BigInt(0),
+        noPendingRefund: true,
+        lowBalanceForDirectRetry: true,
+      };
     }
 
     const refundTxHash = await client.sendTransaction({

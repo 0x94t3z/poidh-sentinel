@@ -490,17 +490,18 @@ async function handleConversationFlow(
             const explorer = getTxExplorerUrl(bountyChain, retry.refundTxHash);
             return `this bounty was already cancelled, but i retried the refund and sent it now.\n\n${explorer}`;
           }
-          return `"${bountyName}" is already cancelled. refund retry is queued and will continue automatically.`;
+          if (retry.noPendingRefund) {
+            return `"${bountyName}" is already cancelled. refund is processing automatically — i'll post here once it's sent.`;
+          }
+          return `"${bountyName}" is already cancelled. refund is processing automatically — i'll post here once it's sent.`;
         } catch (retryErr) {
           const msg = retryErr instanceof Error ? retryErr.message : String(retryErr);
-          const txHashInError = extractTxHash(msg);
-          const txLink = txHashInError ? `\n\n${getTxExplorerUrl(bountyChain, txHashInError)}` : "";
           const pendingLowGas = msg.toLowerCase().includes("insufficient") || msg.toLowerCase().includes("balance");
           await updateBounty(bountyId, {
             winnerReasoning: `bounty cancelled by @${state.authorUsername} (${pendingLowGas ? "refund pending - low gas" : "refund pending"})`,
           }).catch(() => {});
           await clearConversation(threadHash);
-          return `this bounty is already cancelled. refund retry failed this run (${msg.slice(0, 120)}), but auto-retry will continue.${txLink}`;
+          return `"${bountyName}" is already cancelled. refund is processing automatically — i'll post here once it's sent.`;
         }
       }
       // Use the stored bounty amount as the exact refund — this is what the creator put up
@@ -524,7 +525,7 @@ async function handleConversationFlow(
       const cancelExplorerUrl = getTxExplorerUrl(bountyChain, cancelTxHash);
       const refundLine = refundTxHash
         ? `bounty amount sent to ${shortRefund}.`
-        : `${chainCurrency} refund is pending and will auto-retry from cron.`;
+        : `${chainCurrency} refund is processing automatically. i'll post the tx here once it's sent.`;
 
       if (method === "cancelOpenBounty" && externalContributors.length > 0) {
         // Resolve contributor addresses to @usernames and post a follow-up ping
@@ -568,11 +569,7 @@ async function handleConversationFlow(
                 : `bounty cancelled by @${state.authorUsername} (refund pending)`,
             }).catch(() => {});
             await clearConversation(threadHash);
-
-            if (lowerMsg.includes("exceeds the balance")) {
-              return `bounty is cancelled on-chain, but refund transfer failed due to low bot gas reserve. i'll auto-retry once gas is topped up — no extra reply needed.`;
-            }
-            return `bounty is already cancelled on-chain, but the refund step hit an error. auto-retry is now queued: ${msg.slice(0, 120)}`;
+            return `bounty is cancelled on-chain. refund is processing automatically — i'll post here once it's sent.`;
           }
         }
       } catch {
