@@ -23,6 +23,21 @@ interface NeynarPublishResponse {
   };
 }
 
+function extractFirstEmbedUrl(text: string): string | undefined {
+  const match = text.match(/https?:\/\/[^\s]+/i);
+  if (!match) return undefined;
+
+  // Trim common trailing punctuation from sentence endings.
+  const cleaned = match[0].replace(/[)\],.!?;:]+$/g, "");
+  try {
+    const parsed = new URL(cleaned);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return undefined;
+    return parsed.toString();
+  } catch {
+    return undefined;
+  }
+}
+
 async function postToNeynar(
   signerUuid: string,
   text: string,
@@ -35,7 +50,8 @@ async function postToNeynar(
   const body: Record<string, unknown> = { signer_uuid: signerUuid, text };
   if (options.parent) body.parent = options.parent;
   if (options.channelId) body.channel_id = options.channelId;
-  if (options.embedUrl) body.embeds = [{ url: options.embedUrl }];
+  const embedUrl = options.embedUrl ?? extractFirstEmbedUrl(text);
+  if (embedUrl) body.embeds = [{ url: embedUrl }];
 
   const response = await fetch("https://api.neynar.com/v2/farcaster/cast", {
     method: "POST",
