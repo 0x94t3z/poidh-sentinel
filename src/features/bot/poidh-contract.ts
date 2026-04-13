@@ -625,17 +625,44 @@ export async function cancelBounty(
     args: [account.address],
   }) as bigint;
 
-  const functionName = isOpen ? "cancelOpenBounty" : "cancelSoloBounty";
-  const cancelTxHash = await client.writeContract({
-    address: contractAddress,
-    abi: POIDH_ABI,
-    functionName,
-    args: [bountyId],
-    account,
-  });
+  type CancelMethod = "cancelSoloBounty" | "cancelOpenBounty";
+  const primaryMethod: CancelMethod = isOpen ? "cancelOpenBounty" : "cancelSoloBounty";
+  const fallbackMethod: CancelMethod = primaryMethod === "cancelOpenBounty" ? "cancelSoloBounty" : "cancelOpenBounty";
 
-  // Wait for cancel tx to be mined
-  await publicClient.waitForTransactionReceipt({ hash: cancelTxHash, timeout: 60_000 });
+  const sendCancel = async (method: CancelMethod): Promise<Hash> => {
+    const hash = await client.writeContract({
+      address: contractAddress,
+      abi: POIDH_ABI,
+      functionName: method,
+      args: [bountyId],
+      account,
+    });
+    await publicClient.waitForTransactionReceipt({ hash, timeout: 60_000 });
+    return hash;
+  };
+
+  let functionName: CancelMethod = primaryMethod;
+  let cancelTxHash: Hash;
+  try {
+    cancelTxHash = await sendCancel(functionName);
+  } catch (primaryErr) {
+    const msg = primaryErr instanceof Error ? primaryErr.message : String(primaryErr);
+    const looksLikeMethodMismatch =
+      msg.toLowerCase().includes("reverted") ||
+      msg.toLowerCase().includes("execution reverted") ||
+      msg.includes("0x10c2a11b");
+
+    if (!looksLikeMethodMismatch) {
+      throw primaryErr;
+    }
+
+    console.warn(
+      `[poidh-contract] ${functionName} failed for bountyId=${bountyId} chain=${chain}; ` +
+      `retrying with ${fallbackMethod}. error=${msg.slice(0, 180)}`,
+    );
+    functionName = fallbackMethod;
+    cancelTxHash = await sendCancel(functionName);
+  }
 
   // Read pendingWithdrawals AFTER cancel.
   // On current official PoidhV3, cancelOpenBounty already credits issuer refund to pendingWithdrawals.
