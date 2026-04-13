@@ -551,7 +551,7 @@ async function handleConversationFlow(
 
             const ownerHandle = process.env.BOT_OWNER_HANDLE ?? "0x94t3z.eth";
             if (lowerMsg.includes("exceeds the balance")) {
-              return `bounty is cancelled on-chain, but refund transfer failed due to low bot gas reserve. DM @${ownerHandle} and include this cast hash for immediate retry.`;
+              return `bounty is cancelled on-chain, but refund transfer failed due to low bot gas reserve. i'll auto-retry once gas is topped up — no extra reply needed. if it still doesn't arrive, DM @${ownerHandle}.`;
             }
             return `bounty is already cancelled on-chain, but the refund step hit an error. if funds don't arrive soon, DM @${ownerHandle} and include this: ${msg.slice(0, 120)}`;
           }

@@ -665,16 +665,27 @@ export async function cancelBounty(
   }
 
   // Read pendingWithdrawals AFTER cancel.
-  // On current official PoidhV3, cancelOpenBounty already credits issuer refund to pendingWithdrawals.
-  // We only fallback to claimRefundFromCancelledOpenBounty if no new pending credit was observed.
+  // On current official PoidhV3, cancelOpenBounty may or may not immediately credit issuer refund
+  // depending on bounty state/history. For open bounties we still validate and call
+  // claimRefundFromCancelledOpenBounty when needed so cancel->claim->refund happens in one flow.
   let pendingAfter = await publicClient.readContract({
     address: contractAddress,
     abi: POIDH_ABI,
     functionName: "pendingWithdrawals",
     args: [account.address],
   }) as bigint;
+
+  let creditedByCancel = pendingAfter > pendingBefore ? pendingAfter - pendingBefore : BigInt(0);
+  const expectedRefund = bountyAmountWei ?? creditedByCancel;
   let claimRefundTxHash: `0x${string}` | undefined;
-  if (isOpen && pendingAfter <= pendingBefore) {
+  const needsOpenClaim =
+    isOpen &&
+    (
+      // When we know the exact bounty refund amount, claim if the cancel credit is short.
+      (bountyAmountWei ? creditedByCancel < bountyAmountWei : pendingAfter <= pendingBefore)
+    );
+
+  if (needsOpenClaim) {
     try {
       claimRefundTxHash = await client.writeContract({
         address: contractAddress,
@@ -690,6 +701,7 @@ export async function cancelBounty(
         functionName: "pendingWithdrawals",
         args: [account.address],
       }) as bigint;
+      creditedByCancel = pendingAfter > pendingBefore ? pendingAfter - pendingBefore : BigInt(0);
       console.log(`[poidh-contract] claimRefundFromCancelledOpenBounty bountyId=${bountyId}: ${claimRefundTxHash}`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -700,12 +712,12 @@ export async function cancelBounty(
   }
 
   // Compute delta for sanity logging — how much this cancel actually credited
-  const deltaAmount = pendingAfter > pendingBefore ? pendingAfter - pendingBefore : BigInt(0);
+  const deltaAmount = creditedByCancel;
 
   // Use stored bounty amount (from DB) as the definitive refund amount.
   // This is the exact bounty reward the creator put up — no fee, no over/under.
   // Fall back to the delta if no stored amount was provided (shouldn't happen in normal flow).
-  const bountyRefundAmount = bountyAmountWei ?? deltaAmount;
+  const bountyRefundAmount = bountyAmountWei ?? expectedRefund;
 
   console.log(
     `[poidh-contract] cancelBounty: pendingBefore=${formatEther(pendingBefore)} ` +

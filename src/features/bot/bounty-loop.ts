@@ -1,10 +1,10 @@
 import "server-only";
-import { getClaimsForBounty, resolveBountyWinner, getBountyDetails, getPublicClient, getWalletClient, POIDH_CONTRACTS, POIDH_CONTRACT, POIDH_ABI, resolvePoidhUrl } from "@/features/bot/poidh-contract";
+import { getClaimsForBounty, resolveBountyWinner, getBountyDetails, getPublicClient, getWalletClient, POIDH_CONTRACTS, POIDH_CONTRACT, POIDH_ABI, resolvePoidhUrl, retryCancelledBountyRefundFromPending, getTxExplorerUrl } from "@/features/bot/poidh-contract";
 import { pickWinner, type ClaimData, type EvaluationResult } from "@/features/bot/submission-evaluator";
 import { updateBounty, getAllBounties } from "@/features/bot/bounty-store";
 import { publishReply, publishCast } from "@/features/bot/cast-reply";
 import { registerBountyThread } from "@/db/actions/bot-actions";
-import { keccak256, toBytes } from "viem";
+import { keccak256, toBytes, parseEther } from "viem";
 
 const BOT_SIGNER_UUID = process.env.BOT_SIGNER_UUID ?? "";
 
@@ -25,6 +25,7 @@ const EVAL_COOLDOWN_MS = 6 * 60 * 60 * 1000; // 6 hours
 const NO_SUBMISSION_NUDGE_MS = NO_SUBMISSION_NUDGE_HOURS * 60 * 60 * 1000;
 // Nudge at most once every 48h by default
 const NO_SUBMISSION_NUDGE_INTERVAL_MS = NO_SUBMISSION_NUDGE_INTERVAL_HOURS * 60 * 60 * 1000;
+const REFUND_RETRY_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
 
 // ---------------------------------------------------------------------------
 // Neynar: resolve ETH addresses → Farcaster @usernames
@@ -111,6 +112,31 @@ async function resolveFidToUsername(fid: number): Promise<string | null> {
     const data = await res.json() as { users?: Array<{ username?: string }> };
     const username = data.users?.[0]?.username;
     return username ? `@${username}` : null;
+  } catch {
+    return null;
+  }
+}
+
+// Resolve creator wallet address for automatic refund retry on cancelled bounties.
+// Prefers first verified ETH address, falls back to custody address.
+async function resolveFidToRefundAddress(fid: number): Promise<string | null> {
+  const apiKey = process.env.NEYNAR_API_KEY;
+  if (!apiKey) return null;
+  try {
+    const res = await fetch(`https://api.neynar.com/v2/farcaster/user/bulk?fids=${fid}`, {
+      headers: { "x-api-key": apiKey },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return null;
+    const data = await res.json() as {
+      users?: Array<{
+        custody_address?: string;
+        verified_addresses?: { eth_addresses?: string[] };
+      }>;
+    };
+    const user = data.users?.[0];
+    if (!user) return null;
+    return user.verified_addresses?.eth_addresses?.[0] ?? user.custody_address ?? null;
   } catch {
     return null;
   }
@@ -331,6 +357,65 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
   // getAllBounties includes closed ones — we need to check pending- across all statuses
   const allBounties = await getAllBounties();
   const activeBounties = allBounties.filter((b) => b.status === "open" || b.status === "evaluating");
+
+  // Auto-retry cancelled refunds marked as pending so creators don't need to manually reply "refund".
+  // This runs before the normal open/evaluating loop.
+  const nowMs = Date.now();
+  const pendingRefundBounties = allBounties.filter((b) => {
+    const reason = (b.winnerReasoning ?? "").toLowerCase();
+    const isPending = reason.includes("refund pending");
+    const needsTx = !b.winnerTxHash;
+    const isClosed = b.status === "closed";
+    const notPendingId = !b.bountyId.startsWith("pending-");
+    const lastAttemptMs = b.lastCheckedAt ? new Date(b.lastCheckedAt).getTime() : 0;
+    const staleEnough = !lastAttemptMs || nowMs - lastAttemptMs >= REFUND_RETRY_INTERVAL_MS;
+    return isClosed && isPending && needsTx && notPendingId && staleEnough;
+  });
+
+  for (const bounty of pendingRefundBounties) {
+    try {
+      if (!bounty.creatorFid) {
+        await updateBounty(bounty.bountyId, { lastCheckedAt: new Date().toISOString() });
+        continue;
+      }
+
+      const creatorRefundAddress = await resolveFidToRefundAddress(bounty.creatorFid);
+      if (!creatorRefundAddress) {
+        await updateBounty(bounty.bountyId, { lastCheckedAt: new Date().toISOString() });
+        continue;
+      }
+
+      const amountWei = parseEther(bounty.amountEth);
+      const retry = await retryCancelledBountyRefundFromPending(
+        BigInt(bounty.bountyId),
+        bounty.chain ?? "arbitrum",
+        creatorRefundAddress,
+        amountWei,
+      );
+
+      if (retry.refundTxHash) {
+        const nextReasoning = (bounty.winnerReasoning ?? "bounty cancelled")
+          .replace(/\(refund pending[^)]*\)/i, "(refund sent)");
+        await updateBounty(bounty.bountyId, {
+          winnerTxHash: retry.refundTxHash,
+          winnerReasoning: nextReasoning,
+          lastCheckedAt: new Date().toISOString(),
+        });
+        const explorer = getTxExplorerUrl(bounty.chain ?? "arbitrum", retry.refundTxHash);
+        await postReply(
+          getReplyTarget(bounty),
+          `refund retry succeeded — ${explorer}`,
+          explorer,
+        );
+      } else {
+        await updateBounty(bounty.bountyId, { lastCheckedAt: new Date().toISOString() });
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[bounty-loop] auto refund retry failed for ${bounty.bountyId}: ${msg}`);
+      await updateBounty(bounty.bountyId, { lastCheckedAt: new Date().toISOString() }).catch(() => {});
+    }
+  }
 
   let processed = 0;
   let winners = 0;
