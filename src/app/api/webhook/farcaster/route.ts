@@ -420,9 +420,25 @@ async function handleConversationFlow(
       const bountyRecord = await getActiveBounty(bountyId);
       if (bountyRecord?.status === "closed") {
         const lookedCancelled = (bountyRecord.winnerReasoning ?? "").toLowerCase().includes("cancelled");
+        const hasRecordedRefundTx = !!bountyRecord.winnerTxHash;
+        const refundPendingMarker = (bountyRecord.winnerReasoning ?? "").toLowerCase().includes("refund pending");
         if (!lookedCancelled) {
           await clearConversation(threadHash);
           return `"${bountyName}" is already closed — nothing to cancel.`;
+        }
+
+        if (hasRecordedRefundTx) {
+          await clearConversation(threadHash);
+          const explorer = getTxExplorerUrl(bountyChain, bountyRecord.winnerTxHash as `0x${string}`);
+          return `"${bountyName}" is already cancelled and refunded.\n\n${explorer}`;
+        }
+
+        // Safety guard: if we don't have an explicit "refund pending" marker, avoid
+        // auto-sending again to prevent accidental double refund on legacy rows.
+        if (!refundPendingMarker) {
+          await clearConversation(threadHash);
+          const ownerHandle = process.env.BOT_OWNER_HANDLE ?? "0x94t3z.eth";
+          return `"${bountyName}" is already cancelled, but refund state is not marked pending. to avoid double send, auto-retry is blocked. DM @${ownerHandle} for manual verification.`;
         }
 
         const bountyAmountWei = bountyRecord.amountEth ? parseEther(bountyRecord.amountEth) : undefined;
@@ -440,6 +456,10 @@ async function handleConversationFlow(
           );
           await clearConversation(threadHash);
           if (retry.refundTxHash) {
+            await updateBounty(bountyId, {
+              winnerTxHash: retry.refundTxHash,
+              winnerReasoning: `bounty cancelled by @${state.authorUsername} (refund sent)`,
+            }).catch(() => {});
             const explorer = getTxExplorerUrl(bountyChain, retry.refundTxHash);
             return `this bounty was already cancelled, but i retried the refund and sent it now.\n\n${explorer}`;
           }
@@ -458,7 +478,13 @@ async function handleConversationFlow(
       const bountyType = bountyRecord?.bountyType ?? null;
 
       const { cancelTxHash, refundTxHash, method, refundAddress, externalContributors } = await cancelBounty(BigInt(bountyId), bountyChain, preResolvedAddress, bountyAmountWei, bountyType);
-      await updateBounty(bountyId, { status: "closed", winnerReasoning: `bounty cancelled by @${state.authorUsername}` });
+      await updateBounty(bountyId, {
+        status: "closed",
+        winnerReasoning: refundTxHash
+          ? `bounty cancelled by @${state.authorUsername} (refund sent)`
+          : `bounty cancelled by @${state.authorUsername} (refund pending)`,
+        winnerTxHash: refundTxHash ?? undefined,
+      });
       await clearConversation(threadHash);
 
       const shortRefund = `${refundAddress.slice(0, 6)}...${refundAddress.slice(-4)}`;
@@ -505,7 +531,9 @@ async function handleConversationFlow(
           if (wasCancelledOnChain) {
             await updateBounty(bountyId, {
               status: "closed",
-              winnerReasoning: `bounty cancelled by @${state.authorUsername}`,
+              winnerReasoning: lowerMsg.includes("exceeds the balance")
+                ? `bounty cancelled by @${state.authorUsername} (refund pending - low gas)`
+                : `bounty cancelled by @${state.authorUsername} (refund pending)`,
             }).catch(() => {});
             await clearConversation(threadHash);
 
