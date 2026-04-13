@@ -25,7 +25,7 @@ const EVAL_COOLDOWN_MS = 6 * 60 * 60 * 1000; // 6 hours
 const NO_SUBMISSION_NUDGE_MS = NO_SUBMISSION_NUDGE_HOURS * 60 * 60 * 1000;
 // Nudge at most once every 48h by default
 const NO_SUBMISSION_NUDGE_INTERVAL_MS = NO_SUBMISSION_NUDGE_INTERVAL_HOURS * 60 * 60 * 1000;
-const REFUND_RETRY_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
+const REFUND_RETRY_INTERVAL_MS = parseInt(process.env.REFUND_RETRY_INTERVAL_SECONDS ?? "60", 10) * 1000; // default 60s
 
 // ---------------------------------------------------------------------------
 // Neynar: resolve ETH addresses → Farcaster @usernames

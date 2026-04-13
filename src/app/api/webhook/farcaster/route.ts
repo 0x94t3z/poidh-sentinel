@@ -562,6 +562,34 @@ async function handleConversationFlow(
             details.claimer.toLowerCase() === details.issuer.toLowerCase();
 
           if (wasCancelledOnChain) {
+            // Fast-path: if cancel already succeeded on-chain but a post-cancel step failed,
+            // attempt one immediate retry in the same request before falling back to background retry.
+            const retryRefundAddress = state.cancelRefundAddress ?? "";
+            const retryAmountEth = (await getActiveBounty(bountyId).catch(() => null))?.amountEth;
+            if (retryRefundAddress && retryAmountEth) {
+              try {
+                const retryNow = await retryCancelledBountyRefundFromPending(
+                  BigInt(bountyId),
+                  bountyChain,
+                  retryRefundAddress,
+                  parseEther(retryAmountEth),
+                  { allowDirectWalletFallback: true },
+                );
+                if (retryNow.refundTxHash) {
+                  await updateBounty(bountyId, {
+                    status: "closed",
+                    winnerReasoning: `bounty cancelled by @${state.authorUsername} (refund sent)`,
+                    winnerTxHash: retryNow.refundTxHash,
+                  }).catch(() => {});
+                  await clearConversation(threadHash);
+                  const explorer = getTxExplorerUrl(bountyChain, retryNow.refundTxHash);
+                  return `bounty was already cancelled on-chain, and refund just succeeded.\n\n${explorer}`;
+                }
+              } catch {
+                // Non-fatal: fall through to queued retry state below.
+              }
+            }
+
             await updateBounty(bountyId, {
               status: "closed",
               winnerReasoning: lowerMsg.includes("exceeds the balance")
