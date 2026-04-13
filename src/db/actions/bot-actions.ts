@@ -58,21 +58,28 @@ export async function getConversation(threadHash: string): Promise<ConversationS
   }
 
   // Decode suggestedIdea JSONB — may contain cancel-flow fields instead of bounty idea
-  const raw = row.suggestedIdea as Record<string, string> | null;
+  const raw = row.suggestedIdea as Record<string, unknown> | null;
   const isCancelData = raw && "cancelBountyId" in raw;
+  const recoveredBountyType =
+    !isCancelData && raw && typeof raw.bountyType === "string" && (raw.bountyType === "open" || raw.bountyType === "solo")
+      ? raw.bountyType
+      : undefined;
 
   return {
     step: row.step as ConversationStep,
     authorFid: row.authorFid,
     authorUsername: row.authorUsername,
-    suggestedIdea: isCancelData ? undefined : (raw as { name: string; description: string } | undefined),
-    cancelBountyId: isCancelData ? raw.cancelBountyId : undefined,
-    cancelBountyChain: isCancelData ? raw.cancelBountyChain : undefined,
-    cancelBountyName: isCancelData ? raw.cancelBountyName : undefined,
-    cancelRefundAddress: isCancelData ? raw.cancelRefundAddress : undefined,
+    suggestedIdea: !isCancelData && raw && typeof raw.name === "string" && typeof raw.description === "string"
+      ? { name: raw.name, description: raw.description }
+      : undefined,
+    cancelBountyId: isCancelData && raw && typeof raw.cancelBountyId === "string" ? raw.cancelBountyId : undefined,
+    cancelBountyChain: isCancelData && raw && typeof raw.cancelBountyChain === "string" ? raw.cancelBountyChain : undefined,
+    cancelBountyName: isCancelData && raw && typeof raw.cancelBountyName === "string" ? raw.cancelBountyName : undefined,
+    cancelRefundAddress: isCancelData && raw && typeof raw.cancelRefundAddress === "string" ? raw.cancelRefundAddress : undefined,
     chain: row.chain as "arbitrum" | "base" | "degen" | undefined,
     amountEth: row.amountEth ?? undefined,
     uniqueAmount: row.uniqueAmount ?? undefined,
+    bountyType: recoveredBountyType,
     lastUpdated: row.updatedAt.toISOString(),
   };
 }
@@ -87,7 +94,15 @@ export async function setConversation(threadHash: string, state: ConversationSta
         cancelRefundAddress: state.cancelRefundAddress,
       }
     : null;
-  const ideaPayload = cancelData ?? state.suggestedIdea ?? null;
+  const ideaPayload = cancelData ?? (
+    state.suggestedIdea
+      ? {
+          name: state.suggestedIdea.name,
+          description: state.suggestedIdea.description,
+          ...(state.bountyType ? { bountyType: state.bountyType } : {}),
+        }
+      : null
+  );
 
   await db
     .insert(conversationState)

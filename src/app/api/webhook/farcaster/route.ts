@@ -234,11 +234,8 @@ async function resolveCreatorFidFromCastHash(castHash: string): Promise<number |
 function isCancelRequest(text: string): boolean {
   const lower = text.toLowerCase().trim();
   return (
-    lower === "refund" ||
     lower === "retry refund" ||
     lower === "refund retry" ||
-    lower.includes("please refund") ||
-    lower.includes("refund please") ||
     lower.includes("cancel bounty") ||
     lower.includes("cancel this bounty") ||
     lower.includes("cancel the bounty") ||
@@ -482,6 +479,7 @@ async function handleConversationFlow(
             bountyChain,
             preResolvedAddress ?? "",
             bountyAmountWei,
+            { allowDirectWalletFallback: true },
           );
           await clearConversation(threadHash);
           if (retry.refundTxHash) {

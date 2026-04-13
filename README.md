@@ -253,8 +253,9 @@ webhook detects: inBountyThread + isCancelRequest()
   -> bot replies: "you want to cancel "[name]"? refund will go to 0xabc...def.
                   reply yes to confirm or no to keep it open."
 
-User confirms — any natural phrasing ("yes", "yes cancel", "go ahead", etc.)
-Intent detected via LLM.
+User confirms — deterministic safety parser (no LLM):
+  accepts: "yes cancel", "yes", "y", "confirm", "ok", "do it"
+  rejects: "no", "nope", "nah", "don't cancel", "keep it open"
   |
   v
 handleConversationFlow() (awaiting_cancel_confirmation step)
@@ -295,8 +296,9 @@ handleConversationFlow() (awaiting_cancel_confirmation step)
           your refund via 'claim refund from cancelled bounty'."
 
   OLD BOUNTIES (creatorFid = null):
-       → cancel blocked: "DM @{BOT_OWNER_HANDLE} to arrange manually"
-       → evaluation + winner selection still runs fully autonomous
+       → bot attempts creator FID recovery from the original creation cast hash
+       → if recovery succeeds, normal cancel confirmation + refund flow continues
+       → if still unresolved, bot asks user to retry "cancel bounty" and re-checks
 
   -> updateBounty(bountyId, { status: "closed", winnerReasoning: "bounty cancelled by @{authorUsername}" })
   -> bot replies: '"[name]" cancelled — your deposit refunded to 0x1a2b...5f6e. pinging contributors to claim their refunds.'
@@ -306,7 +308,7 @@ Edge cases:
   - vote in progress: contract reverts → "can't cancel — a vote is in progress. wait for it to resolve first."
   - user says "no": "ok, bounty stays open. good luck!"
   - FID address resolution fails: ETH withdrawn to bot wallet (user contacts support)
-  - pendingWithdrawals = 0 after cancel: cancel tx still confirmed, no withdraw sent
+  - pendingWithdrawals = 0 after cancel: retry path attempts claim step first; direct wallet fallback is only used on explicit user-confirmed retry
   - cancel tx fails: error posted in thread, state cleared
 ```
 
@@ -897,7 +899,7 @@ In production, if `CRON_SECRET` is missing, `/api/cron/bounty-loop` fails closed
 - **Announcement cast embed** — every cast the bot posts includes the bounty URL as a Farcaster embed (renders as a link preview card). This applies to: nomination/scores reply in thread, winner pointer reply, vote-rejected replies, no-winner feedback, "still waiting" nudge, bounty ID resolved reply, and all top-level `/poidh` channel announcements. The URL is never repeated in the text body when it's present as an embed.
 - **Winner cast contributor tags** — for bounties with external contributors (`vote_submitted` / `vote_resolved` path), all on-chain participants from `participants[bountyId]` are tagged in winner announcements (`thanks @kenny, @mr94t3z!`), with the bot wallet filtered out and the winner excluded (already the star). The bounty creator (`creatorFid` → `@username`) always appears first. Tags are capped at 5. The contract provides no per-voter records so all contributors are tagged regardless of whether they voted. When `everHadExternalContributor` returns `false` (creator is the only participant), the bot uses `acceptClaim` directly and posts only a winner reply in the announcement thread — no `/poidh` channel cast, no contributor tags.
 - **Cancelled vs won detection** — the bounty-loop checks `claimer != 0x000...` to detect closed bounties. If `claimer == issuer`, the bounty was cancelled (`cancelSoloBounty` / `cancelOpenBounty`) and funds were refunded; if `claimer != issuer`, a winner was accepted. Both set status to `closed` in the DB. Only the bot wallet (EOA issuer) can cancel bounties it created.
-- **Cancel flow** — the original depositor sent native tokens (ETH or DEGEN) directly to the bot wallet, so the poidh contract has no record of them. `withdrawTo()` only pulls `pendingWithdrawals[msg.sender]` (bot wallet's own balance) — it cannot route tokens to a third party. The actual creator refund is a **plain native token transfer** (`sendTransaction`) from the bot wallet to the creator's Farcaster custody/verified address resolved via Neynar. Solo cancel: `cancelSoloBounty` → `withdraw()` → `sendTransaction(creatorAddress)`. Open cancel: `cancelOpenBounty` → `claimRefundFromCancelledOpenBounty` → `withdraw()` → `sendTransaction(creatorAddress)`. Other open bounty contributors call `claimRefundFromCancelledOpenBounty` themselves on poidh.xyz — bot cannot do it for them. Bot pings all contributors by @username in the announcement thread after cancel. `creatorFid` stored on `active_bounties` at creation time. **Refund amount** = `parseEther(bountyRecord.amountEth)` from DB — the exact bounty reward the creator put up (no fee). The `pendingWithdrawals` delta (before/after cancel) is computed as a sanity log but the DB value is the definitive source for the actual transfer. **Cancel auth**: only the creator (`creatorFid` match) can trigger cancel. If `creatorFid` is null (bounties created before this field was added), cancel is blocked and the user is directed to DM `@{BOT_OWNER_HANDLE}` for manual handling.
+- **Cancel flow** — the original depositor sent native tokens (ETH or DEGEN) directly to the bot wallet, so the poidh contract has no record of them. `withdrawTo()` only pulls `pendingWithdrawals[msg.sender]` (bot wallet's own balance) — it cannot route tokens to a third party. The actual creator refund is a **plain native token transfer** (`sendTransaction`) from the bot wallet to the creator's Farcaster custody/verified address resolved via Neynar. Solo cancel: `cancelSoloBounty` → `withdraw()` → `sendTransaction(creatorAddress)`. Open cancel: `cancelOpenBounty` → `claimRefundFromCancelledOpenBounty` → `withdraw()` → `sendTransaction(creatorAddress)`. Other open bounty contributors call `claimRefundFromCancelledOpenBounty` themselves on poidh.xyz — bot cannot do it for them. Bot pings all contributors by @username in the announcement thread after cancel. `creatorFid` stored on `active_bounties` at creation time. **Refund amount** = `parseEther(bountyRecord.amountEth)` from DB — the exact bounty reward the creator put up (no fee). The `pendingWithdrawals` delta (before/after cancel) is computed as a sanity log but the DB value is the definitive source for the actual transfer. **Cancel auth**: only the creator (`creatorFid` match) can trigger cancel. For legacy rows where `creatorFid` is missing, webhook attempts recovery from the original creation cast hash first; if unresolved, it asks the user to retry cancel so recovery can be retried.
 - **Cron parallelism** — `runBountyLoop()` and `checkDepositsAndCreateBounties()` run in parallel via `Promise.allSettled`. A failure in deposit checking does not block bounty evaluation and vice versa.
 - **Claim identity in thread replies** — when someone replies in the announcement thread, the bot matches the author's Farcaster username against `allEvalResults.issuerUsername` to detect if they submitted a claim. If matched, the prompt includes their specific claim score and reasoning so the bot can address them directly ("your claim #356 scored 70 — outdoor note, date and poidh text present"). For third-party questions (e.g. "why did @user lose?" or "why did claim #362 not win?"), the bot detects `@mentions` and `#claimId` patterns in the cast text and surfaces the relevant claim details. The full `allEvalResults` list is always included in the agent context so any arbitrary question about any claim can be answered accurately.
 - **OpenAI vision cost** — `gpt-4o` charges ~$0.01 per image for claim evaluation. It only activates when `ENABLE_OPENAI_VISION_FALLBACK=true` and Groq vision is rate-limited. For a typical bounty with 5-10 submissions, this costs less than $0.10 total.

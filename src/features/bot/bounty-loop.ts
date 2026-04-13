@@ -398,6 +398,7 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
         bounty.chain ?? "arbitrum",
         creatorRefundAddress,
         amountWei,
+        { allowDirectWalletFallback: false },
       );
 
       if (retry.refundTxHash) {

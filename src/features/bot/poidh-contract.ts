@@ -678,12 +678,10 @@ export async function cancelBounty(
   let creditedByCancel = pendingAfter > pendingBefore ? pendingAfter - pendingBefore : BigInt(0);
   const expectedRefund = bountyAmountWei ?? creditedByCancel;
   let claimRefundTxHash: `0x${string}` | undefined;
-  const needsOpenClaim =
-    isOpen &&
-    (
-      // When we know the exact bounty refund amount, claim if the cancel credit is short.
-      (bountyAmountWei ? creditedByCancel < bountyAmountWei : pendingAfter <= pendingBefore)
-    );
+  // Strict sequencing for open bounties:
+  // cancel -> claimRefundFromCancelledOpenBounty -> withdraw/refund
+  // We attempt claim every time when the executed cancel method is open.
+  const needsOpenClaim = functionName === "cancelOpenBounty";
 
   if (needsOpenClaim) {
     try {
@@ -730,8 +728,8 @@ export async function cancelBounty(
     return { cancelTxHash, withdrawTxHash: cancelTxHash, refundTxHash: undefined, method: functionName, refundAddress: account.address, externalContributors: [] };
   }
 
-  // Step 1: prefer direct contract payout via withdrawTo(refundAddress) when pending funds exist.
-  // This avoids requiring the bot wallet to hold both refund value + gas at send time.
+  // Step 1: contract payout path after cancel/claim sequencing.
+  // For open bounties, we never send before claim has been attempted.
   let withdrawTxHash = cancelTxHash;
   let refundTxHash: `0x${string}` | undefined;
 
@@ -751,30 +749,15 @@ export async function cancelBounty(
     creatorRefundAddress.length === 42 &&
     creatorRefundAddress.toLowerCase() !== account.address.toLowerCase();
 
-  // Prefer a plain wallet refund first if the bot already has enough free balance.
-  // This keeps the user-facing refund path as a normal transfer to creator wallet.
-  const gasReserve = chain === "degen" ? parseEther("0.01") : parseEther("0.00005");
-  const botBalanceNow = await publicClient.getBalance({ address: account.address });
-  const canDirectSendFromWallet =
-    !!isValidRefundTarget &&
-    botBalanceNow > bountyRefundAmount + gasReserve;
-
-  if (canDirectSendFromWallet) {
-    refundTxHash = await client.sendTransaction({
-      to: creatorRefundAddress as `0x${string}`,
-      value: bountyRefundAmount,
-      account,
-    });
-    await publicClient.waitForTransactionReceipt({ hash: refundTxHash as `0x${string}`, timeout: 60_000 });
-    console.log(
-      `[poidh-contract] direct refund ${formatEther(bountyRefundAmount)} ${nativeCurrency} sent ` +
-      `to ${creatorRefundAddress}: ${refundTxHash}`,
-    );
+  // Guardrail: for open bounties, if cancel/claim produced no pending balance,
+  // do not fallback to direct send in this initial cancel flow.
+  // This avoids sending before a successful claim credit path is established.
+  if (functionName === "cancelOpenBounty" && pendingAfter === BigInt(0)) {
+    throw new Error("cancelled open bounty but no pending refund credited after claim step");
   }
 
   if (pendingAfter > BigInt(0)) {
     const canUseDirectWithdrawTo =
-      !refundTxHash &&
       isValidRefundTarget &&
       pendingAfter === bountyRefundAmount;
 
@@ -790,7 +773,7 @@ export async function cancelBounty(
       refundTxHash = withdrawTxHash as `0x${string}`;
       console.log(`[poidh-contract] withdrawTo creator wallet: ${withdrawTxHash} -> ${creatorRefundAddress}`);
     } else {
-      if (!refundTxHash && isValidRefundTarget && pendingAfter !== bountyRefundAmount) {
+      if (isValidRefundTarget && pendingAfter !== bountyRefundAmount) {
         console.warn(
           `[poidh-contract] cancelBounty: skipping withdrawTo because pending=${formatEther(pendingAfter)} ` +
           `!= refundAmount=${formatEther(bountyRefundAmount)} for bountyId=${bountyId}`,
@@ -807,11 +790,7 @@ export async function cancelBounty(
         account,
       });
       await publicClient.waitForTransactionReceipt({ hash: withdrawTxHash, timeout: 60_000 });
-      if (refundTxHash) {
-        console.log(`[poidh-contract] withdraw reimbursement to bot wallet: ${withdrawTxHash}`);
-      } else {
-        console.log(`[poidh-contract] withdraw to bot wallet: ${withdrawTxHash}`);
-      }
+      console.log(`[poidh-contract] withdraw to bot wallet: ${withdrawTxHash}`);
     }
   } else {
     console.log(
@@ -883,10 +862,12 @@ export async function retryCancelledBountyRefundFromPending(
   chain: string,
   creatorRefundAddress: string,
   bountyAmountWei: bigint,
+  options?: { allowDirectWalletFallback?: boolean },
 ): Promise<{ refundTxHash?: string; withdrawTxHash?: string; pendingBefore: bigint; pendingAfter: bigint }> {
   const publicClient = getPublicClient(chain);
   const { client, account } = getWalletClient(chain);
   const contractAddress = POIDH_CONTRACTS[chain] ?? POIDH_CONTRACT;
+  const allowDirectWalletFallback = options?.allowDirectWalletFallback === true;
 
   const details = await getBountyDetails(bountyId, chain);
   const isCancelled = details.claimer.toLowerCase() === details.issuer.toLowerCase();
@@ -903,7 +884,7 @@ export async function retryCancelledBountyRefundFromPending(
     throw new Error("invalid refund address");
   }
 
-  const pendingBefore = await publicClient.readContract({
+  let pendingBefore = await publicClient.readContract({
     address: contractAddress,
     abi: POIDH_ABI,
     functionName: "pendingWithdrawals",
@@ -911,8 +892,40 @@ export async function retryCancelledBountyRefundFromPending(
   }) as bigint;
 
   if (pendingBefore === BigInt(0)) {
-    // If pending is already zero, prior attempts may have withdrawn to bot wallet
-    // and failed on the final transfer. Retry directly from wallet balance.
+    // Best-effort for cancelled open bounties: try claiming issuer refund first.
+    // This keeps sequencing strict: cancel -> claim -> withdraw/refund.
+    try {
+      const claimRefundTxHash = await client.writeContract({
+        address: contractAddress,
+        abi: POIDH_ABI,
+        functionName: "claimRefundFromCancelledOpenBounty",
+        args: [bountyId],
+        account,
+      });
+      await publicClient.waitForTransactionReceipt({ hash: claimRefundTxHash, timeout: 60_000 });
+      pendingBefore = await publicClient.readContract({
+        address: contractAddress,
+        abi: POIDH_ABI,
+        functionName: "pendingWithdrawals",
+        args: [account.address],
+      }) as bigint;
+      console.log(
+        `[poidh-contract] retry claimRefundFromCancelledOpenBounty bountyId=${bountyId}: ${claimRefundTxHash} pending=${formatEther(pendingBefore)}`,
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(
+        `[poidh-contract] retry claimRefundFromCancelledOpenBounty failed for bountyId=${bountyId} chain=${chain}: ${msg}`,
+      );
+    }
+  }
+
+  if (pendingBefore === BigInt(0)) {
+    if (!allowDirectWalletFallback) {
+      throw new Error("no pending refund available after claim step");
+    }
+    // Explicit fallback mode only: if pending is still zero, prior attempts may have
+    // withdrawn to bot wallet and failed on final transfer. Retry direct wallet send.
     const gasReserve = chain === "degen" ? parseEther("0.01") : parseEther("0.00005");
     const nativeCurrency = chain === "degen" ? "DEGEN" : "ETH";
     const botBalance = await publicClient.getBalance({ address: account.address });
