@@ -872,7 +872,25 @@ export async function retryCancelledBountyRefundFromPending(
   }) as bigint;
 
   if (pendingBefore === BigInt(0)) {
-    return { pendingBefore, pendingAfter: BigInt(0) };
+    // If pending is already zero, prior attempts may have withdrawn to bot wallet
+    // and failed on the final transfer. Retry directly from wallet balance.
+    const gasReserve = chain === "degen" ? parseEther("0.01") : parseEther("0.00005");
+    const nativeCurrency = chain === "degen" ? "DEGEN" : "ETH";
+    const botBalance = await publicClient.getBalance({ address: account.address });
+    if (botBalance < bountyAmountWei + gasReserve) {
+      throw new Error(
+        `no pending refund and insufficient bot balance for direct retry ` +
+        `(need ${formatEther(bountyAmountWei + gasReserve)} ${nativeCurrency}, have ${formatEther(botBalance)} ${nativeCurrency})`,
+      );
+    }
+
+    const refundTxHash = await client.sendTransaction({
+      to: creatorRefundAddress as `0x${string}`,
+      value: bountyAmountWei,
+      account,
+    });
+    await publicClient.waitForTransactionReceipt({ hash: refundTxHash as `0x${string}`, timeout: 60_000 });
+    return { refundTxHash, pendingBefore, pendingAfter: BigInt(0) };
   }
 
   let withdrawTxHash: `0x${string}` | undefined;
