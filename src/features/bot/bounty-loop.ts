@@ -3,7 +3,11 @@ import { getClaimsForBounty, resolveBountyWinner, getBountyDetails, getPublicCli
 import { pickWinner, type ClaimData, type EvaluationResult } from "@/features/bot/submission-evaluator";
 import { updateBounty, getAllBounties } from "@/features/bot/bounty-store";
 import { publishReply, publishCast } from "@/features/bot/cast-reply";
-import { registerBountyThread } from "@/db/actions/bot-actions";
+import {
+  registerBountyThread,
+  getAnnouncementThreadCastHashForBounty,
+  getWinnerAnnouncementThreadCastHashForBounty,
+} from "@/db/actions/bot-actions";
 import { keccak256, toBytes, parseEther } from "viem";
 
 const BOT_SIGNER_UUID = process.env.BOT_SIGNER_UUID ?? "";
@@ -353,10 +357,144 @@ function getReplyTarget(bounty: { castHash: string; announcementCastHash?: strin
   return bounty.announcementCastHash ?? bounty.castHash;
 }
 
+function chainLabel(chain: string): string {
+  if (chain === "base") return "Base";
+  if (chain === "degen") return "Degen Chain";
+  return "Arbitrum";
+}
+
+function chainCurrency(chain: string): string {
+  return chain === "degen" ? "DEGEN" : "ETH";
+}
+
 export async function runBountyLoop(): Promise<{ processed: number; winners: number; errors: number }> {
   // getAllBounties includes closed ones — we need to check pending- across all statuses
   const allBounties = await getAllBounties();
   const activeBounties = allBounties.filter((b) => b.status === "open" || b.status === "evaluating");
+
+  // Auto-heal missing announcementCastHash on active bounties without double-announcing.
+  // Guardrails:
+  // 1) Recover from existing bounty_threads first (no new cast).
+  // 2) Publish only if still missing.
+  const missingAnnouncement = allBounties.filter(
+    (b) =>
+      (b.status === "open" || b.status === "evaluating") &&
+      !b.bountyId.startsWith("pending-") &&
+      !b.announcementCastHash,
+  );
+  for (const bounty of missingAnnouncement) {
+    try {
+      const existingThreadHash = await getAnnouncementThreadCastHashForBounty(bounty.bountyId);
+      if (existingThreadHash) {
+        await updateBounty(bounty.bountyId, { announcementCastHash: existingThreadHash });
+        console.log(`[bounty-loop] restored announcementCastHash for ${bounty.bountyId} from bounty_threads: ${existingThreadHash}`);
+        continue;
+      }
+
+      if (!BOT_SIGNER_UUID) continue;
+
+      const chain = bounty.chain ?? "arbitrum";
+      const bountyLink = resolvePoidhUrl(chain, bounty.bountyId);
+      const type = bounty.bountyType ?? "open";
+      const modeLine = type === "solo"
+        ? "solo bounty — creator picks the winner directly on poidh."
+        : "open bounty — anyone can add funds and vote on the winner.";
+      const announcementText =
+        `new ${type} bounty: "${bounty.name}"\n\n${bounty.description}\n\nreward: ${bounty.amountEth} ${chainCurrency(chain)} on ${chainLabel(chain)}. ${modeLine}`;
+
+      const announcementHash = await publishCast({
+        text: announcementText.slice(0, 1024),
+        signerUuid: BOT_SIGNER_UUID,
+        channelId: "poidh",
+        embedUrl: bountyLink,
+      });
+
+      // Persist hash first so re-runs cannot re-announce the same bounty.
+      await updateBounty(bounty.bountyId, { announcementCastHash: announcementHash });
+      await registerBountyThread({
+        castHash: announcementHash,
+        bountyId: bounty.bountyId,
+        bountyName: bounty.name,
+        bountyDescription: bounty.description,
+        chain,
+        poidhUrl: bountyLink,
+        winnerClaimId: bounty.winnerClaimId,
+        winnerIssuer: bounty.winnerIssuer,
+        winnerReasoning: bounty.winnerReasoning,
+      });
+
+      console.log(`[bounty-loop] backfilled missing announcement for ${bounty.bountyId}: ${announcementHash}`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[bounty-loop] failed to backfill announcement for ${bounty.bountyId}: ${msg}`);
+    }
+  }
+
+  // Backfill missing winner announcement casts for closed non-cancelled bounties.
+  // Guardrails:
+  // 1) Skip cancelled rows.
+  // 2) Skip if winner thread already exists for this bounty/claim.
+  const closedMissingWinnerAnnouncement = allBounties.filter((b) => {
+    const isClosed = b.status === "closed";
+    const hasWinner = !!b.winnerClaimId;
+    const isCancelled = (b.winnerReasoning ?? "").toLowerCase().startsWith("bounty cancelled by");
+    return isClosed && hasWinner && !isCancelled && !b.bountyId.startsWith("pending-");
+  });
+
+  for (const bounty of closedMissingWinnerAnnouncement) {
+    try {
+      const winnerThreadHash = await getWinnerAnnouncementThreadCastHashForBounty(
+        bounty.bountyId,
+        bounty.winnerClaimId,
+      );
+      if (winnerThreadHash) {
+        continue;
+      }
+      if (!BOT_SIGNER_UUID) continue;
+
+      const chain = bounty.chain ?? "arbitrum";
+      const bountyLink = resolvePoidhUrl(chain, bounty.bountyId);
+      const mentionMap = bounty.winnerIssuer
+        ? await resolveAddressesToUsernames([bounty.winnerIssuer])
+        : new Map<string, string>();
+      const winnerMention = bounty.winnerIssuer
+        ? (mentionMap.get(bounty.winnerIssuer.toLowerCase()) ?? shortenAddress(bounty.winnerIssuer))
+        : "winner";
+      const submissionsLine = bounty.claimCount > 0 ? ` from ${bounty.claimCount} submission(s)` : "";
+      const reason = (bounty.winnerReasoning ?? "winner selected").trim();
+      const winnerText = `✅ "${bounty.name}" — ${winnerMention} wins${submissionsLine}! ${reason}`;
+
+      const winnerAnnouncementHash = await publishCast({
+        text: winnerText.slice(0, 1024),
+        signerUuid: BOT_SIGNER_UUID,
+        channelId: "poidh",
+        embedUrl: bountyLink,
+      });
+
+      await registerBountyThread({
+        castHash: winnerAnnouncementHash,
+        bountyId: bounty.bountyId,
+        bountyName: bounty.name,
+        bountyDescription: bounty.description,
+        chain,
+        poidhUrl: bountyLink,
+        winnerClaimId: bounty.winnerClaimId,
+        winnerIssuer: bounty.winnerIssuer,
+        winnerReasoning: bounty.winnerReasoning,
+      });
+
+      // Keep latest public thread target on record.
+      await updateBounty(bounty.bountyId, {
+        announcementCastHash: winnerAnnouncementHash,
+        lastCheckedAt: new Date().toISOString(),
+      });
+
+      console.log(`[bounty-loop] backfilled missing winner announcement for ${bounty.bountyId}: ${winnerAnnouncementHash}`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[bounty-loop] failed to backfill winner announcement for ${bounty.bountyId}: ${msg}`);
+    }
+  }
 
   // Auto-retry cancelled refunds marked as pending so creators don't need to manually reply "refund".
   // This runs before the normal open/evaluating loop.

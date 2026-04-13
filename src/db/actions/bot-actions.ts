@@ -10,7 +10,7 @@ import {
   walletBalances,
   processedCasts,
 } from "@/db/schema";
-import { eq, desc, lt, count } from "drizzle-orm";
+import { eq, desc, lt, count, and, isNotNull } from "drizzle-orm";
 
 // ─── Conversation State ───────────────────────────────────────────────────────
 
@@ -284,6 +284,40 @@ export async function getBountyThread(castHash: string): Promise<BountyThread | 
     winnerIssuer: row.winnerIssuer ?? undefined,
     winnerReasoning: row.winnerReasoning ?? undefined,
   };
+}
+
+export async function getAnnouncementThreadCastHashForBounty(bountyId: string): Promise<string | undefined> {
+  const rows = await db
+    .select({ castHash: bountyThreads.castHash })
+    .from(bountyThreads)
+    .where(eq(bountyThreads.bountyId, bountyId))
+    .orderBy(desc(bountyThreads.createdAt))
+    .limit(1);
+  return rows[0]?.castHash ?? undefined;
+}
+
+export async function getWinnerAnnouncementThreadCastHashForBounty(
+  bountyId: string,
+  winnerClaimId?: string,
+): Promise<string | undefined> {
+  const whereClause = winnerClaimId
+    ? and(
+        eq(bountyThreads.bountyId, bountyId),
+        eq(bountyThreads.winnerClaimId, winnerClaimId),
+      )
+    : and(
+        eq(bountyThreads.bountyId, bountyId),
+        isNotNull(bountyThreads.winnerClaimId),
+      );
+
+  const rows = await db
+    .select({ castHash: bountyThreads.castHash })
+    .from(bountyThreads)
+    .where(whereClause)
+    .orderBy(desc(bountyThreads.createdAt))
+    .limit(1);
+
+  return rows[0]?.castHash ?? undefined;
 }
 
 export async function getActiveBounties(): Promise<ActiveBounty[]> {
