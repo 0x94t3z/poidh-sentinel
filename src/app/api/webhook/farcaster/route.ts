@@ -774,6 +774,36 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           };
         })() : undefined,
       });
+
+      // If user intentionally starts a new bounty flow from an existing thread/reply,
+      // persist state here as well (same as fresh mention path).
+      if (agentResult.action === "suggest_bounty" && agentResult.suggestedIdea) {
+        const newState = {
+          step: "awaiting_confirmation" as const,
+          authorFid: author.fid,
+          authorUsername: author.username,
+          suggestedIdea: agentResult.suggestedIdea,
+          lastUpdated: new Date().toISOString(),
+        };
+        await setConversation(thread_hash, newState);
+        if (hash !== thread_hash) await setConversation(hash, newState);
+      }
+
+      if (agentResult.action === "create_bounty_onchain" && agentResult.onChainBounty) {
+        const newState = {
+          step: "awaiting_chain" as const,
+          authorFid: author.fid,
+          authorUsername: author.username,
+          suggestedIdea: {
+            name: agentResult.onChainBounty.name,
+            description: agentResult.onChainBounty.description,
+          },
+          lastUpdated: new Date().toISOString(),
+        };
+        await setConversation(thread_hash, newState);
+        if (hash !== thread_hash) await setConversation(hash, newState);
+      }
+
       logEntry.action = agentResult.action;
       logEntry.replyText = agentResult.reply;
       await reply(agentResult.reply, hash);

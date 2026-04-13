@@ -365,13 +365,19 @@ function hasExplicitCreateIntent(text: string): boolean {
   const lower = text.toLowerCase();
   return (
     lower.includes("suggest a bounty") ||
+    lower.includes("suggest bounty") ||
+    lower.includes("new bounty") ||
     lower.includes("bounty idea") ||
+    lower.includes("idea for a bounty") ||
     lower.includes("what bounty should i") ||
+    lower.includes("i have a bounty idea") ||
+    lower.includes("i have an idea for a bounty") ||
     lower.includes("help me create a bounty") ||
     lower.includes("create a bounty") ||
     lower.includes("make a bounty") ||
     lower.includes("start a bounty") ||
     lower.includes("launch a bounty") ||
+    lower.includes("open a bounty") ||
     lower.includes("post a bounty")
   );
 }
@@ -756,7 +762,7 @@ export async function runAgent(ctx: AgentContext): Promise<AgentResponse> {
   // "create/suggest bounty" intent to break out and start creation flow.
   const inBountyThread = !!ctx.bountyContext;
   const explicitCreateIntent = hasExplicitCreateIntent(ctx.castText);
-  const inContext = inBountyThread || (!!ctx.replyToBot && !explicitCreateIntent);
+  const inContext = (inBountyThread && !explicitCreateIntent) || (!!ctx.replyToBot && !explicitCreateIntent);
   const action = inContext ? "general_reply" : await detectAction(ctx.castText);
 
   // In bounty threads, "any idea?" is usually ambiguous (new bounty vs improving this bounty).
