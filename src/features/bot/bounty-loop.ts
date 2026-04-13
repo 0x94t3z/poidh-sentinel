@@ -84,18 +84,18 @@ function shortenAddress(addr: string): string {
   return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
 }
 
-function buildThanksLine(mentions: string[], maxChars = 220): string {
+function buildFundedByLine(mentions: string[], maxChars = 220): string {
   if (mentions.length === 0) return "";
 
-  const prefix = " thanks ";
-  const bang = "!";
-  const compactOnly = `${prefix}${mentions.length} contributors${bang}`;
+  const prefix = " thank you for your contribution ";
+  const suffix = ".";
+  const compactOnly = `${prefix}${mentions.length} contributors${suffix}`;
 
   let included = [...mentions];
   while (included.length > 0) {
     const omitted = mentions.length - included.length;
     const more = omitted > 0 ? ` +${omitted} more` : "";
-    const candidate = `${prefix}${included.join(", ")}${more}${bang}`;
+    const candidate = `${prefix}${included.join(", ")}${more}${suffix}`;
     if (candidate.length <= maxChars) return candidate;
     included.pop();
   }
@@ -214,7 +214,7 @@ async function postChannelWinnerAnnouncement(
   claimCount: number,
   reasoning: string,
   bountyLink: string,
-  method: "vote_submitted" | "vote_resolved",
+  method: "vote_submitted" | "vote_resolved" | "direct",
   winnerMention: string,          // "@username" or shortened address
   creatorMention: string | null,  // bounty creator @username
   contributorMentions: string[],  // all on-chain contributors (bot wallet already filtered out)
@@ -233,7 +233,7 @@ async function postChannelWinnerAnnouncement(
       ...contributorMentions,
     ]
       .filter((m, i, arr) => m !== winnerMention && arr.indexOf(m) === i);
-    const contribLine = buildThanksLine(allThanks);
+    const fundedByLine = buildFundedByLine(allThanks);
 
     // Currency label + pot amount
     const currency = chain === "degen" ? "DEGEN" : "ETH";
@@ -245,11 +245,6 @@ async function postChannelWinnerAnnouncement(
       }
       return Number(wei) / 1e18 === 0 ? "0" : (Number(wei) / 1e18).toFixed(4).replace(/\.?0+$/, "");
     };
-    const potLine = potAmount !== undefined ? ` ${formatAmt(potAmount)} ${currency}` : "";
-    const voteLine = (yesVotes !== undefined && noVotes !== undefined)
-      ? ` (${formatAmt(yesVotes)} ${currency} yes / ${formatAmt(noVotes)} ${currency} no)`
-      : "";
-
     let text = "";
     const winnerClaimId = allResults?.find((r) => r.valid && r.score === Math.max(...(allResults.filter((x) => x.valid).map((x) => x.score).concat([0]))))?.claimId ?? "";
     const scoresSummary = allResults ? buildRankedSummary(allResults, winnerClaimId) : "";
@@ -257,10 +252,16 @@ async function postChannelWinnerAnnouncement(
 
     if (method === "vote_submitted") {
       // Merged scores + nomination — reply in thread, no URL (parent cast already has the embed)
-      text = `🗳️ "${bountyName}" — ${winnerMention} nominated as winner. ${reasoning}${contribLine} contributors have 48h to vote yes/no. if rejected, the next best gets nominated.${scoresLine}`;
+      text = `🗳️ "${bountyName}" — ${winnerMention} nominated as winner. ${reasoning}${fundedByLine} contributors have 48h to vote yes/no. if rejected, the next best gets nominated.${scoresLine}`;
     } else {
-      // Final winner after community vote — new top-level cast in /poidh
-      text = `✅ "${bountyName}" — ${winnerMention} wins${potLine}! community vote passed${voteLine}.${contribLine} ${reasoning}${scoresLine}`;
+      // Final winner announcement format.
+      const reasonClean = reasoning.trim().replace(/[.!\s]+$/g, "");
+      const submissionLabel = `${claimCount} submission(s)`;
+      // Keep vote metadata compact while prioritizing "because ... thank you ..."
+      const voteMeta = yesVotes !== undefined && noVotes !== undefined ? ` (${formatAmt(yesVotes)} ${currency} yes / ${formatAmt(noVotes)} ${currency} no)` : "";
+      const potMeta = potAmount !== undefined ? ` ${formatAmt(potAmount)} ${currency}` : "";
+      const voteLine = method === "vote_resolved" ? ` community vote passed${voteMeta}.` : "";
+      text = `✅ "${bountyName}" — ${winnerMention} wins from ${submissionLabel} because ${reasonClean}.${fundedByLine}${potMeta ? ` pot:${potMeta}` : ""}${voteLine}${scoresLine}`;
     }
 
     const cleaned = stripMarkdown(text).slice(0, 1024);
@@ -454,15 +455,39 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
 
       const chain = bounty.chain ?? "arbitrum";
       const bountyLink = resolvePoidhUrl(chain, bounty.bountyId);
-      const mentionMap = bounty.winnerIssuer
-        ? await resolveAddressesToUsernames([bounty.winnerIssuer])
-        : new Map<string, string>();
+      const details = await getBountyDetails(BigInt(bounty.bountyId), chain).catch(() => null);
+      const contributorAddresses = await getContributors(
+        bounty.bountyId,
+        chain,
+        details?.issuer,
+      ).catch(() => []);
+      const creatorMention = bounty.creatorFid ? (await resolveFidToUsername(bounty.creatorFid)) : null;
+
+      const addressPool = [...new Set([
+        ...(bounty.winnerIssuer ? [bounty.winnerIssuer] : []),
+        ...contributorAddresses,
+      ])];
+      const mentionMap = await resolveAddressesToUsernames(addressPool);
       const winnerMention = bounty.winnerIssuer
         ? (mentionMap.get(bounty.winnerIssuer.toLowerCase()) ?? shortenAddress(bounty.winnerIssuer))
         : "winner";
-      const submissionsLine = bounty.claimCount > 0 ? ` from ${bounty.claimCount} submission(s)` : "";
-      const reason = (bounty.winnerReasoning ?? "winner selected").trim();
-      const winnerText = `✅ "${bounty.name}" — ${winnerMention} wins${submissionsLine}! ${reason}`;
+
+      let botAddr = "";
+      try { botAddr = (await import("@/features/bot/poidh-contract")).getBotWalletAddress().toLowerCase(); } catch { /* non-critical */ }
+      const contributorMentions = contributorAddresses
+        .filter((a) => a.toLowerCase() !== botAddr && a.toLowerCase() !== (bounty.winnerIssuer ?? "").toLowerCase())
+        .map((a) => mentionMap.get(a.toLowerCase()) ?? shortenAddress(a))
+        .filter((m, i, arr) => arr.indexOf(m) === i);
+      const allThanks = [
+        ...(creatorMention ? [creatorMention] : []),
+        ...contributorMentions,
+      ]
+        .filter((m, i, arr) => m !== winnerMention && arr.indexOf(m) === i);
+      const fundedByLine = buildFundedByLine(allThanks);
+
+      const submissionLabel = `${bounty.claimCount > 0 ? bounty.claimCount : 1} submission(s)`;
+      const reason = (bounty.winnerReasoning ?? "winner selected").trim().replace(/[.!\s]+$/g, "");
+      const winnerText = `✅ "${bounty.name}" — ${winnerMention} wins from ${submissionLabel} because ${reason}.${fundedByLine}`;
 
       const winnerAnnouncementHash = await publishCast({
         text: winnerText.slice(0, 1024),
@@ -660,7 +685,7 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
                 ...(creatorTag ? [creatorTag] : []),
                 ...humanContribsV,
               ].filter((m, i, arr) => m !== wMention && arr.indexOf(m) === i);
-              const creatorLine = buildThanksLine(allThanksV);
+              const fundedByLineV = buildFundedByLine(allThanksV);
 
               // Short pointer reply in original thread
               await postReply(getReplyTarget(bounty), `🏆 vote closed — ${wMention} wins. see /poidh for the full announcement.`, bountyLink);
@@ -674,8 +699,10 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
                 potLineV = ` ${fmtV(onChainAmt)} ${currency}`;
               } catch { /* non-critical */ }
               const voteLineV = ` (${fmtV(yesVotes)} ${currency} yes / ${fmtV(noVotes)} ${currency} no)`;
+              const reasonV = (bounty.winnerReasoning ?? "winner selected").trim().replace(/[.!\s]+$/g, "");
+              const submissionCountV = bounty.claimCount > 0 ? bounty.claimCount : 1;
               const resolvedCastHash = await publishCast({
-                text: stripMarkdown(`✅ "${bounty.name}" — ${wMention} wins${potLineV}! community vote passed${voteLineV}.${creatorLine} ${bounty.winnerReasoning ?? ""}`).slice(0, 1024),
+                text: stripMarkdown(`✅ "${bounty.name}" — ${wMention} wins from ${submissionCountV} submission(s) because ${reasonV}.${fundedByLineV}${potLineV ? ` pot:${potLineV}` : ""} community vote passed${voteLineV}.`).slice(0, 1024),
                 signerUuid: BOT_SIGNER_UUID,
                 channelId: "poidh",
                 embedUrl: bountyLink,
@@ -937,7 +964,7 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
 
       } else {
         // direct — issuer-only bounty, no community vote required
-        // just close the bounty and post a winner reply in the original thread (no /poidh channel cast)
+        // close the bounty, post a short thread reply, and post a /poidh winner announcement
         await updateBounty(bounty.bountyId, {
           status: "closed",
           winnerClaimId: result.winnerClaimId,
@@ -957,6 +984,37 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
         };
         const potLineD = details?.amount !== undefined ? ` ${fmtD(details.amount)} ${currency}` : "";
         await postReply(getReplyTarget(bounty), `🏆 ${winnerMention} wins${potLineD}! ${result.reasoning}`, bountyLink);
+
+        const directAnnouncementHash = await postChannelWinnerAnnouncement(
+          bounty.name,
+          claims.length,
+          result.reasoning,
+          bountyLink,
+          "direct",
+          winnerMention,
+          creatorMention,
+          humanContributorMentions,
+          bountyChain,
+          details.amount,
+          undefined,
+          undefined,
+          undefined,
+          annotatedResults,
+        );
+        if (directAnnouncementHash) {
+          await updateBounty(bounty.bountyId, { announcementCastHash: directAnnouncementHash });
+          await registerBountyThread({
+            castHash: directAnnouncementHash,
+            bountyId: bounty.bountyId,
+            bountyName: bounty.name,
+            bountyDescription: bounty.description,
+            chain: bountyChain,
+            poidhUrl: bountyLink,
+            winnerClaimId: result.winnerClaimId,
+            winnerIssuer,
+            winnerReasoning: result.reasoning,
+          });
+        }
         winners++;
       }
 

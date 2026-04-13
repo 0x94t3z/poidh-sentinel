@@ -198,14 +198,17 @@ Built for the [poidh SKILL challenge](https://github.com/picsoritdidnthappen/poi
 
 8a. Open bounty with no external contributors (everHadExternalContributor = false):
     -> acceptClaim() — immediate on-chain payout
-    -> posts reply in ANNOUNCEMENT thread (no /poidh channel cast):
+    -> posts reply in ANNOUNCEMENT thread:
        "🏆 @winner wins 0.001 ETH! [reasoning]"
+       [embed: poidh.xyz/arbitrum/bounty/268]
+    -> posts NEW top-level cast in /poidh channel:
+       "✅ "[name]" — @winner wins from 3 submission(s) because [reasoning]. thank you for your contribution @creator."
        [embed: poidh.xyz/arbitrum/bounty/268]
 
 8b. Open bounty with external contributors (everHadExternalContributor = true):
     -> submitClaimForVote() — starts 48h community vote
     -> posts reply in ANNOUNCEMENT thread:
-       "🗳️ "[name]" — @winner nominated as winner. [reasoning] thanks @kenny, @mr94t3z!
+       "🗳️ "[name]" — @winner nominated as winner. [reasoning] thank you for your contribution @kenny, @mr94t3z.
         contributors have 48h to vote yes/no. if rejected, next best gets nominated.
         results: #356 @winner (70)⭐ ✅ | #362 @user2 (40) ❌ — missing poidh text | ..."
        [embed: poidh.xyz/arbitrum/bounty/268]
@@ -217,7 +220,9 @@ Built for the [poidh SKILL challenge](https://github.com/picsoritdidnthappen/poi
           "🏆 vote closed — @winner wins. see /poidh for the full announcement."
           [embed: poidh.xyz/arbitrum/bounty/268]
        -> NEW top-level cast in /poidh channel:
-          "✅ "[name]" — @winner wins! community vote passed. thanks @kenny, @mr94t3z! [reasoning]"
+          "✅ "[name]" — @winner wins from 4 submission(s) because [reasoning].
+           thank you for your contribution @kenny, @mr94t3z.
+           community vote passed (1.2 ETH yes / 0.3 ETH no)."
           [embed: poidh.xyz/arbitrum/bounty/268]
 
     NO (vote rejected):
@@ -897,7 +902,7 @@ In production, if `CRON_SECRET` is missing, `/api/cron/bounty-loop` fails closed
 - **Video submissions** — vision AI can only evaluate images. Video proof is scored on submission name/description text only.
 - **Degen Chain** — fully supported end-to-end: conversation, deposit detection (`getBalance` via `https://rpc.degen.tips`), bounty creation (`0x18E5585ca7cE31b90Bc8BB7aAf84152857cE243f`), claim evaluation, and winner resolution. Bot wallet needs DEGEN tokens for gas (native token on Degen Chain). Set `DEGEN_RPC_URL` for a custom RPC; the public endpoint is used by default.
 - **Announcement cast embed** — every cast the bot posts includes the bounty URL as a Farcaster embed (renders as a link preview card). This applies to: nomination/scores reply in thread, winner pointer reply, vote-rejected replies, no-winner feedback, "still waiting" nudge, bounty ID resolved reply, and all top-level `/poidh` channel announcements. The URL is never repeated in the text body when it's present as an embed.
-- **Winner cast contributor tags** — for bounties with external contributors (`vote_submitted` / `vote_resolved` path), all on-chain participants from `participants[bountyId]` are tagged in winner announcements (`thanks @kenny, @mr94t3z!`), with the bot wallet filtered out and the winner excluded (already the star). The bounty creator (`creatorFid` → `@username`) always appears first. Tags are capped at 5. The contract provides no per-voter records so all contributors are tagged regardless of whether they voted. When `everHadExternalContributor` returns `false` (creator is the only participant), the bot uses `acceptClaim` directly and posts only a winner reply in the announcement thread — no `/poidh` channel cast, no contributor tags.
+- **Winner cast contributor tags** — for open bounties, winner announcements include `thank you for your contribution ...`, with the bot wallet filtered out and the winner excluded (already called out as winner). The bounty creator (`creatorFid` → `@username`) appears first. If the list is too long for cast limits, the bot compacts it (for example `+N more`) to stay under 1024 chars. In the `vote_resolved` path, the cast also includes `community vote passed` plus yes/no weight totals when available. The contract provides no per-voter records so contributors are listed regardless of whether they voted.
 - **Cancelled vs won detection** — the bounty-loop checks `claimer != 0x000...` to detect closed bounties. If `claimer == issuer`, the bounty was cancelled (`cancelSoloBounty` / `cancelOpenBounty`) and funds were refunded; if `claimer != issuer`, a winner was accepted. Both set status to `closed` in the DB. Only the bot wallet (EOA issuer) can cancel bounties it created.
 - **Cancel flow** — the original depositor sent native tokens (ETH or DEGEN) directly to the bot wallet, so the poidh contract has no record of them. `withdrawTo()` only pulls `pendingWithdrawals[msg.sender]` (bot wallet's own balance) — it cannot route tokens to a third party. The actual creator refund is a **plain native token transfer** (`sendTransaction`) from the bot wallet to the creator's Farcaster custody/verified address resolved via Neynar. Solo cancel: `cancelSoloBounty` → `withdraw()` → `sendTransaction(creatorAddress)`. Open cancel: `cancelOpenBounty` → `claimRefundFromCancelledOpenBounty` → `withdraw()` → `sendTransaction(creatorAddress)`. Other open bounty contributors call `claimRefundFromCancelledOpenBounty` themselves on poidh.xyz — bot cannot do it for them. Bot pings all contributors by @username in the announcement thread after cancel. `creatorFid` stored on `active_bounties` at creation time. **Refund amount** = `parseEther(bountyRecord.amountEth)` from DB — the exact bounty reward the creator put up (no fee). The `pendingWithdrawals` delta (before/after cancel) is computed as a sanity log but the DB value is the definitive source for the actual transfer. **Cancel auth**: only the creator (`creatorFid` match) can trigger cancel. For legacy rows where `creatorFid` is missing, webhook attempts recovery from the original creation cast hash first; if unresolved, it asks the user to retry cancel so recovery can be retried.
 - **Cron parallelism** — `runBountyLoop()` and `checkDepositsAndCreateBounties()` run in parallel via `Promise.allSettled`. A failure in deposit checking does not block bounty evaluation and vice versa.
