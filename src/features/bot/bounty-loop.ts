@@ -3,6 +3,7 @@ import { getClaimsForBounty, resolveBountyWinner, getBountyDetails, getPublicCli
 import { pickWinner, type ClaimData, type EvaluationResult } from "@/features/bot/submission-evaluator";
 import { updateBounty, getAllBounties } from "@/features/bot/bounty-store";
 import { publishReply, publishCast } from "@/features/bot/cast-reply";
+import { appendLog } from "@/features/bot/bot-log";
 import {
   registerBountyThread,
   getAnnouncementThreadCastHashForBounty,
@@ -197,6 +198,32 @@ function stripMarkdown(text: string): string {
     .replace(/#{1,6}\s/g, "")
     .replace(/`(.*?)`/g, "$1")
     .trim();
+}
+
+async function logBountyLoopEvent(
+  bounty: {
+    bountyId: string;
+    name: string;
+    castHash: string;
+    announcementCastHash?: string;
+  },
+  action: string,
+  status: "success" | "error",
+  replyText: string,
+  opts?: { errorMessage?: string; txHash?: string; triggerText?: string },
+): Promise<void> {
+  await appendLog({
+    id: `${action}-${bounty.bountyId}-${Date.now()}`,
+    timestamp: new Date().toISOString(),
+    triggerCastHash: bounty.announcementCastHash ?? bounty.castHash,
+    triggerAuthor: "system",
+    triggerText: opts?.triggerText ?? `bounty #${bounty.bountyId} · ${bounty.name}`,
+    action,
+    replyText,
+    status,
+    errorMessage: opts?.errorMessage,
+    txHash: opts?.txHash,
+  });
 }
 
 async function postReply(castHash: string, text: string, embedUrl?: string): Promise<void> {
@@ -859,16 +886,59 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
         const noWinnerFeedback = buildNoWinnerFeedback(claimData, result?.allResults ?? []);
         const bountyLinkForFeedback = resolvePoidhUrl(bountyChain, bounty.bountyId);
         await postReply(getReplyTarget(bounty), noWinnerFeedback, bountyLinkForFeedback);
+        await logBountyLoopEvent(
+          bounty,
+          "no_winner_found",
+          "success",
+          noWinnerFeedback,
+          { triggerText: `bounty #${bounty.bountyId} evaluated with no winner` },
+        );
         // Stamp lastCheckedAt so cooldown prevents re-posting every minute
         await updateBounty(bounty.bountyId, { status: "open", lastCheckedAt: new Date().toISOString() });
         continue;
       }
 
+      await logBountyLoopEvent(
+        bounty,
+        "winner_candidate_selected",
+        "success",
+        `candidate claim #${result.winnerClaimId} selected: ${result.reasoning}`,
+        { triggerText: `bounty #${bounty.bountyId} picked winner candidate` },
+      );
+
       // --- Resolve on-chain ---
-      const { txHash, method } = await resolveBountyWinner(
-        BigInt(bounty.bountyId),
-        BigInt(result.winnerClaimId),
-        bountyChain,
+      let txHash: `0x${string}`;
+      let method: "direct" | "vote_submitted" | "vote_resolved";
+      try {
+        ({ txHash, method } = await resolveBountyWinner(
+          BigInt(bounty.bountyId),
+          BigInt(result.winnerClaimId),
+          bountyChain,
+        ));
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        await logBountyLoopEvent(
+          bounty,
+          "winner_resolution_failed",
+          "error",
+          `failed to resolve candidate claim #${result.winnerClaimId}`,
+          {
+            triggerText: `bounty #${bounty.bountyId} failed during on-chain resolution`,
+            errorMessage: msg,
+          },
+        );
+        throw err;
+      }
+
+      await logBountyLoopEvent(
+        bounty,
+        "winner_resolution_started",
+        "success",
+        `${method} submitted for claim #${result.winnerClaimId}`,
+        {
+          triggerText: `bounty #${bounty.bountyId} submitted on-chain winner action`,
+          txHash,
+        },
       );
 
       const bountyLink = resolvePoidhUrl(bountyChain, bounty.bountyId);
