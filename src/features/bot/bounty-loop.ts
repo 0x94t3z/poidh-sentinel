@@ -693,7 +693,14 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
             : null;
           observedActiveVotingClaimId = activeVotingClaimId;
 
-          if (activeVotingClaimId && (bounty.status !== "evaluating" || bounty.winnerClaimId !== activeVotingClaimId)) {
+          const shouldRecoverVoteState =
+            !!activeVotingClaimId && (
+              bounty.status !== "evaluating" ||
+              bounty.winnerClaimId !== activeVotingClaimId ||
+              !bounty.winnerReasoning
+            );
+
+          if (shouldRecoverVoteState) {
             const recoveredResult = (bounty.allEvalResults ?? []).find((r) => r.claimId === activeVotingClaimId) as (EvaluationResult & { issuer?: string; issuerUsername?: string }) | undefined;
             await updateBounty(bounty.bountyId, {
               status: "evaluating",
