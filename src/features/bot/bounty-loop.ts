@@ -694,13 +694,56 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
           observedActiveVotingClaimId = activeVotingClaimId;
 
           if (activeVotingClaimId && (bounty.status !== "evaluating" || bounty.winnerClaimId !== activeVotingClaimId)) {
-            const recoveredResult = (bounty.allEvalResults ?? []).find((r) => r.claimId === activeVotingClaimId) as (EvaluationResult & { issuer?: string }) | undefined;
+            const recoveredResult = (bounty.allEvalResults ?? []).find((r) => r.claimId === activeVotingClaimId) as (EvaluationResult & { issuer?: string; issuerUsername?: string }) | undefined;
             await updateBounty(bounty.bountyId, {
               status: "evaluating",
               winnerClaimId: activeVotingClaimId,
               winnerIssuer: recoveredResult?.issuer,
               winnerReasoning: recoveredResult?.reasoning ?? bounty.winnerReasoning,
             });
+
+            // If an on-chain vote already exists but the DB/UI missed the original nomination,
+            // backfill the nomination reply once so the announcement thread reflects reality.
+            if (recoveredResult) {
+              try {
+                const recoveredDetails = await getBountyDetails(BigInt(bounty.bountyId), bountyChain);
+                const winnerMention = recoveredResult.issuerUsername
+                  ? recoveredResult.issuerUsername
+                  : recoveredResult.issuer
+                    ? (await resolveAddressesToUsernames([recoveredResult.issuer])).get(recoveredResult.issuer.toLowerCase()) ?? shortenAddress(recoveredResult.issuer)
+                    : `claim #${activeVotingClaimId}`;
+                const creatorMention = bounty.creatorFid ? (await resolveFidToUsername(bounty.creatorFid)) : null;
+                const bountyIssuer = recoveredDetails.issuer;
+                const contributorAddresses = await getContributors(bounty.bountyId, bountyChain, bountyIssuer);
+                const contributorMap = await resolveAddressesToUsernames(contributorAddresses);
+                let botAddr = "";
+                try { botAddr = (await import("@/features/bot/poidh-contract")).getBotWalletAddress().toLowerCase(); } catch { /* non-critical */ }
+                const contributorMentions = contributorAddresses
+                  .filter((a) => a.toLowerCase() !== botAddr && a.toLowerCase() !== (recoveredResult.issuer ?? "").toLowerCase())
+                  .map((a) => contributorMap.get(a.toLowerCase()) ?? shortenAddress(a))
+                  .filter((m, i, arr) => arr.indexOf(m) === i);
+                const bountyLink = resolvePoidhUrl(bountyChain, bounty.bountyId);
+                await postChannelWinnerAnnouncement(
+                  bounty.name,
+                  Math.max(bounty.claimCount, bounty.allEvalResults?.length ?? 0, 1),
+                  recoveredResult.reasoning,
+                  bountyLink,
+                  "vote_submitted",
+                  winnerMention,
+                  creatorMention,
+                  contributorMentions,
+                  bountyChain,
+                  recoveredDetails.amount,
+                  undefined,
+                  undefined,
+                  getReplyTarget(bounty),
+                  bounty.allEvalResults as AnnotatedResult[] | undefined,
+                );
+              } catch (recoveryErr) {
+                const msg = recoveryErr instanceof Error ? recoveryErr.message : String(recoveryErr);
+                console.warn(`[bounty-loop] failed to backfill vote-submitted reply for ${bounty.bountyId}: ${msg}`);
+              }
+            }
           }
 
           if (!activeVotingClaimId) {
