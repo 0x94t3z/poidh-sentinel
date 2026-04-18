@@ -800,11 +800,6 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
             // backfill the nomination reply once so the announcement thread reflects reality.
             if (recoveredResult) {
               try {
-                const winnerMention = recoveredResult.issuerUsername
-                  ? recoveredResult.issuerUsername
-                  : recoveredResult.issuer
-                    ? (await resolveAddressesToUsernames([recoveredResult.issuer])).get(recoveredResult.issuer.toLowerCase()) ?? shortenAddress(recoveredResult.issuer)
-                    : `claim #${activeVotingClaimId}`;
                 const creatorMention = bounty.creatorFid ? (await resolveFidToUsername(bounty.creatorFid)) : null;
                 const bountyIssuer = activeVoteDetails.issuer;
                 const contributorAddresses = await getContributors(bounty.bountyId, bountyChain, bountyIssuer);
@@ -815,37 +810,12 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
                   .filter((a) => a.toLowerCase() !== botAddr && a.toLowerCase() !== (recoveredResult.issuer ?? "").toLowerCase())
                   .map((a) => contributorMap.get(a.toLowerCase()) ?? shortenAddress(a))
                   .filter((m, i, arr) => arr.indexOf(m) === i);
-                const bountyLink = resolvePoidhUrl(bountyChain, bounty.bountyId);
-                await postChannelWinnerAnnouncement(
-                  bounty.name,
-                  Math.max(bounty.claimCount, hydratedResults?.length ?? bounty.allEvalResults?.length ?? 0, 1),
-                  recoveredResult.reasoning,
-                  bountyLink,
-                  "vote_submitted",
-                  winnerMention,
-                  creatorMention,
-                  contributorMentions,
-                  bountyChain,
-                  activeVoteDetails.amount,
-                  undefined,
-                  undefined,
-                  getReplyTarget(bounty),
-                  hydratedResults ?? bounty.allEvalResults as AnnotatedResult[] | undefined,
-                );
-                await logBountyLoopEvent(
-                  bounty,
-                  "vote_nomination_backfilled",
-                  "success",
-                  `backfilled nomination for claim #${activeVotingClaimId}`,
-                  {
-                    triggerText: `bounty #${bounty.bountyId} recovered a missing vote nomination reply`,
-                  },
-                );
-
                 const rankedValidResults = (hydratedResults ?? bounty.allEvalResults as AnnotatedResult[] | undefined ?? [])
                   .filter((r) => r.valid)
                   .sort(compareEvaluationResults);
                 const expectedWinner = rankedValidResults[0];
+                const bountyLink = resolvePoidhUrl(bountyChain, bounty.bountyId);
+
                 if (expectedWinner && expectedWinner.claimId !== activeVotingClaimId) {
                   const expectedWinnerMention = expectedWinner.issuerUsername
                     ? expectedWinner.issuerUsername
@@ -879,6 +849,37 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
                       },
                     );
                   }
+                } else {
+                  const winnerMention = recoveredResult.issuerUsername
+                    ? recoveredResult.issuerUsername
+                    : recoveredResult.issuer
+                      ? (await resolveAddressesToUsernames([recoveredResult.issuer])).get(recoveredResult.issuer.toLowerCase()) ?? shortenAddress(recoveredResult.issuer)
+                      : `claim #${activeVotingClaimId}`;
+                  await postChannelWinnerAnnouncement(
+                    bounty.name,
+                    Math.max(bounty.claimCount, hydratedResults?.length ?? bounty.allEvalResults?.length ?? 0, 1),
+                    recoveredResult.reasoning,
+                    bountyLink,
+                    "vote_submitted",
+                    winnerMention,
+                    creatorMention,
+                    contributorMentions,
+                    bountyChain,
+                    activeVoteDetails.amount,
+                    undefined,
+                    undefined,
+                    getReplyTarget(bounty),
+                    hydratedResults ?? bounty.allEvalResults as AnnotatedResult[] | undefined,
+                  );
+                  await logBountyLoopEvent(
+                    bounty,
+                    "vote_nomination_backfilled",
+                    "success",
+                    `backfilled nomination for claim #${activeVotingClaimId}`,
+                    {
+                      triggerText: `bounty #${bounty.bountyId} recovered a missing vote nomination reply`,
+                    },
+                  );
                 }
               } catch (recoveryErr) {
                 const msg = recoveryErr instanceof Error ? recoveryErr.message : String(recoveryErr);
