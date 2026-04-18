@@ -355,12 +355,13 @@ async function postChannelWinnerAnnouncement(
     const scoresSummary = allResults ? buildRankedSummary(allResults, winnerClaimId) : "";
     const scoresLine = scoresSummary ? `\nresults: ${scoresSummary}.` : "";
 
+    const reasonClean = reasoning.trim().replace(/[.!\s]+$/g, "");
+
     if (method === "vote_submitted") {
       // Merged scores + nomination — reply in thread, no URL (parent cast already has the embed)
-      text = `🗳️ "${bountyName}" — ${winnerMention} nominated as winner. ${reasoning}${fundedByLine} contributors have 48h to vote yes/no. if rejected, the next best gets nominated.${scoresLine}`;
+      text = `🗳️ "${bountyName}" — ${winnerMention} nominated as winner. ${reasonClean}.${fundedByLine} contributors have 48h to vote yes/no. if rejected, the next best gets nominated.${scoresLine}`;
     } else {
       // Final winner announcement format.
-      const reasonClean = reasoning.trim().replace(/[.!\s]+$/g, "");
       const submissionLabel = `${claimCount} submission(s)`;
       // Keep vote metadata compact while prioritizing "because ... thank you ..."
       const voteMeta = yesVotes !== undefined && noVotes !== undefined ? ` (${formatAmt(yesVotes)} ${currency} yes / ${formatAmt(noVotes)} ${currency} no)` : "";

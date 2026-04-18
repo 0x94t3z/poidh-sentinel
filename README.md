@@ -114,6 +114,34 @@ Built for the [poidh SKILL challenge](https://github.com/picsoritdidnthappen/poi
 
 ## Cast flow
 
+### Quick flow table
+
+| Trigger | Bot message | Next state |
+| --- | --- | --- |
+| User mentions `@poidh-sentinel` asking for help / an idea | Suggests a bounty idea and asks for confirmation | `awaiting_confirmation` |
+| User says yes to suggested idea | `which chain — arbitrum, base, or degen? and how much do you want to put up?` | `awaiting_chain` |
+| User gives chain + amount | `got it — <chain>, <amount>. open or solo bounty?` | `awaiting_bounty_type` |
+| User chooses type (or defaults to open) | `send exactly <uniqueAmount> ... once i see the deposit i'll create the bounty` | `awaiting_payment` |
+| Deposit detected on-chain | `bounty is live — <poidhUrl>` | conversation cleared, bounty announced |
+| 72h passes with zero submissions | `72h in — no submissions yet... reply "cancel bounty" in this thread` | stays `open` |
+| 7+ days with zero submissions | `still no submissions... share the link or reply "cancel bounty"` | stays `open` |
+| Eligible bounty evaluated, no claim qualifies | `reviewed N submissions, none qualified yet... fix the issues above and resubmit` | stays `open`, 6h cooldown |
+| Open bounty, no contributors, winner found | `🏆 @winner wins ...` in thread + `✅ ... wins ...` in `/poidh` | `closed` |
+| Open bounty, contributors exist, winner found | `🗳️ ... nominated as winner. ... contributors have 48h to vote yes/no.` | `evaluating` |
+| Open bounty vote passes | `🏆 vote closed — @winner wins` in thread + `✅ ... community vote passed ...` in `/poidh` | `closed` |
+| Open bounty vote fails, next valid claim exists | `vote rejected ... nominating next best ...` | stays `evaluating` with new nominee |
+| Open bounty vote fails, no next valid claim | `vote rejected ... no other qualifying submissions found` | back to `open` |
+| Creator says `cancel bounty` | `reply "yes cancel" to confirm ... or "no" to keep it open` | `awaiting_cancel_confirmation` |
+| Creator confirms cancel | `"title" cancelled — ...` or `refund is processing automatically` | `closed` / pending refund retry |
+| Wrong nominee already active on-chain | `i was wrong earlier — ... please vote no on the current nominee ... the correct winner ...` | stays `evaluating` until vote resolves |
+
+### Open vs Solo
+
+| Type | Who picks winner | Bot behavior | Vote flow | Refund / cancel |
+| --- | --- | --- | --- | --- |
+| `open` | Bot evaluates claims, then community vote decides if contributors exist | Bot creates bounty, monitors submissions, evaluates claims, nominates winner, resolves vote, posts announcements | Yes, if there are external contributors | Creator can cancel before resolution; if contributors exist they reclaim via poidh after cancellation |
+| `solo` | Creator picks manually on poidh.xyz | Bot only creates and announces the bounty, then steps back from winner selection | No | Creator can still cancel, but there is no bot-managed community vote path |
+
 ### Bounty lifecycle
 
 ```
@@ -208,7 +236,7 @@ Built for the [poidh SKILL challenge](https://github.com/picsoritdidnthappen/poi
 8b. Open bounty with external contributors (everHadExternalContributor = true):
     -> submitClaimForVote() — starts 48h community vote
     -> posts reply in ANNOUNCEMENT thread:
-       "🗳️ "[name]" — @winner nominated as winner. [reasoning] thank you for your contribution @kenny, @mr94t3z.
+       "🗳️ "[name]" — @winner nominated as winner. [reasoning]. thank you for your contribution @kenny, @mr94t3z.
         contributors have 48h to vote yes/no. if rejected, next best gets nominated.
         results: #356 @winner (70)⭐ ✅ | #362 @user2 (40) ❌ — missing poidh text | ..."
        [embed: poidh.xyz/arbitrum/bounty/268]
