@@ -724,12 +724,13 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
     const reason = (b.winnerReasoning ?? "").toLowerCase();
     const isCancelled = reason.includes("bounty cancelled by");
     const alreadySent = reason.includes("refund sent");
+    const autoRetryStopped = reason.includes("auto retry stopped");
     const needsTx = !b.winnerTxHash;
     const isClosed = b.status === "closed";
     const notPendingId = !b.bountyId.startsWith("pending-");
     const lastAttemptMs = b.lastCheckedAt ? new Date(b.lastCheckedAt).getTime() : 0;
     const staleEnough = !lastAttemptMs || nowMs - lastAttemptMs >= REFUND_RETRY_INTERVAL_MS;
-    return isClosed && isCancelled && !alreadySent && needsTx && notPendingId && staleEnough;
+    return isClosed && isCancelled && !alreadySent && !autoRetryStopped && needsTx && notPendingId && staleEnough;
   });
 
   for (const bounty of pendingRefundBounties) {
