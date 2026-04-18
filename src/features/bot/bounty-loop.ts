@@ -3,7 +3,7 @@ import { getClaimsForBounty, resolveBountyWinner, getBountyDetails, getPublicCli
 import { pickWinner, compareEvaluationResults, type ClaimData, type EvaluationResult } from "@/features/bot/submission-evaluator";
 import { updateBounty, getAllBounties } from "@/features/bot/bounty-store";
 import { publishReply, publishCast } from "@/features/bot/cast-reply";
-import { appendLog } from "@/features/bot/bot-log";
+import { appendLog, hasSuccessfulLog } from "@/features/bot/bot-log";
 import {
   registerBountyThread,
   getAnnouncementThreadCastHashForBounty,
@@ -102,6 +102,17 @@ function buildFundedByLine(mentions: string[], maxChars = 220): string {
   }
 
   return compactOnly;
+}
+
+function buildVoteNoRequestLine(mentions: string[], fallback = "contributors"): string {
+  if (mentions.length === 0) return fallback;
+
+  const joined = mentions.join(", ");
+  const base = `${joined}, please vote no on the current nominee`;
+  if (base.length <= 220) return joined;
+
+  const compact = `${mentions[0]} +${mentions.length - 1} more`;
+  return compact;
 }
 
 // Resolve a single Farcaster FID → @username using the Neynar bulk endpoint
@@ -830,6 +841,45 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
                     triggerText: `bounty #${bounty.bountyId} recovered a missing vote nomination reply`,
                   },
                 );
+
+                const rankedValidResults = (hydratedResults ?? bounty.allEvalResults as AnnotatedResult[] | undefined ?? [])
+                  .filter((r) => r.valid)
+                  .sort(compareEvaluationResults);
+                const expectedWinner = rankedValidResults[0];
+                if (expectedWinner && expectedWinner.claimId !== activeVotingClaimId) {
+                  const expectedWinnerMention = expectedWinner.issuerUsername
+                    ? expectedWinner.issuerUsername
+                    : expectedWinner.issuer
+                      ? (await resolveAddressesToUsernames([expectedWinner.issuer])).get(expectedWinner.issuer.toLowerCase()) ?? shortenAddress(expectedWinner.issuer)
+                      : `claim #${expectedWinner.claimId}`;
+                  const voterMentions = [
+                    ...(creatorMention ? [creatorMention] : []),
+                    ...contributorMentions,
+                  ].filter((m, i, arr) => m !== expectedWinnerMention && arr.indexOf(m) === i);
+                  const voteTarget = buildVoteNoRequestLine(voterMentions);
+                  const correctionText = stripMarkdown(
+                    `i was wrong earlier — ${voteTarget}, please vote no on the current nominee. the correct winner should be ${expectedWinnerMention}. once this vote is rejected, i'll nominate the correct claim next.`,
+                  ).slice(0, 1024);
+
+                  const correctionAlreadyPosted = await hasSuccessfulLog(
+                    getReplyTarget(bounty),
+                    "vote_correction_posted",
+                    correctionText,
+                  );
+
+                  if (!correctionAlreadyPosted) {
+                    await postReply(getReplyTarget(bounty), correctionText, bountyLink);
+                    await logBountyLoopEvent(
+                      bounty,
+                      "vote_correction_posted",
+                      "success",
+                      correctionText,
+                      {
+                        triggerText: `bounty #${bounty.bountyId} corrected an active wrong vote nominee`,
+                      },
+                    );
+                  }
+                }
               } catch (recoveryErr) {
                 const msg = recoveryErr instanceof Error ? recoveryErr.message : String(recoveryErr);
                 await logBountyLoopEvent(

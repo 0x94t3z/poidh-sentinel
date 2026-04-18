@@ -443,6 +443,30 @@ export async function getLogs(limit = 30, offset = 0): Promise<BotLogEntry[]> {
   }));
 }
 
+export async function hasSuccessfulLog(
+  triggerCastHash: string,
+  action: string,
+  replyText?: string,
+): Promise<boolean> {
+  const conditions = [
+    eq(botLog.triggerCastHash, triggerCastHash),
+    eq(botLog.action, action),
+    eq(botLog.status, "success"),
+  ];
+
+  if (replyText !== undefined) {
+    conditions.push(eq(botLog.replyText, replyText));
+  }
+
+  const rows = await db
+    .select({ id: botLog.id })
+    .from(botLog)
+    .where(and(...conditions))
+    .limit(1);
+
+  return rows.length > 0;
+}
+
 export async function getLogCount(): Promise<number> {
   const rows = await db.select({ count: count() }).from(botLog);
   return rows[0]?.count ?? 0;

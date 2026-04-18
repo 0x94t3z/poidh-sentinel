@@ -4,6 +4,7 @@ import "server-only";
 export type { BotLogEntry } from "@/db/actions/bot-actions";
 export {
   appendLog,
+  hasSuccessfulLog,
   getLogs,
   getLogCount,
   getStats,
