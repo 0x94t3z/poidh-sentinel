@@ -56,3 +56,6 @@ core.[0-9]*
 keys.txt
 requirements.txt
 results.json
+conversations.md
+conversations-redacted.md
+security-report-draft.md
