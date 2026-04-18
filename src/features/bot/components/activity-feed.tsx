@@ -12,6 +12,7 @@ const ACTION_LABELS: Record<string, { label: string; color: string }> = {
   wallet_address: { label: "WALLET", color: "text-teal-400" },
   deposit_detected: { label: "DEPOSIT", color: "text-green-300" },
   bounty_posted_ui: { label: "BOUNTY", color: "text-indigo-300" },
+  winner_evaluation_started: { label: "EVAL", color: "text-violet-300" },
   no_winner_found: { label: "NO WIN", color: "text-amber-300" },
   winner_candidate_selected: { label: "CANDIDATE", color: "text-cyan-300" },
   winner_resolution_started: { label: "RESOLVE", color: "text-green-300" },

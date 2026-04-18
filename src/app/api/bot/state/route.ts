@@ -16,6 +16,6 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   return NextResponse.json({
     pendingPayments: pending,
     activeBounties: bounties,
-    recentLogs: logs.slice(-20),
+    recentLogs: logs.slice(0, 20),
   });
 }

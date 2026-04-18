@@ -902,6 +902,16 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
         uri: c.uri,
       }));
 
+      await logBountyLoopEvent(
+        bounty,
+        "winner_evaluation_started",
+        "success",
+        `evaluating ${claimData.length} claim(s) for winner selection`,
+        {
+          triggerText: `bounty #${bounty.bountyId} entered winner evaluation`,
+        },
+      );
+
       const result = await pickWinner(
         bounty.name,
         bounty.description,
