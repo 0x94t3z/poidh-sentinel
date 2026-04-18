@@ -674,12 +674,38 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
       processed++;
       await updateBounty(bounty.bountyId, { lastCheckedAt: new Date().toISOString() });
 
-      // --- For evaluating bounties: check if 48h vote window has passed ---
-      if (bounty.status === "evaluating" && bounty.winnerClaimId) {
+      // --- For evaluating bounties: recover / resolve on-chain vote state ---
+      if (bounty.bountyType !== "solo") {
         const publicClient = getPublicClient(bountyChain);
         const contractAddress = POIDH_CONTRACTS[bountyChain] ?? POIDH_CONTRACT;
+        let observedActiveVotingClaimId: string | null = null;
 
         try {
+          const currentVotingClaim = await publicClient.readContract({
+            address: contractAddress,
+            abi: POIDH_ABI,
+            functionName: "bountyCurrentVotingClaim",
+            args: [BigInt(bounty.bountyId)],
+          }) as bigint;
+
+          const activeVotingClaimId = currentVotingClaim > BigInt(0)
+            ? currentVotingClaim.toString()
+            : null;
+          observedActiveVotingClaimId = activeVotingClaimId;
+
+          if (activeVotingClaimId && (bounty.status !== "evaluating" || bounty.winnerClaimId !== activeVotingClaimId)) {
+            const recoveredResult = (bounty.allEvalResults ?? []).find((r) => r.claimId === activeVotingClaimId) as (EvaluationResult & { issuer?: string }) | undefined;
+            await updateBounty(bounty.bountyId, {
+              status: "evaluating",
+              winnerClaimId: activeVotingClaimId,
+              winnerIssuer: recoveredResult?.issuer,
+              winnerReasoning: recoveredResult?.reasoning ?? bounty.winnerReasoning,
+            });
+          }
+
+          if (!activeVotingClaimId) {
+            // No vote in progress — continue to normal evaluation below.
+          } else {
           const tracker = await publicClient.readContract({
             address: contractAddress,
             abi: POIDH_ABI,
@@ -689,6 +715,7 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
 
           const [yesVotes, noVotes, deadline] = tracker;
           const now = BigInt(Math.floor(Date.now() / 1000));
+          const currentWinnerClaimId = activeVotingClaimId ?? bounty.winnerClaimId;
 
           if (deadline > BigInt(0) && now >= deadline) {
             console.log(`[bounty-loop] vote deadline passed for ${bounty.bountyId} — yes=${yesVotes} no=${noVotes}, calling resolveVote`);
@@ -719,17 +746,17 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
               } catch { /* non-critical */ }
 
               // Resolve winner wallet from stored winnerClaimId via claims list
-              if (bounty.winnerClaimId) {
+              if (currentWinnerClaimId) {
                 try {
                   const claims = await getClaimsForBounty(BigInt(bounty.bountyId), bountyChain);
-                  winnerAddr = claims.find((c) => c.id.toString() === bounty.winnerClaimId)?.issuer;
+                  winnerAddr = claims.find((c) => c.id.toString() === currentWinnerClaimId)?.issuer;
                 } catch { /* non-critical */ }
               }
 
               const resolvedContributors = await getContributors(bounty.bountyId, bountyChain, bountyIssuer);
               const allVAddrs = [...new Set([...(winnerAddr ? [winnerAddr] : []), ...resolvedContributors])];
               const uMap = await resolveAddressesToUsernames(allVAddrs);
-              const wMention = winnerAddr ? (uMap.get(winnerAddr.toLowerCase()) ?? shortenAddress(winnerAddr)) : `claim #${bounty.winnerClaimId}`;
+              const wMention = winnerAddr ? (uMap.get(winnerAddr.toLowerCase()) ?? shortenAddress(winnerAddr)) : `claim #${currentWinnerClaimId}`;
               const creatorTag = bounty.creatorFid ? (await resolveFidToUsername(bounty.creatorFid)) : null;
               let botAddrV = "";
               try { botAddrV = (await import("@/features/bot/poidh-contract")).getBotWalletAddress().toLowerCase(); } catch { /* non-critical */ }
@@ -771,7 +798,7 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
                   bountyDescription: bounty.description,
                   chain: bountyChain,
                   poidhUrl: bountyLink,
-                  winnerClaimId: bounty.winnerClaimId,
+                  winnerClaimId: currentWinnerClaimId,
                   winnerIssuer: undefined,
                   winnerReasoning: bounty.winnerReasoning,
                 });
@@ -780,13 +807,13 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
               // Vote failed — find next best claim from stored results
               const allResults = bounty.allEvalResults ?? [];
               const nextBest = [...allResults]
-                .sort((a, b) => b.score - a.score)
-                .find((r) => r.valid && r.claimId !== bounty.winnerClaimId && r.score >= 60);
+                .sort(compareEvaluationResults)
+                .find((r) => r.valid && r.claimId !== currentWinnerClaimId && r.score >= 60);
 
               if (nextBest) {
                 await postReply(
                   getReplyTarget(bounty),
-                  `vote rejected claim #${bounty.winnerClaimId}. nominating next best: claim #${nextBest.claimId} (score ${nextBest.score}). ${nextBest.reasoning}`,
+                  `vote rejected claim #${currentWinnerClaimId}. nominating next best: claim #${nextBest.claimId} (score ${nextBest.score}). ${nextBest.reasoning}`,
                   bountyLink,
                 );
                 // Nominate runner-up
@@ -806,7 +833,7 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
               } else {
                 await postReply(
                   getReplyTarget(bounty),
-                  `vote rejected claim #${bounty.winnerClaimId}. no other qualifying submissions found — bounty remains open for new submissions.`,
+                  `vote rejected claim #${currentWinnerClaimId}. no other qualifying submissions found — bounty remains open for new submissions.`,
                   bountyLink,
                 );
                 await updateBounty(bounty.bountyId, { status: "open", winnerClaimId: undefined });
@@ -814,10 +841,18 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
             }
             continue; // handled — don't fall through to evaluation
           }
+
+            console.log(`[bounty-loop] bounty ${bounty.bountyId} vote in progress for claim #${activeVotingClaimId} — waiting for deadline`);
+            continue;
+          }
         } catch (voteErr) {
           const msg = voteErr instanceof Error ? voteErr.message : String(voteErr);
           console.warn(`[bounty-loop] vote tracker check failed for ${bounty.bountyId}: ${msg}`);
-          // Non-fatal — fall through to normal evaluation
+          if (observedActiveVotingClaimId) {
+            console.log(`[bounty-loop] bounty ${bounty.bountyId} still has on-chain vote for claim #${observedActiveVotingClaimId} — waiting for next tracker check`);
+            continue;
+          }
+          // Non-fatal — fall through to normal evaluation only if we couldn't confirm a live vote.
         }
       }
 
