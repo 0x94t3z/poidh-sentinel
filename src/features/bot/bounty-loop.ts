@@ -1096,6 +1096,16 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
       } else {
         errors++;
         console.error(`[bounty-loop] error on bounty ${bounty.bountyId}:`, msg);
+        await logBountyLoopEvent(
+          bounty,
+          "bounty_loop_failed",
+          "error",
+          `bounty loop failed before resolution completed for bounty #${bounty.bountyId}`,
+          {
+            triggerText: `bounty #${bounty.bountyId} failed inside runBountyLoop`,
+            errorMessage: msg,
+          },
+        );
         await updateBounty(bounty.bountyId, { status: "open" });
       }
     }
