@@ -774,6 +774,27 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
           `refund retry succeeded — ${explorer}`,
           explorer,
         );
+      } else if (retry.terminalReason) {
+        const nextReasoning = (() => {
+          const base = (bounty.winnerReasoning ?? "bounty cancelled")
+            .replace(/\(refund pending[^)]*\)/i, "")
+            .trim();
+          switch (retry.terminalReason) {
+            case "not_active_participant":
+              return `${base} (refund no longer claimable from contract - auto retry stopped)`;
+            case "not_open_bounty":
+            case "not_cancelled_open_bounty":
+            case "bounty_closed":
+            case "bounty_claimed":
+              return `${base} (refund state changed on-chain - auto retry stopped)`;
+            case "nothing_to_withdraw":
+              return `${base} (nothing left to withdraw - auto retry stopped)`;
+          }
+        })();
+        await updateBounty(bounty.bountyId, {
+          winnerReasoning: nextReasoning,
+          lastCheckedAt: new Date().toISOString(),
+        });
       } else {
         await updateBounty(bounty.bountyId, { lastCheckedAt: new Date().toISOString() });
       }

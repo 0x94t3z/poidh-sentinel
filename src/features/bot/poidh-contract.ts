@@ -28,6 +28,12 @@ export function resolvePoidhUrl(chain: string, rawBountyId: string): string {
 }
 
 export const POIDH_ABI = [
+  { type: "error", name: "NotOpenBounty", inputs: [] },
+  { type: "error", name: "NotCancelledOpenBounty", inputs: [] },
+  { type: "error", name: "NotActiveParticipant", inputs: [] },
+  { type: "error", name: "NothingToWithdraw", inputs: [] },
+  { type: "error", name: "BountyClosed", inputs: [] },
+  { type: "error", name: "BountyClaimed", inputs: [] },
   {
     name: "createOpenBounty",
     type: "function",
@@ -232,6 +238,25 @@ export const POIDH_ABI = [
     ],
   },
 ] as const;
+
+type ClaimRefundRetryTerminalReason =
+  | "not_open_bounty"
+  | "not_cancelled_open_bounty"
+  | "not_active_participant"
+  | "nothing_to_withdraw"
+  | "bounty_closed"
+  | "bounty_claimed";
+
+function classifyClaimRefundRetryError(message: string): ClaimRefundRetryTerminalReason | null {
+  const lower = message.toLowerCase();
+  if (lower.includes("notopenbounty") || lower.includes("0xa6901796")) return "not_open_bounty";
+  if (lower.includes("notcancelledopenbounty") || lower.includes("0xdcd2fc90")) return "not_cancelled_open_bounty";
+  if (lower.includes("notactiveparticipant") || lower.includes("0x2fb19d77")) return "not_active_participant";
+  if (lower.includes("nothingtowithdraw") || lower.includes("0xd0d04f60")) return "nothing_to_withdraw";
+  if (lower.includes("bountyclosed") || lower.includes("0x88bb2354")) return "bounty_closed";
+  if (lower.includes("bountyclaimed") || lower.includes("0x861fbe13")) return "bounty_claimed";
+  return null;
+}
 
 // Minimal ABI for the poidh NFT contract (separate from the bounty contract)
 const POIDH_NFT_ABI = [
@@ -870,6 +895,7 @@ export async function retryCancelledBountyRefundFromPending(
   pendingAfter: bigint;
   noPendingRefund?: boolean;
   lowBalanceForDirectRetry?: boolean;
+  terminalReason?: ClaimRefundRetryTerminalReason;
 }> {
   const publicClient = getPublicClient(chain);
   const { client, account } = getWalletClient(chain);
@@ -921,6 +947,18 @@ export async function retryCancelledBountyRefundFromPending(
       );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      const terminalReason = classifyClaimRefundRetryError(msg);
+      if (terminalReason) {
+        console.warn(
+          `[poidh-contract] retry claimRefundFromCancelledOpenBounty terminal for bountyId=${bountyId} chain=${chain}: ${terminalReason}`,
+        );
+        return {
+          pendingBefore,
+          pendingAfter: BigInt(0),
+          noPendingRefund: true,
+          terminalReason,
+        };
+      }
       console.warn(
         `[poidh-contract] retry claimRefundFromCancelledOpenBounty failed for bountyId=${bountyId} chain=${chain}: ${msg}`,
       );
