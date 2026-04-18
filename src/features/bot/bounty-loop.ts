@@ -330,6 +330,71 @@ function buildRankedSummary(allResults: AnnotatedResult[], winnerClaimId: string
   return parts.join(" | ");
 }
 
+async function hydrateActiveVoteContext(
+  bounty: {
+    bountyId: string;
+    name: string;
+    description: string;
+    allEvalResults?: EvaluationResult[];
+  },
+  bountyChain: string,
+  createdAt: bigint,
+  activeVotingClaimId: string,
+): Promise<{
+  recoveredResult?: AnnotatedResult;
+  hydratedResults?: AnnotatedResult[];
+}> {
+  const existingResults = (bounty.allEvalResults as AnnotatedResult[] | undefined) ?? [];
+  const existingRecovered = existingResults.find((r) => r.claimId === activeVotingClaimId);
+  if (existingRecovered) {
+    return {
+      recoveredResult: existingRecovered,
+      hydratedResults: existingResults,
+    };
+  }
+
+  try {
+    const claims = await getClaimsForBounty(BigInt(bounty.bountyId), bountyChain);
+    if (claims.length === 0) return {};
+
+    const claimData: ClaimData[] = claims.map((c) => ({
+      id: c.id.toString(),
+      issuer: c.issuer,
+      name: c.name,
+      description: c.description,
+      uri: c.uri,
+    }));
+
+    const evaluation = await pickWinner(
+      bounty.name,
+      bounty.description,
+      claimData,
+      createdAt,
+      { returnAllResultsIfNoWinner: true },
+    );
+
+    const rawResults = evaluation?.allResults ?? [];
+    if (rawResults.length === 0) return {};
+
+    const issuerAddresses = [...new Set(rawResults.map((r) => r.issuer).filter((a): a is string => !!a))];
+    const usernameMap = await resolveAddressesToUsernames(issuerAddresses);
+    const hydratedResults = rawResults.map((r) => ({
+      ...r,
+      issuerUsername: r.issuer
+        ? (usernameMap.get(r.issuer.toLowerCase()) ?? shortenAddress(r.issuer))
+        : undefined,
+    }));
+
+    return {
+      recoveredResult: hydratedResults.find((r) => r.claimId === activeVotingClaimId),
+      hydratedResults,
+    };
+  } catch (err) {
+    console.warn(`[bounty-loop] failed to hydrate active vote context for ${bounty.bountyId}:`, err);
+    return {};
+  }
+}
+
 // Build a "none won" reply that includes per-claim reasoning so submitters
 // know exactly why their proof was rejected. Reuses allResults from pickWinner()
 // to avoid duplicate API calls.
@@ -701,26 +766,36 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
             );
 
           if (shouldRecoverVoteState) {
-            const recoveredResult = (bounty.allEvalResults ?? []).find((r) => r.claimId === activeVotingClaimId) as (EvaluationResult & { issuer?: string; issuerUsername?: string }) | undefined;
+            const activeVoteDetails = await getBountyDetails(BigInt(bounty.bountyId), bountyChain);
+            const {
+              recoveredResult,
+              hydratedResults,
+            } = await hydrateActiveVoteContext(
+              bounty,
+              bountyChain,
+              activeVoteDetails.createdAt,
+              activeVotingClaimId,
+            );
+
             await updateBounty(bounty.bountyId, {
               status: "evaluating",
               winnerClaimId: activeVotingClaimId,
               winnerIssuer: recoveredResult?.issuer,
               winnerReasoning: recoveredResult?.reasoning ?? bounty.winnerReasoning,
+              ...(hydratedResults ? { allEvalResults: hydratedResults } : {}),
             });
 
             // If an on-chain vote already exists but the DB/UI missed the original nomination,
             // backfill the nomination reply once so the announcement thread reflects reality.
             if (recoveredResult) {
               try {
-                const recoveredDetails = await getBountyDetails(BigInt(bounty.bountyId), bountyChain);
                 const winnerMention = recoveredResult.issuerUsername
                   ? recoveredResult.issuerUsername
                   : recoveredResult.issuer
                     ? (await resolveAddressesToUsernames([recoveredResult.issuer])).get(recoveredResult.issuer.toLowerCase()) ?? shortenAddress(recoveredResult.issuer)
                     : `claim #${activeVotingClaimId}`;
                 const creatorMention = bounty.creatorFid ? (await resolveFidToUsername(bounty.creatorFid)) : null;
-                const bountyIssuer = recoveredDetails.issuer;
+                const bountyIssuer = activeVoteDetails.issuer;
                 const contributorAddresses = await getContributors(bounty.bountyId, bountyChain, bountyIssuer);
                 const contributorMap = await resolveAddressesToUsernames(contributorAddresses);
                 let botAddr = "";
@@ -732,7 +807,7 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
                 const bountyLink = resolvePoidhUrl(bountyChain, bounty.bountyId);
                 await postChannelWinnerAnnouncement(
                   bounty.name,
-                  Math.max(bounty.claimCount, bounty.allEvalResults?.length ?? 0, 1),
+                  Math.max(bounty.claimCount, hydratedResults?.length ?? bounty.allEvalResults?.length ?? 0, 1),
                   recoveredResult.reasoning,
                   bountyLink,
                   "vote_submitted",
@@ -740,14 +815,33 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
                   creatorMention,
                   contributorMentions,
                   bountyChain,
-                  recoveredDetails.amount,
+                  activeVoteDetails.amount,
                   undefined,
                   undefined,
                   getReplyTarget(bounty),
-                  bounty.allEvalResults as AnnotatedResult[] | undefined,
+                  hydratedResults ?? bounty.allEvalResults as AnnotatedResult[] | undefined,
+                );
+                await logBountyLoopEvent(
+                  bounty,
+                  "vote_nomination_backfilled",
+                  "success",
+                  `backfilled nomination for claim #${activeVotingClaimId}`,
+                  {
+                    triggerText: `bounty #${bounty.bountyId} recovered a missing vote nomination reply`,
+                  },
                 );
               } catch (recoveryErr) {
                 const msg = recoveryErr instanceof Error ? recoveryErr.message : String(recoveryErr);
+                await logBountyLoopEvent(
+                  bounty,
+                  "vote_nomination_backfilled",
+                  "error",
+                  `failed to backfill nomination for claim #${activeVotingClaimId}`,
+                  {
+                    triggerText: `bounty #${bounty.bountyId} failed to recover a missing vote nomination reply`,
+                    errorMessage: msg,
+                  },
+                );
                 console.warn(`[bounty-loop] failed to backfill vote-submitted reply for ${bounty.bountyId}: ${msg}`);
               }
             }

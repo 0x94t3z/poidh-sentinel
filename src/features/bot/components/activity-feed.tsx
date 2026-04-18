@@ -15,6 +15,7 @@ const ACTION_LABELS: Record<string, { label: string; color: string }> = {
   winner_evaluation_started: { label: "EVAL", color: "text-violet-300" },
   no_winner_found: { label: "NO WIN", color: "text-amber-300" },
   winner_candidate_selected: { label: "CANDIDATE", color: "text-cyan-300" },
+  vote_nomination_backfilled: { label: "BACKFILL", color: "text-emerald-300" },
   winner_resolution_started: { label: "RESOLVE", color: "text-green-300" },
   winner_resolution_failed: { label: "RESOLVE", color: "text-red-400" },
   general_reply: { label: "REPLY", color: "text-gray-400" },
