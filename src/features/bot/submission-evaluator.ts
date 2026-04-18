@@ -58,9 +58,9 @@ export function compareEvaluationResults(
   b: Pick<EvaluationResult, "claimId" | "score" | "deterministicScore">,
 ): number {
   if (b.score !== a.score) return b.score - a.score;
-  const aDet = a.deterministicScore ?? 0;
-  const bDet = b.deterministicScore ?? 0;
-  if (bDet !== aDet) return bDet - aDet;
+  // If two claims receive the same final score, prefer the earlier claim.
+  // This keeps the outcome deterministic while aligning with "first legit claim wins"
+  // better than using keyword-overlap as a hidden tie-breaker.
   return Number(BigInt(a.claimId) - BigInt(b.claimId));
 }
 
