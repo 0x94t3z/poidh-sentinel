@@ -252,12 +252,26 @@ function isAskingAboutPot(text: string): boolean {
 
 async function detectAction(text: string): Promise<BountyAction> {
   const lower = text.toLowerCase();
+  const normalized = lower.replace(/[^\w\s]/g, " ").replace(/\s+/g, " ").trim();
 
   // Deterministic shortcut for common "idea request" phrasing.
   // This avoids LLM classifier miss-routing obvious prompts like
   // "any ideas about bounty?" to general_reply.
   if (
-    (lower.includes("any idea") || lower.includes("any ideas") || lower.includes("got any ideas") || lower.includes("idea for")) &&
+    (
+      lower.includes("any idea") ||
+      lower.includes("any ideas") ||
+      lower.includes("got any ideas") ||
+      lower.includes("idea for") ||
+      normalized.includes("any bounty idea") ||
+      normalized.includes("any bounty ideas") ||
+      normalized.includes("got any bounty idea") ||
+      normalized.includes("got any bounty ideas") ||
+      normalized.includes("have any bounty idea") ||
+      normalized.includes("have any bounty ideas") ||
+      normalized.includes("what bounty idea") ||
+      normalized.includes("what bounty ideas")
+    ) &&
     (lower.includes("bounty") || lower.includes("bounties"))
   ) {
     return "suggest_bounty";
@@ -373,11 +387,18 @@ async function detectAction(text: string): Promise<BountyAction> {
 
 function hasExplicitCreateIntent(text: string): boolean {
   const lower = text.toLowerCase();
+  const normalized = lower.replace(/[^\w\s]/g, " ").replace(/\s+/g, " ").trim();
   return (
     lower.includes("suggest a bounty") ||
     lower.includes("suggest bounty") ||
     lower.includes("new bounty") ||
     lower.includes("bounty idea") ||
+    normalized.includes("any bounty idea") ||
+    normalized.includes("any bounty ideas") ||
+    normalized.includes("got any bounty idea") ||
+    normalized.includes("got any bounty ideas") ||
+    normalized.includes("have any bounty idea") ||
+    normalized.includes("have any bounty ideas") ||
     lower.includes("idea for a bounty") ||
     lower.includes("what bounty should i") ||
     lower.includes("i have a bounty idea") ||
