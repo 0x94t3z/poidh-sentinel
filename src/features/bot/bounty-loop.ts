@@ -858,7 +858,7 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
                   ].filter((m, i, arr) => m !== expectedWinnerMention && arr.indexOf(m) === i);
                   const voteTarget = buildVoteNoRequestLine(voterMentions);
                   const correctionText = stripMarkdown(
-                    `i was wrong earlier — ${voteTarget}, please vote no on the current nominee. the correct winner should be ${expectedWinnerMention}. once this vote is rejected, i'll nominate the correct claim next.`,
+                    `i was wrong earlier — ${voteTarget}, please vote no on the current nominee so i can reject this vote and nominate the correct winner, ${expectedWinnerMention}.`,
                   ).slice(0, 1024);
 
                   const correctionAlreadyPosted = await hasSuccessfulLog(
