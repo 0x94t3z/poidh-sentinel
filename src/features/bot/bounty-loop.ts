@@ -237,6 +237,69 @@ async function logBountyLoopEvent(
   });
 }
 
+async function postVoteCorrectionIfNeeded(
+  bounty: {
+    bountyId: string;
+    name: string;
+    castHash: string;
+    announcementCastHash?: string;
+    creatorFid?: number;
+  },
+  bountyChain: string,
+  activeVotingClaimId: string,
+  allResults: AnnotatedResult[],
+  issuerFallback?: string,
+): Promise<void> {
+  const rankedValidResults = [...allResults]
+    .filter((r) => r.valid)
+    .sort(compareEvaluationResults);
+  const expectedWinner = rankedValidResults[0];
+  if (!expectedWinner || expectedWinner.claimId === activeVotingClaimId) return;
+
+  const expectedWinnerMention = expectedWinner.issuerUsername
+    ? expectedWinner.issuerUsername
+    : expectedWinner.issuer
+      ? (await resolveAddressesToUsernames([expectedWinner.issuer])).get(expectedWinner.issuer.toLowerCase()) ?? shortenAddress(expectedWinner.issuer)
+      : `claim #${expectedWinner.claimId}`;
+  const creatorMention = bounty.creatorFid ? (await resolveFidToUsername(bounty.creatorFid)) : null;
+  const contributorAddresses = await getContributors(bounty.bountyId, bountyChain, issuerFallback);
+  const contributorMap = await resolveAddressesToUsernames(contributorAddresses);
+  let botAddr = "";
+  try { botAddr = (await import("@/features/bot/poidh-contract")).getBotWalletAddress().toLowerCase(); } catch { /* non-critical */ }
+  const contributorMentions = contributorAddresses
+    .filter((a) => a.toLowerCase() !== botAddr && a.toLowerCase() !== (expectedWinner.issuer ?? "").toLowerCase())
+    .map((a) => contributorMap.get(a.toLowerCase()) ?? shortenAddress(a))
+    .filter((m, i, arr) => arr.indexOf(m) === i);
+  const voterMentions = [
+    ...(creatorMention ? [creatorMention] : []),
+    ...contributorMentions,
+  ].filter((m, i, arr) => m !== expectedWinnerMention && arr.indexOf(m) === i);
+  const voteTarget = buildVoteNoRequestLine(voterMentions);
+  const correctionText = stripMarkdown(
+    `i was wrong earlier — ${voteTarget}, please vote no on the current nominee so i can reject this vote and nominate the correct winner, ${expectedWinnerMention}.`,
+  ).slice(0, 1024);
+
+  const correctionAlreadyPosted = await hasSuccessfulLog(
+    getReplyTarget(bounty),
+    "vote_correction_posted",
+    correctionText,
+  );
+
+  if (correctionAlreadyPosted) return;
+
+  const bountyLink = resolvePoidhUrl(bountyChain, bounty.bountyId);
+  await postReply(getReplyTarget(bounty), correctionText, bountyLink);
+  await logBountyLoopEvent(
+    bounty,
+    "vote_correction_posted",
+    "success",
+    correctionText,
+    {
+      triggerText: `bounty #${bounty.bountyId} corrected an active wrong vote nominee`,
+    },
+  );
+}
+
 async function postReply(castHash: string, text: string, embedUrl?: string): Promise<void> {
   if (!BOT_SIGNER_UUID || !castHash) return;
   const trimmed = stripMarkdown(text).slice(0, 400);
@@ -817,38 +880,13 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
                 const bountyLink = resolvePoidhUrl(bountyChain, bounty.bountyId);
 
                 if (expectedWinner && expectedWinner.claimId !== activeVotingClaimId) {
-                  const expectedWinnerMention = expectedWinner.issuerUsername
-                    ? expectedWinner.issuerUsername
-                    : expectedWinner.issuer
-                      ? (await resolveAddressesToUsernames([expectedWinner.issuer])).get(expectedWinner.issuer.toLowerCase()) ?? shortenAddress(expectedWinner.issuer)
-                      : `claim #${expectedWinner.claimId}`;
-                  const voterMentions = [
-                    ...(creatorMention ? [creatorMention] : []),
-                    ...contributorMentions,
-                  ].filter((m, i, arr) => m !== expectedWinnerMention && arr.indexOf(m) === i);
-                  const voteTarget = buildVoteNoRequestLine(voterMentions);
-                  const correctionText = stripMarkdown(
-                    `i was wrong earlier — ${voteTarget}, please vote no on the current nominee so i can reject this vote and nominate the correct winner, ${expectedWinnerMention}.`,
-                  ).slice(0, 1024);
-
-                  const correctionAlreadyPosted = await hasSuccessfulLog(
-                    getReplyTarget(bounty),
-                    "vote_correction_posted",
-                    correctionText,
+                  await postVoteCorrectionIfNeeded(
+                    bounty,
+                    bountyChain,
+                    activeVotingClaimId,
+                    hydratedResults ?? bounty.allEvalResults as AnnotatedResult[] | undefined ?? [],
+                    bountyIssuer,
                   );
-
-                  if (!correctionAlreadyPosted) {
-                    await postReply(getReplyTarget(bounty), correctionText, bountyLink);
-                    await logBountyLoopEvent(
-                      bounty,
-                      "vote_correction_posted",
-                      "success",
-                      correctionText,
-                      {
-                        triggerText: `bounty #${bounty.bountyId} corrected an active wrong vote nominee`,
-                      },
-                    );
-                  }
                 } else {
                   const winnerMention = recoveredResult.issuerUsername
                     ? recoveredResult.issuerUsername
@@ -911,6 +949,21 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
           const [yesVotes, noVotes, deadline] = tracker;
           const now = BigInt(Math.floor(Date.now() / 1000));
           const currentWinnerClaimId = activeVotingClaimId ?? bounty.winnerClaimId;
+          if (bounty.allEvalResults?.length && currentWinnerClaimId) {
+            try {
+              const voteDetails = await getBountyDetails(BigInt(bounty.bountyId), bountyChain);
+              await postVoteCorrectionIfNeeded(
+                bounty,
+                bountyChain,
+                currentWinnerClaimId,
+                bounty.allEvalResults as AnnotatedResult[],
+                voteDetails.issuer,
+              );
+            } catch (correctionErr) {
+              const msg = correctionErr instanceof Error ? correctionErr.message : String(correctionErr);
+              console.warn(`[bounty-loop] failed to post vote correction for ${bounty.bountyId}: ${msg}`);
+            }
+          }
 
           if (deadline > BigInt(0) && now >= deadline) {
             console.log(`[bounty-loop] vote deadline passed for ${bounty.bountyId} — yes=${yesVotes} no=${noVotes}, calling resolveVote`);
