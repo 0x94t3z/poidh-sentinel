@@ -13,6 +13,10 @@ const OPENROUTER_MODELS = [
   "arcee-ai/trinity-mini:free",
 ];
 
+// Keep evaluation deterministic across cron runs so the same claim set
+// produces the same winner and can be finalized automatically.
+const EVALUATION_TEMPERATURE = 0;
+
 export interface ClaimData {
   id: string;
   issuer: string;
@@ -49,6 +53,17 @@ export interface EvaluationResult {
   openaiVisionCost?: { promptTokens: number; completionTokens: number; estimatedCostUsd: number };
 }
 
+export function compareEvaluationResults(
+  a: Pick<EvaluationResult, "claimId" | "score" | "deterministicScore">,
+  b: Pick<EvaluationResult, "claimId" | "score" | "deterministicScore">,
+): number {
+  if (b.score !== a.score) return b.score - a.score;
+  const aDet = a.deterministicScore ?? 0;
+  const bDet = b.deterministicScore ?? 0;
+  if (bDet !== aDet) return bDet - aDet;
+  return Number(BigInt(a.claimId) - BigInt(b.claimId));
+}
+
 // ---------------------------------------------------------------------------
 // LLM helpers
 // ---------------------------------------------------------------------------
@@ -63,7 +78,7 @@ async function callLLM(prompt: string): Promise<string> {
       const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
         headers: { Authorization: `Bearer ${groqKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages, max_tokens: 300, temperature: 0.3, response_format: { type: "json_object" } }),
+        body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages, max_tokens: 300, temperature: EVALUATION_TEMPERATURE, response_format: { type: "json_object" } }),
         signal: AbortSignal.timeout(15000),
       });
       if (res.ok) {
@@ -88,7 +103,7 @@ async function callLLM(prompt: string): Promise<string> {
       const res = await fetch(CEREBRAS_API_URL, {
         method: "POST",
         headers: { Authorization: `Bearer ${cerebrasKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "llama-3.3-70b", messages, max_tokens: 300, temperature: 0.3 }),
+        body: JSON.stringify({ model: "llama-3.3-70b", messages, max_tokens: 300, temperature: EVALUATION_TEMPERATURE }),
       });
       if (res.ok) {
         const data = (await res.json()) as { choices: Array<{ message: { content: string } }> };
@@ -120,7 +135,7 @@ async function callOpenRouter(prompt: string, modelIndex = 0): Promise<string> {
       model,
       messages: [{ role: "user", content: prompt }],
       max_tokens: 300,
-      temperature: 0.3,
+      temperature: EVALUATION_TEMPERATURE,
     }),
   });
 
@@ -330,7 +345,7 @@ describe what you see in this image in 2-3 sentences. you MUST specifically addr
             ],
           }],
           max_tokens: 200,
-          temperature: 0.2,
+          temperature: EVALUATION_TEMPERATURE,
         }),
         signal: AbortSignal.timeout(15000),
       });
@@ -384,7 +399,7 @@ describe what you see in this image in 2-3 sentences. you MUST specifically addr
           ],
         }],
         max_tokens: 200,
-        temperature: 0.2,
+        temperature: EVALUATION_TEMPERATURE,
       }),
       signal: AbortSignal.timeout(15000),
     });
@@ -473,7 +488,7 @@ describe what you see in this image in 2-3 sentences. you MUST specifically addr
             model,
             messages: [{ role: "user", content: [{ type: "text", text: textPrompt }, imageContent] }],
             max_tokens: 200,
-            temperature: 0.2,
+            temperature: EVALUATION_TEMPERATURE,
           }),
         });
 
@@ -894,7 +909,7 @@ export async function pickWinner(
     return null;
   }
 
-  validResults.sort((a, b) => b.score - a.score);
+  validResults.sort(compareEvaluationResults);
   const winner = validResults[0];
 
   return {

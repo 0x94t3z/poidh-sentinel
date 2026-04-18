@@ -1,6 +1,6 @@
 import "server-only";
 import { getClaimsForBounty, resolveBountyWinner, getBountyDetails, getPublicClient, getWalletClient, POIDH_CONTRACTS, POIDH_CONTRACT, POIDH_ABI, resolvePoidhUrl, retryCancelledBountyRefundFromPending, getTxExplorerUrl } from "@/features/bot/poidh-contract";
-import { pickWinner, type ClaimData, type EvaluationResult } from "@/features/bot/submission-evaluator";
+import { pickWinner, compareEvaluationResults, type ClaimData, type EvaluationResult } from "@/features/bot/submission-evaluator";
 import { updateBounty, getAllBounties } from "@/features/bot/bounty-store";
 import { publishReply, publishCast } from "@/features/bot/cast-reply";
 import { appendLog } from "@/features/bot/bot-log";
@@ -273,7 +273,11 @@ async function postChannelWinnerAnnouncement(
       return Number(wei) / 1e18 === 0 ? "0" : (Number(wei) / 1e18).toFixed(4).replace(/\.?0+$/, "");
     };
     let text = "";
-    const winnerClaimId = allResults?.find((r) => r.valid && r.score === Math.max(...(allResults.filter((x) => x.valid).map((x) => x.score).concat([0]))))?.claimId ?? "";
+    const winnerClaimId = allResults
+      ? [...allResults]
+          .filter((r) => r.valid)
+          .sort(compareEvaluationResults)[0]?.claimId ?? ""
+      : "";
     const scoresSummary = allResults ? buildRankedSummary(allResults, winnerClaimId) : "";
     const scoresLine = scoresSummary ? `\nresults: ${scoresSummary}.` : "";
 
@@ -314,7 +318,7 @@ async function postChannelWinnerAnnouncement(
 // e.g. "#356 @dan_xv (95) ⭐✅ | #362 @user2 (40) ❌ missing username+poidh | ..."
 type AnnotatedResult = EvaluationResult & { issuerUsername?: string };
 function buildRankedSummary(allResults: AnnotatedResult[], winnerClaimId: string): string {
-  const sorted = [...allResults].sort((a, b) => b.score - a.score).slice(0, 5);
+  const sorted = [...allResults].sort(compareEvaluationResults).slice(0, 5);
   const parts = sorted.map((r) => {
     const star = r.claimId === winnerClaimId ? "⭐" : "";
     const valid = r.valid ? "✅" : "❌";
@@ -338,6 +342,31 @@ function buildNoWinnerFeedback(
   const header = `reviewed ${claimData.length} submission${claimData.length !== 1 ? "s" : ""}, none qualified yet:\n`;
   const footer = `\nfix the issues above and resubmit — i'll re-evaluate in 6h.`;
   return (header + lines.join("\n") + footer).slice(0, 1024);
+}
+
+function selectWinnerFromStoredResults(
+  allResults?: EvaluationResult[],
+): { winnerClaimId: string; reasoning: string; allResults: EvaluationResult[] } | null {
+  if (!allResults?.length) return null;
+  const validResults = allResults
+    .filter((r) => r.valid && r.score >= 60)
+    .sort(compareEvaluationResults);
+  if (validResults.length === 0) return null;
+  const winner = validResults[0];
+  return {
+    winnerClaimId: winner.claimId,
+    reasoning: winner.reasoning,
+    allResults,
+  };
+}
+
+function hasSameClaimSet(
+  claims: ClaimData[],
+  allResults?: EvaluationResult[],
+): boolean {
+  if (!allResults?.length || claims.length !== allResults.length) return false;
+  const claimIds = new Set(claims.map((claim) => claim.id));
+  return allResults.every((result) => claimIds.has(result.claimId));
 }
 
 // Resolve a pending- bounty ID from the stored txHash receipt logs
@@ -881,7 +910,14 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
         { returnAllResultsIfNoWinner: true },
       );
 
-      if (!result || !result.winnerClaimId) {
+      const previousWinnerResult = hasSameClaimSet(claimData, bounty.allEvalResults)
+        ? selectWinnerFromStoredResults(bounty.allEvalResults)
+        : null;
+      const effectiveResult = result?.winnerClaimId
+        ? result
+        : previousWinnerResult;
+
+      if (!effectiveResult || !effectiveResult.winnerClaimId) {
         // Build per-claim feedback from the already-computed evaluation results
         const noWinnerFeedback = buildNoWinnerFeedback(claimData, result?.allResults ?? []);
         const bountyLinkForFeedback = resolvePoidhUrl(bountyChain, bounty.bountyId);
@@ -894,7 +930,11 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
           { triggerText: `bounty #${bounty.bountyId} evaluated with no winner` },
         );
         // Stamp lastCheckedAt so cooldown prevents re-posting every minute
-        await updateBounty(bounty.bountyId, { status: "open", lastCheckedAt: new Date().toISOString() });
+        await updateBounty(bounty.bountyId, {
+          status: "open",
+          allEvalResults: result?.allResults ?? bounty.allEvalResults,
+          lastCheckedAt: new Date().toISOString(),
+        });
         continue;
       }
 
@@ -902,8 +942,14 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
         bounty,
         "winner_candidate_selected",
         "success",
-        `candidate claim #${result.winnerClaimId} selected: ${result.reasoning}`,
-        { triggerText: `bounty #${bounty.bountyId} picked winner candidate` },
+        result?.winnerClaimId
+          ? `candidate claim #${effectiveResult.winnerClaimId} selected: ${effectiveResult.reasoning}`
+          : `reusing prior candidate claim #${effectiveResult.winnerClaimId}: ${effectiveResult.reasoning}`,
+        {
+          triggerText: result?.winnerClaimId
+            ? `bounty #${bounty.bountyId} picked winner candidate`
+            : `bounty #${bounty.bountyId} reused a previously valid winner candidate`,
+        },
       );
 
       // --- Resolve on-chain ---
@@ -912,7 +958,7 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
       try {
         ({ txHash, method } = await resolveBountyWinner(
           BigInt(bounty.bountyId),
-          BigInt(result.winnerClaimId),
+          BigInt(effectiveResult.winnerClaimId),
           bountyChain,
         ));
       } catch (err) {
@@ -921,7 +967,7 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
           bounty,
           "winner_resolution_failed",
           "error",
-          `failed to resolve candidate claim #${result.winnerClaimId}`,
+          `failed to resolve candidate claim #${effectiveResult.winnerClaimId}`,
           {
             triggerText: `bounty #${bounty.bountyId} failed during on-chain resolution`,
             errorMessage: msg,
@@ -934,7 +980,7 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
         bounty,
         "winner_resolution_started",
         "success",
-        `${method} submitted for claim #${result.winnerClaimId}`,
+        `${method} submitted for claim #${effectiveResult.winnerClaimId}`,
         {
           triggerText: `bounty #${bounty.bountyId} submitted on-chain winner action`,
           txHash,
@@ -944,24 +990,24 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
       const bountyLink = resolvePoidhUrl(bountyChain, bounty.bountyId);
 
       // Find the winning claim's issuer address so the bot can explain "why @user won"
-      const winnerClaim = claims.find((c) => c.id.toString() === result.winnerClaimId);
+      const winnerClaim = claims.find((c) => c.id.toString() === effectiveResult.winnerClaimId);
       const winnerIssuer = winnerClaim?.issuer ?? undefined;
 
       // Resolve ALL claim issuer addresses → Farcaster usernames in one batch
       // This lets the bot match "who is replying" → "their claim" in thread conversations
       const contributorAddresses = await getContributors(bounty.bountyId, bountyChain, details.issuer);
-      const claimIssuerAddresses = result.allResults.map((r) => r.issuer).filter((a): a is string => !!a);
+      const claimIssuerAddresses = effectiveResult.allResults.map((r) => r.issuer).filter((a): a is string => !!a);
       const allAddresses = [...new Set([...(winnerIssuer ? [winnerIssuer] : []), ...contributorAddresses, ...claimIssuerAddresses])];
       const usernameMap = await resolveAddressesToUsernames(allAddresses);
 
       // Annotate each eval result with the resolved username so it's persisted in DB
-      const annotatedResults = result.allResults.map((r) => ({
+      const annotatedResults = effectiveResult.allResults.map((r) => ({
         ...r,
         issuerUsername: r.issuer ? (usernameMap.get(r.issuer.toLowerCase()) ?? shortenAddress(r.issuer)) : undefined,
       }));
       const winnerMention = winnerIssuer
         ? (usernameMap.get(winnerIssuer.toLowerCase()) ?? shortenAddress(winnerIssuer))
-        : (result.winnerClaimId ? `claim #${result.winnerClaimId}` : "winner");
+        : (effectiveResult.winnerClaimId ? `claim #${effectiveResult.winnerClaimId}` : "winner");
       const creatorMention = bounty.creatorFid ? (await resolveFidToUsername(bounty.creatorFid)) : null;
 
       // On-chain contributors excluding the bot wallet (participant[0]) and the winner
@@ -976,15 +1022,15 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
         // Store full ranked results (with resolved usernames) so re-nomination + thread replies can use them
         await updateBounty(bounty.bountyId, {
           status: "evaluating",
-          winnerClaimId: result.winnerClaimId,
+          winnerClaimId: effectiveResult.winnerClaimId,
           winnerIssuer,
           winnerTxHash: txHash,
-          winnerReasoning: result.reasoning,
+          winnerReasoning: effectiveResult.reasoning,
           allEvalResults: annotatedResults,
         });
 
         // Single reply: scores + nomination merged into one cast
-        const announcementHash = await postChannelWinnerAnnouncement(bounty.name, claims.length, result.reasoning, bountyLink, "vote_submitted", winnerMention, creatorMention, humanContributorMentions, bountyChain, details.amount, undefined, undefined, getReplyTarget(bounty), annotatedResults);
+        const announcementHash = await postChannelWinnerAnnouncement(bounty.name, claims.length, effectiveResult.reasoning, bountyLink, "vote_submitted", winnerMention, creatorMention, humanContributorMentions, bountyChain, details.amount, undefined, undefined, getReplyTarget(bounty), annotatedResults);
         if (announcementHash) {
           await updateBounty(bounty.bountyId, { announcementCastHash: announcementHash });
           await registerBountyThread({
@@ -994,9 +1040,9 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
             bountyDescription: bounty.description,
             chain: bountyChain,
             poidhUrl: bountyLink,
-            winnerClaimId: result.winnerClaimId,
+            winnerClaimId: effectiveResult.winnerClaimId,
             winnerIssuer,
-            winnerReasoning: result.reasoning,
+            winnerReasoning: effectiveResult.reasoning,
           });
         }
         winners++;
@@ -1004,10 +1050,10 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
       } else if (method === "vote_resolved") {
         await updateBounty(bounty.bountyId, {
           status: "closed",
-          winnerClaimId: result.winnerClaimId,
+          winnerClaimId: effectiveResult.winnerClaimId,
           winnerIssuer,
           winnerTxHash: txHash,
-          winnerReasoning: result.reasoning,
+          winnerReasoning: effectiveResult.reasoning,
           allEvalResults: annotatedResults,
         });
 
@@ -1015,7 +1061,7 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
         await postReply(getReplyTarget(bounty), `🏆 vote closed — ${winnerMention} wins. see /poidh for the full announcement.`, bountyLink);
 
         // Full winner announcement as a NEW top-level cast in /poidh channel
-        const announcementHash = await postChannelWinnerAnnouncement(bounty.name, claims.length, result.reasoning, bountyLink, "vote_resolved", winnerMention, creatorMention, humanContributorMentions, bountyChain, details.amount, undefined, undefined, undefined, annotatedResults);
+        const announcementHash = await postChannelWinnerAnnouncement(bounty.name, claims.length, effectiveResult.reasoning, bountyLink, "vote_resolved", winnerMention, creatorMention, humanContributorMentions, bountyChain, details.amount, undefined, undefined, undefined, annotatedResults);
         if (announcementHash) {
           await updateBounty(bounty.bountyId, { announcementCastHash: announcementHash });
           await registerBountyThread({
@@ -1025,9 +1071,9 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
             bountyDescription: bounty.description,
             chain: bountyChain,
             poidhUrl: bountyLink,
-            winnerClaimId: result.winnerClaimId,
+            winnerClaimId: effectiveResult.winnerClaimId,
             winnerIssuer,
-            winnerReasoning: result.reasoning,
+            winnerReasoning: effectiveResult.reasoning,
           });
         }
         winners++;
@@ -1037,10 +1083,10 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
         // close the bounty, post a short thread reply, and post a /poidh winner announcement
         await updateBounty(bounty.bountyId, {
           status: "closed",
-          winnerClaimId: result.winnerClaimId,
+          winnerClaimId: effectiveResult.winnerClaimId,
           winnerIssuer,
           winnerTxHash: txHash,
-          winnerReasoning: result.reasoning,
+          winnerReasoning: effectiveResult.reasoning,
           allEvalResults: annotatedResults,
         });
 
@@ -1053,12 +1099,12 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
           return Number(wei) / 1e18 === 0 ? "0" : (Number(wei) / 1e18).toFixed(4).replace(/\.?0+$/, "");
         };
         const potLineD = details?.amount !== undefined ? ` ${fmtD(details.amount)} ${currency}` : "";
-        await postReply(getReplyTarget(bounty), `🏆 ${winnerMention} wins${potLineD}! ${result.reasoning}`, bountyLink);
+        await postReply(getReplyTarget(bounty), `🏆 ${winnerMention} wins${potLineD}! ${effectiveResult.reasoning}`, bountyLink);
 
         const directAnnouncementHash = await postChannelWinnerAnnouncement(
           bounty.name,
           claims.length,
-          result.reasoning,
+          effectiveResult.reasoning,
           bountyLink,
           "direct",
           winnerMention,
@@ -1080,9 +1126,9 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
             bountyDescription: bounty.description,
             chain: bountyChain,
             poidhUrl: bountyLink,
-            winnerClaimId: result.winnerClaimId,
+            winnerClaimId: effectiveResult.winnerClaimId,
             winnerIssuer,
-            winnerReasoning: result.reasoning,
+            winnerReasoning: effectiveResult.reasoning,
           });
         }
         winners++;
