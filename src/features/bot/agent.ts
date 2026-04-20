@@ -259,6 +259,67 @@ function extractHistoricalPotFromThread(
   return null;
 }
 
+async function extractHistoricalPotFromAnnouncementEmbed(
+  threadHashOrCastHash: string,
+  chain: string,
+): Promise<{ amount: string; currency: "ETH" | "DEGEN" } | null> {
+  const apiKey = process.env.NEYNAR_API_KEY;
+  if (!apiKey) return null;
+
+  try {
+    const response = await fetch(
+      `https://api.neynar.com/v2/farcaster/cast/conversation?identifier=${threadHashOrCastHash}&type=hash&reply_depth=1&include_chronological_parent_casts=true&limit=50`,
+      { headers: { "x-api-key": apiKey } },
+    );
+    if (!response.ok) return null;
+
+    const data = await response.json() as {
+      conversation?: {
+        cast?: {
+          embeds?: Array<{
+            metadata?: {
+              html?: {
+                ogImage?: Array<{ url?: string }>;
+                fcFrame?: { imageUrl?: string };
+              };
+              frame?: { image?: string };
+            };
+          }>;
+        };
+      };
+    };
+
+    const embeds = data.conversation?.cast?.embeds ?? [];
+    const currency: "ETH" | "DEGEN" = chain === "degen" ? "DEGEN" : "ETH";
+    for (const embed of embeds) {
+      const candidates = [
+        ...(embed.metadata?.html?.ogImage ?? []).map((img) => img.url ?? ""),
+        embed.metadata?.html?.fcFrame?.imageUrl ?? "",
+        embed.metadata?.frame?.image ?? "",
+      ].filter(Boolean);
+
+      for (const candidate of candidates) {
+        try {
+          const url = new URL(candidate);
+          const rawAmount = url.searchParams.get("amount");
+          if (!rawAmount) continue;
+          const asBigInt = BigInt(rawAmount);
+          const amount = parseFloat(formatEther(asBigInt));
+          if (Number.isFinite(amount) && amount > 0) {
+            return { amount: formatAmount(amount), currency };
+          }
+        } catch {
+          continue;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("[agent] extractHistoricalPotFromAnnouncementEmbed failed:", err);
+  }
+
+  return null;
+}
+
 function isAskingAboutPot(text: string): boolean {
   const lower = text.toLowerCase();
   return (
@@ -948,14 +1009,13 @@ export async function runAgent(ctx: AgentContext): Promise<AgentResponse> {
       const bountyRef = await resolveThreadBounty(ctx);
       if (bountyRef) {
         if (bountyRef.status === "closed") {
-          const currency = bountyRef.chain === "degen" ? "DEGEN" : "ETH";
-          const finalPot = await fetchLivePotValue(bountyRef.bountyId, bountyRef.chain);
+          const embeddedPot = await extractHistoricalPotFromAnnouncementEmbed(ctx.threadHash, bountyRef.chain);
           const historicalPot = extractHistoricalPotFromThread(threadHistory);
-          const trustedPot = finalPot
-            ? { amount: finalPot, currency }
+          const trustedPot = embeddedPot
+            ? embeddedPot
             : historicalPot;
           console.log(
-            `[agent] pot query (closed thread): bountyId=${bountyRef.bountyId} chain=${bountyRef.chain} final=${finalPot ? `${finalPot} ${currency}` : "UNAVAILABLE"} historical=${historicalPot ? `${historicalPot.amount} ${historicalPot.currency}` : "UNAVAILABLE"}`,
+            `[agent] pot query (closed thread): bountyId=${bountyRef.bountyId} chain=${bountyRef.chain} embedded=${embeddedPot ? `${embeddedPot.amount} ${embeddedPot.currency}` : "UNAVAILABLE"} historical=${historicalPot ? `${historicalPot.amount} ${historicalPot.currency}` : "UNAVAILABLE"}`,
           );
           if (trustedPot) {
             livePotContext = `THREAD DATA: this bounty is already closed. the final pot was ${trustedPot.amount} ${trustedPot.currency}. reply with just the final amount — do not say current pot and do not explain the winner.`;
