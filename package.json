@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "db:migrate:new-url:dry": "node scripts/migrate-db-url.mjs --dry-run",
+    "db:migrate:new-url": "node scripts/migrate-db-url.mjs"
   },
   "dependencies": {
     "@farcaster/miniapp-sdk": "^0.2.3",
