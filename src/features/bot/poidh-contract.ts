@@ -507,7 +507,13 @@ export async function resolveBountyWinner(
   bountyId: bigint,
   claimId: bigint,
   chain = "arbitrum",
-): Promise<{ txHash: Hash; method: "direct" | "vote_submitted" | "vote_resolved" }> {
+): Promise<{
+  txHash: Hash;
+  method: "direct" | "vote_submitted" | "vote_resolved";
+  resolvedClaimId?: string;
+  yesVotes?: bigint;
+  noVotes?: bigint;
+}> {
   const publicClient = getPublicClient(chain);
   const { client, account } = getWalletClient(chain);
   const contractAddress = POIDH_CONTRACTS[chain] ?? POIDH_CONTRACT;
@@ -563,7 +569,7 @@ export async function resolveBountyWinner(
     args: [bountyId],
   }) as [bigint, bigint, bigint];
 
-  const deadline = tracker[2];
+  const [yesVotes, noVotes, deadline] = tracker;
   const now = BigInt(Math.floor(Date.now() / 1000));
 
   if (now >= deadline) {
@@ -574,7 +580,13 @@ export async function resolveBountyWinner(
       args: [bountyId],
       account,
     });
-    return { txHash, method: "vote_resolved" };
+    return {
+      txHash,
+      method: "vote_resolved",
+      resolvedClaimId: currentVotingClaim.toString(),
+      yesVotes,
+      noVotes,
+    };
   }
 
   const hoursLeft = Number((deadline - now) / BigInt(3600));

@@ -1271,8 +1271,17 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
       // --- Resolve on-chain ---
       let txHash: `0x${string}`;
       let method: "direct" | "vote_submitted" | "vote_resolved";
+      let resolvedVoteClaimId: string | undefined;
+      let resolvedYesVotes: bigint | undefined;
+      let resolvedNoVotes: bigint | undefined;
       try {
-        ({ txHash, method } = await resolveBountyWinner(
+        ({
+          txHash,
+          method,
+          resolvedClaimId: resolvedVoteClaimId,
+          yesVotes: resolvedYesVotes,
+          noVotes: resolvedNoVotes,
+        } = await resolveBountyWinner(
           BigInt(bounty.bountyId),
           BigInt(effectiveResult.winnerClaimId),
           bountyChain,
@@ -1364,20 +1373,49 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
         winners++;
 
       } else if (method === "vote_resolved") {
+        const finalWinnerClaimId = resolvedVoteClaimId ?? effectiveResult.winnerClaimId;
+        const finalWinnerResult = annotatedResults.find((r) => r.claimId === finalWinnerClaimId);
+        const finalWinnerIssuer = claims.find((c) => c.id.toString() === finalWinnerClaimId)?.issuer
+          ?? finalWinnerResult?.issuer
+          ?? winnerIssuer;
+        const finalWinnerMention = finalWinnerIssuer
+          ? (usernameMap.get(finalWinnerIssuer.toLowerCase()) ?? shortenAddress(finalWinnerIssuer))
+          : (finalWinnerResult?.issuerUsername ?? `claim #${finalWinnerClaimId}`);
+        const finalWinnerReasoning = finalWinnerResult?.reasoning ?? effectiveResult.reasoning;
+        const finalPotAmount =
+          resolvedYesVotes !== undefined && resolvedNoVotes !== undefined && (resolvedYesVotes + resolvedNoVotes) > BigInt(0)
+            ? (resolvedYesVotes + resolvedNoVotes)
+            : details.amount;
+
         await updateBounty(bounty.bountyId, {
           status: "closed",
-          winnerClaimId: effectiveResult.winnerClaimId,
-          winnerIssuer,
+          winnerClaimId: finalWinnerClaimId,
+          winnerIssuer: finalWinnerIssuer,
           winnerTxHash: txHash,
-          winnerReasoning: effectiveResult.reasoning,
+          winnerReasoning: finalWinnerReasoning,
           allEvalResults: annotatedResults,
         });
 
         // Short pointer reply in original thread
-        await postReply(getReplyTarget(bounty), `🏆 vote closed — ${winnerMention} wins. see /poidh for the full announcement.`, bountyLink);
+        await postReply(getReplyTarget(bounty), `🏆 vote closed — ${finalWinnerMention} wins. see /poidh for the full announcement.`, bountyLink);
 
         // Full winner announcement as a NEW top-level cast in /poidh channel
-        const announcementHash = await postChannelWinnerAnnouncement(bounty.name, claims.length, effectiveResult.reasoning, bountyLink, "vote_resolved", winnerMention, creatorMention, humanContributorMentions, bountyChain, details.amount, undefined, undefined, undefined, annotatedResults);
+        const announcementHash = await postChannelWinnerAnnouncement(
+          bounty.name,
+          claims.length,
+          finalWinnerReasoning,
+          bountyLink,
+          "vote_resolved",
+          finalWinnerMention,
+          creatorMention,
+          humanContributorMentions,
+          bountyChain,
+          finalPotAmount,
+          resolvedYesVotes,
+          resolvedNoVotes,
+          undefined,
+          annotatedResults,
+        );
         if (announcementHash) {
           await updateBounty(bounty.bountyId, { announcementCastHash: announcementHash });
           await registerBountyThread({
@@ -1387,9 +1425,9 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
             bountyDescription: bounty.description,
             chain: bountyChain,
             poidhUrl: bountyLink,
-            winnerClaimId: effectiveResult.winnerClaimId,
-            winnerIssuer,
-            winnerReasoning: effectiveResult.reasoning,
+            winnerClaimId: finalWinnerClaimId,
+            winnerIssuer: finalWinnerIssuer,
+            winnerReasoning: finalWinnerReasoning,
           });
         }
         winners++;
