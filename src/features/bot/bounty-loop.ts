@@ -363,10 +363,10 @@ async function postChannelWinnerAnnouncement(
     } else {
       // Final winner announcement format.
       const submissionLabel = `${claimCount} submission(s)`;
-      // Keep vote metadata compact while prioritizing "because ... thank you ..."
-      const voteMeta = yesVotes !== undefined && noVotes !== undefined ? ` (${formatAmt(yesVotes)} ${currency} yes / ${formatAmt(noVotes)} ${currency} no)` : "";
+      // Keep vote metadata compact while making it clear this is vote weight, not the payout amount.
+      const voteMeta = yesVotes !== undefined && noVotes !== undefined ? ` vote weight: ${formatAmt(yesVotes)} ${currency} yes / ${formatAmt(noVotes)} ${currency} no.` : "";
       const potMeta = potAmount !== undefined ? ` ${formatAmt(potAmount)} ${currency}` : "";
-      const voteLine = method === "vote_resolved" ? ` community vote passed${voteMeta}.` : "";
+      const voteLine = method === "vote_resolved" ? ` community vote passed.${voteMeta}` : "";
       const contributionLine = fundedByLine || ".";
       const potLine = potMeta ? ` pot:${potMeta}.` : "";
       text = `✅ "${bountyName}" — ${winnerMention} wins from ${submissionLabel} because ${reasonClean}.${contributionLine}${potLine}${voteLine}${scoresLine}`;
@@ -1054,11 +1054,11 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
                 const onChainAmt = (await getBountyDetails(BigInt(bounty.bountyId), bountyChain)).amount;
                 potLineV = ` ${fmtV(onChainAmt)} ${currency}`;
               } catch { /* non-critical */ }
-              const voteLineV = ` (${fmtV(yesVotes)} ${currency} yes / ${fmtV(noVotes)} ${currency} no)`;
+              const voteLineV = ` vote weight: ${fmtV(yesVotes)} ${currency} yes / ${fmtV(noVotes)} ${currency} no.`;
               const reasonV = (bounty.winnerReasoning ?? "winner selected").trim().replace(/[.!\s]+$/g, "");
               const submissionCountV = bounty.claimCount > 0 ? bounty.claimCount : 1;
               const resolvedCastHash = await publishCast({
-                text: stripMarkdown(`✅ "${bounty.name}" — ${wMention} wins from ${submissionCountV} submission(s) because ${reasonV}.${fundedByLineV || "."}${potLineV ? ` pot:${potLineV}.` : ""} community vote passed${voteLineV}.`).slice(0, 1024),
+                text: stripMarkdown(`✅ "${bounty.name}" — ${wMention} wins from ${submissionCountV} submission(s) because ${reasonV}.${fundedByLineV || "."}${potLineV ? ` pot:${potLineV}.` : ""} community vote passed.${voteLineV}`).slice(0, 1024),
                 signerUuid: BOT_SIGNER_UUID,
                 channelId: "poidh",
                 embedUrl: bountyLink,
