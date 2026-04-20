@@ -522,6 +522,18 @@ export async function getWalletBalance(key: string): Promise<bigint> {
   return rows[0] ? BigInt(rows[0].balance) : BigInt(0);
 }
 
+export async function getWalletBalanceSnapshot(key: string): Promise<{ exists: boolean; balance: bigint }> {
+  const rows = await db
+    .select()
+    .from(walletBalances)
+    .where(eq(walletBalances.balanceKey, key))
+    .limit(1);
+  if (!rows[0]) {
+    return { exists: false, balance: BigInt(0) };
+  }
+  return { exists: true, balance: BigInt(rows[0].balance) };
+}
+
 export async function setWalletBalance(key: string, balance: bigint): Promise<void> {
   await db
     .insert(walletBalances)

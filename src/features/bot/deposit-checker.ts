@@ -6,7 +6,7 @@ import { MIN_OPEN_DURATION_HOURS, PLATFORM_FEE_PCT } from "@/features/bot/consta
 import { setConversation, clearConversation, CHAIN_CONFIG } from "@/features/bot/conversation-state";
 import { addActiveBounty } from "@/features/bot/bounty-store";
 import { publishReply, publishCast } from "@/features/bot/cast-reply";
-import { getWalletBalance, setWalletBalance, getAllAwaitingPayment, unregisterPendingPayment, registerBountyThread, updateBounty } from "@/db/actions/bot-actions";
+import { getWalletBalanceSnapshot, setWalletBalance, getAllAwaitingPayment, unregisterPendingPayment, registerBountyThread, updateBounty } from "@/db/actions/bot-actions";
 
 
 function getViemChainConfig(chain: string) {
@@ -68,9 +68,21 @@ async function _checkDeposits(): Promise<void> {
 
     const balanceKey = `${chain}:${walletAddress}`;
     const currentBalance = chainBalances.get(chain) ?? BigInt(0);
-    const lastBalance = await getWalletBalance(balanceKey);
+    const walletBalanceSnapshot = await getWalletBalanceSnapshot(balanceKey);
+    const lastBalance = walletBalanceSnapshot.balance;
     const alreadyClaimed = claimedThisRun.get(chain) ?? BigInt(0);
     const availableBalance = currentBalance - alreadyClaimed;
+
+    // First time seeing this chain:wallet key (fresh DB, migrated DB without this key,
+    // or bot wallet rotation). Seed baseline and skip detection this run so old funds
+    // are never treated as a new deposit.
+    if (!walletBalanceSnapshot.exists) {
+      await setWalletBalance(balanceKey, currentBalance);
+      console.log(
+        `[deposit-checker] seeded baseline for ${balanceKey} at ${formatEther(currentBalance)}; skipping old-funds detection this run`,
+      );
+      continue;
+    }
 
     // requestedAmount = intended bounty size (used for on-chain creation + announcement)
     // matchingAmount  = what we expect to receive (uniqueAmount if set, else requestedAmount)
