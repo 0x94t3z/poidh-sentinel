@@ -276,7 +276,7 @@ async function postVoteCorrectionIfNeeded(
   ].filter((m, i, arr) => m !== expectedWinnerMention && arr.indexOf(m) === i);
   const voteTarget = buildVoteNoRequestLine(voterMentions);
   const correctionText = stripMarkdown(
-    `i was wrong earlier — ${voteTarget}, please vote no on the current nominee so i can reject this vote and nominate the correct winner, ${expectedWinnerMention}.`,
+    `correction: ${voteTarget}, so i can reject the current nominee and nominate the correct winner, ${expectedWinnerMention}.`,
   ).slice(0, 1024);
 
   const correctionAlreadyPosted = await hasSuccessfulLog(
@@ -359,7 +359,7 @@ async function postChannelWinnerAnnouncement(
 
     if (method === "vote_submitted") {
       // Merged scores + nomination — reply in thread, no URL (parent cast already has the embed)
-      text = `🗳️ "${bountyName}" — ${winnerMention} nominated as winner. ${reasonClean}.${fundedByLine} contributors have 48h to vote yes/no. if rejected, the next best gets nominated.${scoresLine}`;
+      text = `🗳️ "${bountyName}" — ${winnerMention} is the current nominee. ${reasonClean}.${fundedByLine} contributors have 48h to vote yes or no. if rejected, the next best claim will be nominated.${scoresLine}`;
     } else {
       // Final winner announcement format.
       const submissionLabel = `${claimCount} submission(s)`;
@@ -367,7 +367,9 @@ async function postChannelWinnerAnnouncement(
       const voteMeta = yesVotes !== undefined && noVotes !== undefined ? ` (${formatAmt(yesVotes)} ${currency} yes / ${formatAmt(noVotes)} ${currency} no)` : "";
       const potMeta = potAmount !== undefined ? ` ${formatAmt(potAmount)} ${currency}` : "";
       const voteLine = method === "vote_resolved" ? ` community vote passed${voteMeta}.` : "";
-      text = `✅ "${bountyName}" — ${winnerMention} wins from ${submissionLabel} because ${reasonClean}.${fundedByLine}${potMeta ? ` pot:${potMeta}` : ""}${voteLine}${scoresLine}`;
+      const contributionLine = fundedByLine || ".";
+      const potLine = potMeta ? ` pot:${potMeta}.` : "";
+      text = `✅ "${bountyName}" — ${winnerMention} wins from ${submissionLabel} because ${reasonClean}.${contributionLine}${potLine}${voteLine}${scoresLine}`;
     }
 
     const cleaned = stripMarkdown(text).slice(0, 1024);
@@ -479,8 +481,8 @@ function buildNoWinnerFeedback(
 ): string {
   // Cap at 5 feedback lines to stay under cast limit
   const lines = results.slice(0, 5).map((r) => `claim #${r.claimId} (${r.score}/100): ${r.reasoning}`);
-  const header = `reviewed ${claimData.length} submission${claimData.length !== 1 ? "s" : ""}, none qualified yet:\n`;
-  const footer = `\nfix the issues above and resubmit — i'll re-evaluate in 6h.`;
+  const header = `reviewed ${claimData.length} submission${claimData.length !== 1 ? "s" : ""} — none qualify yet:\n`;
+  const footer = `\nfix the issues above and resubmit. i'll re-evaluate in 6h.`;
   return (header + lines.join("\n") + footer).slice(0, 1024);
 }
 
@@ -1042,7 +1044,7 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
               const fundedByLineV = buildFundedByLine(allThanksV);
 
               // Short pointer reply in original thread
-              await postReply(getReplyTarget(bounty), `🏆 vote closed — ${wMention} wins. see /poidh for the full announcement.`, bountyLink);
+              await postReply(getReplyTarget(bounty), `🏆 vote closed — ${wMention} wins. the full announcement is now live in /poidh.`, bountyLink);
 
               // Full winner announcement as a NEW top-level cast in /poidh channel
               const currency = bountyChain === "degen" ? "DEGEN" : "ETH";
@@ -1056,7 +1058,7 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
               const reasonV = (bounty.winnerReasoning ?? "winner selected").trim().replace(/[.!\s]+$/g, "");
               const submissionCountV = bounty.claimCount > 0 ? bounty.claimCount : 1;
               const resolvedCastHash = await publishCast({
-                text: stripMarkdown(`✅ "${bounty.name}" — ${wMention} wins from ${submissionCountV} submission(s) because ${reasonV}.${fundedByLineV}${potLineV ? ` pot:${potLineV}` : ""} community vote passed${voteLineV}.`).slice(0, 1024),
+                text: stripMarkdown(`✅ "${bounty.name}" — ${wMention} wins from ${submissionCountV} submission(s) because ${reasonV}.${fundedByLineV || "."}${potLineV ? ` pot:${potLineV}.` : ""} community vote passed${voteLineV}.`).slice(0, 1024),
                 signerUuid: BOT_SIGNER_UUID,
                 channelId: "poidh",
                 embedUrl: bountyLink,
@@ -1397,7 +1399,7 @@ export async function runBountyLoop(): Promise<{ processed: number; winners: num
         });
 
         // Short pointer reply in original thread
-        await postReply(getReplyTarget(bounty), `🏆 vote closed — ${finalWinnerMention} wins. see /poidh for the full announcement.`, bountyLink);
+        await postReply(getReplyTarget(bounty), `🏆 vote closed — ${finalWinnerMention} wins. the full announcement is now live in /poidh.`, bountyLink);
 
         // Full winner announcement as a NEW top-level cast in /poidh channel
         const announcementHash = await postChannelWinnerAnnouncement(

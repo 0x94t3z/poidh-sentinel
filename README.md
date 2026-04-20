@@ -125,15 +125,15 @@ Built for the [poidh SKILL challenge](https://github.com/picsoritdidnthappen/poi
 | Deposit detected on-chain | `bounty is live — <poidhUrl>` | conversation cleared, bounty announced |
 | 72h passes with zero submissions | `72h in — no submissions yet... reply "cancel bounty" in this thread` | stays `open` |
 | 7+ days with zero submissions | `still no submissions... share the link or reply "cancel bounty"` | stays `open` |
-| Eligible bounty evaluated, no claim qualifies | `reviewed N submissions, none qualified yet... fix the issues above and resubmit` | stays `open`, 6h cooldown |
+| Eligible bounty evaluated, no claim qualifies | `reviewed N submissions — none qualify yet... fix the issues above and resubmit` | stays `open`, 6h cooldown |
 | Open bounty, no contributors, winner found | `🏆 @winner wins ...` in thread + `✅ ... wins ...` in `/poidh` | `closed` |
-| Open bounty, contributors exist, winner found | `🗳️ ... nominated as winner. ... contributors have 48h to vote yes/no.` | `evaluating` |
+| Open bounty, contributors exist, winner found | `🗳️ ... is the current nominee. ... contributors have 48h to vote yes or no.` | `evaluating` |
 | Open bounty vote passes | `🏆 vote closed — @winner wins` in thread + `✅ ... community vote passed ...` in `/poidh` | `closed` |
 | Open bounty vote fails, next valid claim exists | `vote rejected ... nominating next best ...` | stays `evaluating` with new nominee |
 | Open bounty vote fails, no next valid claim | `vote rejected ... no other qualifying submissions found` | back to `open` |
 | Creator says `cancel bounty` | `reply "yes cancel" to confirm ... or "no" to keep it open` | `awaiting_cancel_confirmation` |
 | Creator confirms cancel | `"title" cancelled — ...` or `refund is processing automatically` | `closed` / pending refund retry |
-| Wrong nominee already active on-chain | `i was wrong earlier — ... please vote no on the current nominee ... the correct winner ...` | stays `evaluating` until vote resolves |
+| Wrong nominee already active on-chain | `correction: ... please vote no on the current nominee ... the correct winner ...` | stays `evaluating` until vote resolves |
 
 ### Open vs Solo
 
@@ -215,10 +215,10 @@ Built for the [poidh SKILL challenge](https://github.com/picsoritdidnthappen/poi
    -> runs full evaluation pipeline (deterministic → OCR → vision AI → LLM)
    -> if no claim scores >= 60 (none qualified):
       -> posts in announcement thread:
-         "reviewed 3 submissions, none qualified yet:
+         "reviewed 3 submissions — none qualify yet:
           claim #362 (40/100): outdoor photo but missing username and poidh text
           claim #353 (20/100): indoor photo, date visible but off-topic
-          fix the issues above and resubmit — i'll re-evaluate in 6h."
+          fix the issues above and resubmit. i'll re-evaluate in 6h."
          [embed: poidh.xyz/arbitrum/bounty/268]
       -> sets 6h cooldown before re-evaluating (EVAL_COOLDOWN_MS)
 
@@ -236,8 +236,8 @@ Built for the [poidh SKILL challenge](https://github.com/picsoritdidnthappen/poi
 8b. Open bounty with external contributors (everHadExternalContributor = true):
     -> submitClaimForVote() — starts 48h community vote
     -> posts reply in ANNOUNCEMENT thread:
-       "🗳️ "[name]" — @winner nominated as winner. [reasoning]. thank you for your contribution @kenny, @mr94t3z.
-        contributors have 48h to vote yes/no. if rejected, next best gets nominated.
+       "🗳️ "[name]" — @winner is the current nominee. [reasoning]. thank you for your contribution @kenny, @mr94t3z.
+        contributors have 48h to vote yes or no. if rejected, the next best claim will be nominated.
         results: #356 @winner (70)⭐ ✅ | #362 @user2 (40) ❌ — missing poidh text | ..."
        [embed: poidh.xyz/arbitrum/bounty/268]
 
@@ -245,7 +245,7 @@ Built for the [poidh SKILL challenge](https://github.com/picsoritdidnthappen/poi
 
     YES (yesVotes > noVotes, abstentions don't count):
        -> pointer reply in announcement thread:
-          "🏆 vote closed — @winner wins. see /poidh for the full announcement."
+          "🏆 vote closed — @winner wins. the full announcement is now live in /poidh."
           [embed: poidh.xyz/arbitrum/bounty/268]
        -> NEW top-level cast in /poidh channel:
           "✅ "[name]" — @winner wins from 4 submission(s) because [reasoning].
