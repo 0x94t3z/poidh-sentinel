@@ -247,19 +247,6 @@ function extractHistoricalPotFromThread(
   for (let i = threadHistory.length - 1; i >= 0; i--) {
     const text = threadHistory[i]?.text ?? "";
 
-    const voteTotals = text.match(
-      /community vote passed\s*\(([\d.]+)\s*(ETH|DEGEN)\s+yes\s*\/\s*([\d.]+)\s*(ETH|DEGEN)\s+no\)/i,
-    );
-    if (voteTotals) {
-      const yes = parseFloat(voteTotals[1] ?? "0");
-      const yesCurrency = (voteTotals[2] ?? "").toUpperCase() as "ETH" | "DEGEN";
-      const no = parseFloat(voteTotals[3] ?? "0");
-      const noCurrency = (voteTotals[4] ?? "").toUpperCase() as "ETH" | "DEGEN";
-      if (Number.isFinite(yes) && Number.isFinite(no) && yesCurrency === noCurrency && yes + no > 0) {
-        return { amount: formatAmount(yes + no), currency: yesCurrency };
-      }
-    }
-
     const potLine = text.match(/\bpot:\s*([\d.]+)\s*(ETH|DEGEN)\b/i);
     if (potLine) {
       const amount = parseFloat(potLine[1] ?? "0");
@@ -961,10 +948,17 @@ export async function runAgent(ctx: AgentContext): Promise<AgentResponse> {
       const bountyRef = await resolveThreadBounty(ctx);
       if (bountyRef) {
         if (bountyRef.status === "closed") {
+          const currency = bountyRef.chain === "degen" ? "DEGEN" : "ETH";
+          const finalPot = await fetchLivePotValue(bountyRef.bountyId, bountyRef.chain);
           const historicalPot = extractHistoricalPotFromThread(threadHistory);
-          console.log(`[agent] pot query (closed thread): bountyId=${bountyRef.bountyId} chain=${bountyRef.chain} historical=${historicalPot ? `${historicalPot.amount} ${historicalPot.currency}` : "UNAVAILABLE"}`);
-          if (historicalPot) {
-            livePotContext = `THREAD DATA: this bounty is already closed. the final pot in the announcement thread was ${historicalPot.amount} ${historicalPot.currency}. reply with just the final amount — do not say current pot.`;
+          const trustedPot = finalPot
+            ? { amount: finalPot, currency }
+            : historicalPot;
+          console.log(
+            `[agent] pot query (closed thread): bountyId=${bountyRef.bountyId} chain=${bountyRef.chain} final=${finalPot ? `${finalPot} ${currency}` : "UNAVAILABLE"} historical=${historicalPot ? `${historicalPot.amount} ${historicalPot.currency}` : "UNAVAILABLE"}`,
+          );
+          if (trustedPot) {
+            livePotContext = `THREAD DATA: this bounty is already closed. the final pot was ${trustedPot.amount} ${trustedPot.currency}. reply with just the final amount — do not say current pot and do not explain the winner.`;
           } else {
             livePotContext = `THREAD DATA: this bounty is already closed and the final pot is not safely recoverable from thread context. do NOT guess. tell the user to check the poidh.xyz link in the thread for the final total.`;
           }
