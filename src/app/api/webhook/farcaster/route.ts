@@ -147,10 +147,37 @@ function isRecoverableCreationPrompt(parentText: string): boolean {
   return (
     lower.includes("want me to create this on-chain") ||
     lower.includes("want me to create it on-chain") ||
+    lower.includes("want me to make this on-chain") ||
+    lower.includes("want me to make it on-chain") ||
     lower.includes("want me to post this as a bounty") ||
+    lower.includes("want me to turn this into a bounty") ||
     lower.includes("reply yes to continue") ||
-    lower.includes("reply yes to proceed")
+    lower.includes("reply yes to proceed") ||
+    (
+      (lower.includes("how about") || lower.includes("what about") || lower.includes("bounty idea")) &&
+      (lower.includes("proof") || lower.includes("photo") || lower.includes("video")) &&
+      (lower.includes("create") || lower.includes("on-chain") || lower.includes("bounty"))
+    )
   );
+}
+
+function isSimpleAffirmation(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/[^\w\s]/g, " ").replace(/\s+/g, " ").trim();
+  return new Set([
+    "yes",
+    "yeah",
+    "yep",
+    "yup",
+    "ok",
+    "okay",
+    "sure",
+    "do it",
+    "go ahead",
+    "lets do it",
+    "let s do it",
+    "make it",
+    "create it",
+  ]).has(normalized);
 }
 
 // Extract image URLs from Neynar embed objects
@@ -829,11 +856,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // Recovery path:
     // If user confirms ("yes"/"ok"/etc.) directly under a bot proposal but the conversation
     // state was lost/cleared, rebuild state and continue deterministic chain+amount flow.
+    const recoverableAffirmation = isSimpleAffirmation(text) || await isConfirmation(text);
     if (
       replyToBot &&
       !inBountyThread &&
       !inActiveThread &&
-      await isConfirmation(text) &&
+      recoverableAffirmation &&
       isRecoverableCreationPrompt(parentInfo.text)
     ) {
       const recoveredState = {

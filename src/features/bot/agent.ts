@@ -580,6 +580,14 @@ export interface AiDetectDebugResult {
   estimatedCostUsd: number;
 }
 
+export interface AiDetectErrorDebugResult {
+  error: string;
+  stage: "config" | "image_fetch" | "openai_request" | "openai_parse" | "analysis" | "exception";
+  detail: string;
+  httpStatus?: number;
+  responseBody?: string;
+}
+
 interface OpenAiUsage {
   prompt_tokens: number;
   completion_tokens: number;
@@ -590,15 +598,39 @@ interface OpenAiUsage {
 // Accepts optional thread context — priming with what community members already spotted
 // dramatically improves accuracy vs. a cold prompt.
 export async function detectAiImage(imageUrl: string, ctx?: AiDetectContext): Promise<string | null> {
+  const debugFailure = (failure: AiDetectErrorDebugResult): string | null => {
+    if (!ctx?.debug) return null;
+    return JSON.stringify(failure);
+  };
+
   // Feature flag — set AI_IMAGE_DETECTION=false to disable even if OPENAI_API_KEY is set
-  if (process.env.AI_IMAGE_DETECTION === "false") return null;
+  if (process.env.AI_IMAGE_DETECTION === "false") {
+    return debugFailure({
+      error: "ai_image_detection_disabled",
+      stage: "config",
+      detail: "AI_IMAGE_DETECTION=false",
+    });
+  }
   const openaiKey = process.env.OPENAI_API_KEY;
-  if (!openaiKey) return null;
+  if (!openaiKey) {
+    return debugFailure({
+      error: "openai_api_key_missing",
+      stage: "config",
+      detail: "OPENAI_API_KEY not set",
+    });
+  }
 
   try {
     // Fetch image as base64 once, reuse for both passes
     const imgRes = await fetch(imageUrl, { signal: AbortSignal.timeout(15000) });
-    if (!imgRes.ok) return null;
+    if (!imgRes.ok) {
+      return debugFailure({
+        error: "image_fetch_failed",
+        stage: "image_fetch",
+        detail: `image fetch returned HTTP ${imgRes.status}`,
+        httpStatus: imgRes.status,
+      });
+    }
     const mimeType = (imgRes.headers.get("content-type") ?? "image/jpeg").split(";")[0].trim();
     const buffer = await imgRes.arrayBuffer();
     const dataUrl = `data:${mimeType};base64,${Buffer.from(buffer).toString("base64")}`;
@@ -668,7 +700,19 @@ Respond ONLY in JSON (no markdown):
         }),
         signal: AbortSignal.timeout(25000),
       });
-      if (!res.ok) return null;
+      if (!res.ok) {
+        if (ctx?.debug) {
+          const body = (await res.text()).slice(0, 1000);
+          throw new Error(JSON.stringify({
+            error: "openai_request_failed",
+            stage: "openai_request",
+            detail: `OpenAI returned HTTP ${res.status}`,
+            httpStatus: res.status,
+            responseBody: body,
+          } satisfies AiDetectErrorDebugResult));
+        }
+        return null;
+      }
       const data = (await res.json()) as {
         choices: Array<{ message: { content: string } }>;
         usage?: OpenAiUsage;
@@ -684,6 +728,14 @@ Respond ONLY in JSON (no markdown):
           usage: data.usage,
         };
       } catch {
+        if (ctx?.debug) {
+          throw new Error(JSON.stringify({
+            error: "openai_response_parse_failed",
+            stage: "openai_parse",
+            detail: "OpenAI returned non-JSON or malformed JSON for ai-detect pass",
+            responseBody: raw.slice(0, 1000),
+          } satisfies AiDetectErrorDebugResult));
+        }
         return null;
       }
     }
@@ -691,7 +743,13 @@ Respond ONLY in JSON (no markdown):
     // Run both passes in parallel
     const [pass1, pass2] = await Promise.all([runPass(0.2), runPass(0.8)]);
     const passes = [pass1, pass2].filter(Boolean) as AnalysisResult[];
-    if (passes.length === 0) return null;
+    if (passes.length === 0) {
+      return debugFailure({
+        error: "analysis_passes_failed",
+        stage: "analysis",
+        detail: "Both ai-detect passes returned no result",
+      });
+    }
 
     // Verdict priority: AI > UNCERTAIN > REAL (most cautious wins)
     const PRIORITY: Record<string, number> = { AI: 3, UNCERTAIN: 2, REAL: 1 };
@@ -745,6 +803,19 @@ Respond ONLY in JSON (no markdown):
     return botReply;
   } catch (err) {
     console.warn("[agent] detectAiImage failed:", err);
+    if (ctx?.debug && err instanceof Error) {
+      try {
+        const parsed = JSON.parse(err.message) as AiDetectErrorDebugResult;
+        if (parsed?.error && parsed?.stage) return JSON.stringify(parsed);
+      } catch {
+        // fall through to generic exception wrapper
+      }
+      return JSON.stringify({
+        error: "analysis_exception",
+        stage: "exception",
+        detail: err.message,
+      } satisfies AiDetectErrorDebugResult);
+    }
     return null;
   }
 }

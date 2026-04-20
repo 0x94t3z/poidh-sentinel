@@ -155,6 +155,16 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       debugResult = { botReply: raw };
     }
 
+    if (typeof debugResult.error === "string") {
+      return NextResponse.json({
+        imageUrl,
+        threadHash: threadHash ?? null,
+        threadMessagesLoaded: threadDiscussion?.length ?? 0,
+        model: "gpt-4o (two-pass)",
+        ...debugResult,
+      }, { status: 500 });
+    }
+
     return NextResponse.json({
       imageUrl,
       threadHash: threadHash ?? null,
