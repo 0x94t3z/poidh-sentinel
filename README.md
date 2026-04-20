@@ -667,6 +667,8 @@ All modes except `run=1`, `register=1`, and `post=1` are dry-runs — no DB writ
 | Variable                 | Required  | Description                                                                        |
 |--------------------------|-----------|------------------------------------------------------------------------------------|
 | `DATABASE_URL`           | Yes       | PostgreSQL connection string                                                       |
+| `OLD_DATABASE_URL`       | Optional  | Explicit source DB for one-time migration script (falls back to `DATABASE_URL`)   |
+| `NEW_DATABASE_URL`       | Optional  | Target DB for one-time migration script                                            |
 | `NEYNAR_API_KEY`         | Yes       | Neynar API key — cast publishing and Farcaster user lookups                        |
 | `BOT_SIGNER_UUID`        | Yes       | Neynar managed signer UUID for the bot's Farcaster account                         |
 | `BOT_WALLET_PRIVATE_KEY` | Yes       | Private key of the bot's EVM wallet — hex, with or without `0x` prefix. The public address is derived automatically. |
@@ -743,6 +745,9 @@ Create a `.env` file in the project root:
 
 # PostgreSQL connection string (Neon: https://neon.tech)
 DATABASE_URL=postgresql://user:password@host/dbname?sslmode=require
+# Optional one-time DB migration source/target
+OLD_DATABASE_URL=postgresql://user:password@old-host/old-db?sslmode=require
+NEW_DATABASE_URL=postgresql://user:password@new-host/new-db?sslmode=require
 
 # Neynar API key — cast publishing + Farcaster lookups (https://dev.neynar.com)
 NEYNAR_API_KEY=
@@ -825,6 +830,28 @@ npm run dev
 ```
 
 The dev server automatically runs `drizzle-kit push` on start to create/migrate the database schema.
+
+### Migrate to a new database URL
+
+Use this when moving from one Postgres instance to another (for example old Neon project -> new Neon project).
+
+```bash
+# 1) Set source + target in .env
+# OLD_DATABASE_URL=...
+# NEW_DATABASE_URL=...
+
+# 2) Preview row counts only (no writes)
+npm run db:migrate:new-url:dry
+
+# 3) Execute copy (upsert by primary key)
+npm run db:migrate:new-url
+```
+
+After successful migration:
+
+1. Set `DATABASE_URL` to the new URL in local `.env` and Vercel env vars.
+2. Redeploy.
+3. Keep `OLD_DATABASE_URL` only for rollback/testing, then remove it once stable.
 
 **Verify it's working:**
 
