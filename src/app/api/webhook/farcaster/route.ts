@@ -891,6 +891,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         castText: text,
         action: "general_reply",
         replyToBot,
+        parentText: replyToBot ? parentInfo.text : undefined,
         mentioned,
         imageUrls: imageUrls.length ? imageUrls : undefined,
         bountyContext: bountyThread ? await (async () => {
@@ -958,6 +959,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       authorFid: author.fid,
       castText: text,
       action: "general_reply",
+      parentText: replyToBot ? parentInfo.text : undefined,
       mentioned,
       imageUrls: imageUrls.length ? imageUrls : undefined,
     });

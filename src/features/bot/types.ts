@@ -36,6 +36,7 @@ export interface AgentContext {
   castText: string;
   action: BountyAction;
   replyToBot?: boolean;
+  parentText?: string;
   mentioned?: boolean;    // true when @poidh-sentinel was explicitly tagged in the cast
   imageUrls?: string[];   // image embeds found in the cast or its parent
   bountyContext?: {

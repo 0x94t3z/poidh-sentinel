@@ -338,6 +338,89 @@ function isAskingAboutPot(text: string): boolean {
   );
 }
 
+type FollowUpTopic = "pot" | "winner" | "vote" | "cancel" | "ai" | "creation" | null;
+
+function isClarifyingFollowUp(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/[^\w\s]/g, " ").replace(/\s+/g, " ").trim();
+  if (!normalized) return false;
+  if (normalized.split(" ").length <= 5) return true;
+  return (
+    normalized.includes("are you sure") ||
+    normalized.includes("really") ||
+    normalized.includes("what about now") ||
+    normalized.includes("what now") ||
+    normalized.includes("i m asking") ||
+    normalized.includes("im asking") ||
+    normalized.includes("what do you mean") ||
+    normalized.includes("how much") ||
+    normalized.includes("how many") ||
+    normalized.includes("which one") ||
+    normalized.includes("why") ||
+    normalized.includes("and then")
+  );
+}
+
+function inferTopicFromText(text: string): FollowUpTopic {
+  const lower = text.toLowerCase();
+  if (isAskingAboutPot(text)) return "pot";
+  if (isAskingAboutAI(text)) return "ai";
+  if (
+    lower.includes("cancel") ||
+    lower.includes("refund")
+  ) return "cancel";
+  if (
+    lower.includes("vote") ||
+    lower.includes("nominee") ||
+    lower.includes("yes or no") ||
+    lower.includes("yes/no") ||
+    lower.includes("current nominee")
+  ) return "vote";
+  if (
+    lower.includes("winner") ||
+    lower.includes("claim #") ||
+    lower.includes("why did") ||
+    lower.includes("why won") ||
+    lower.includes("why this won") ||
+    lower.includes("why did this win")
+  ) return "winner";
+  if (
+    lower.includes("which chain") ||
+    lower.includes("how much do you want to put up") ||
+    lower.includes("open or solo") ||
+    lower.includes("send exactly") ||
+    lower.includes("still waiting on the deposit") ||
+    lower.includes("reply sent")
+  ) return "creation";
+  return null;
+}
+
+function inferFollowUpTopic(currentText: string, parentBotText?: string): FollowUpTopic {
+  const explicit = inferTopicFromText(currentText);
+  if (explicit) return explicit;
+  if (!parentBotText) return null;
+  if (!isClarifyingFollowUp(currentText)) return null;
+  return inferTopicFromText(parentBotText);
+}
+
+function buildFollowUpContext(topic: FollowUpTopic): string {
+  switch (topic) {
+    case "pot":
+      return "follow-up topic lock: the user is still asking only about the bounty pot or final amount. answer only the amount/value question. do not explain the winner unless they explicitly ask why.";
+    case "winner":
+      return "follow-up topic lock: the user is asking about the winner or why a claim won. stay on winner reasoning only.";
+    case "vote":
+      return "follow-up topic lock: the user is asking about the current nominee or vote state. stay on the vote only.";
+    case "cancel":
+      return "follow-up topic lock: the user is asking about cancel or refund state. stay on cancel/refund only.";
+    case "ai":
+      return "follow-up topic lock: the user is asking whether the image is ai-generated. stay on authenticity analysis only.";
+    case "creation":
+      return "follow-up topic lock: the user is continuing bounty creation or payment setup. answer only the next creation/payment step.";
+    default:
+      return "";
+  }
+}
+
 async function detectAction(text: string): Promise<BountyAction> {
   const lower = text.toLowerCase();
   const normalized = lower.replace(/[^\w\s]/g, " ").replace(/\s+/g, " ").trim();
@@ -932,9 +1015,11 @@ function stripMarkdown(text: string): string {
 }
 
 export async function runAgent(ctx: AgentContext): Promise<AgentResponse> {
+  const followUpTopic = ctx.replyToBot ? inferFollowUpTopic(ctx.castText, ctx.parentText) : null;
+
   // AI image detection — only when @poidh-sentinel is directly mentioned (not passive bounty thread).
   // Fetch thread history first so community observations prime the analysis.
-  if (ctx.mentioned && isAskingAboutAI(ctx.castText) && ctx.imageUrls?.length) {
+  if (ctx.mentioned && (isAskingAboutAI(ctx.castText) || followUpTopic === "ai") && ctx.imageUrls?.length) {
     const threadHistory = await fetchCastThread(ctx.threadHash);
     const verdict = await detectAiImage(ctx.imageUrls[0], {
       threadDiscussion: threadHistory,
@@ -1002,7 +1087,7 @@ export async function runAgent(ctx: AgentContext): Promise<AgentResponse> {
 
   // If the user is asking about the bounty pot value, fetch live values from the contract
   let livePotContext: string | null = null;
-  if (isAskingAboutPot(ctx.castText)) {
+  if (isAskingAboutPot(ctx.castText) || followUpTopic === "pot") {
     if (ctx.bountyContext) {
       // In a specific bounty thread — use that exact bounty only.
       // Never fall back to an unrelated open bounty from another thread.
@@ -1061,7 +1146,14 @@ export async function runAgent(ctx: AgentContext): Promise<AgentResponse> {
     }
   }
 
-  const userMessage = buildUserMessage(ctx, action, threadHistory, ctx.bountyContext, livePotContext);
+  const userMessage = buildUserMessage(
+    ctx,
+    action,
+    threadHistory,
+    ctx.bountyContext,
+    livePotContext,
+    buildFollowUpContext(followUpTopic),
+  );
   const messages = [
     { role: "system", content: SYSTEM_PROMPT },
     { role: "user", content: userMessage },
@@ -1151,6 +1243,7 @@ function buildUserMessage(
   threadHistory: Array<{ username: string; text: string }> = [],
   bountyContext?: AgentContext["bountyContext"],
   livePotContext?: string | null,
+  followUpContext?: string,
 ): string {
   const historyContext = threadHistory.length > 1
     ? "\nconversation so far:\n" +
@@ -1258,8 +1351,9 @@ function buildUserMessage(
     : "";
 
   const potCtx = livePotContext ? "\nlive contract data: " + livePotContext + "\n" : "";
+  const followUpCtx = followUpContext ? "\n" + followUpContext + "\n" : "";
 
-  return historyContext + bountyCtx + potCtx + "\ncurrent message: " + current + "\n\n" +
+  return historyContext + bountyCtx + potCtx + followUpCtx + "\ncurrent message: " + current + "\n\n" +
     "you are in an active thread. reply naturally, staying on topic with the conversation above. " +
     "do not introduce yourself. do not reset the conversation. answer what was asked directly. " +
     "keep it under 280 chars — one tight thought, no padding. " +
