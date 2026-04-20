@@ -198,36 +198,76 @@ async function fetchLivePotValue(bountyId: string, chain: string): Promise<strin
   }
 }
 
-// Try to find the most relevant active bounty for a context (bountyContext or most recent open bounty)
-async function resolveActiveBounty(ctx: AgentContext): Promise<{ bountyId: string; chain: string } | null> {
+// Try to resolve the exact bounty referenced by the current thread first.
+// Only fall back to "newest open bounty" when there is no bounty thread context.
+async function resolveThreadBounty(ctx: AgentContext): Promise<{ bountyId: string; chain: string; status: "open" | "evaluating" | "closed" } | null> {
   try {
-    const all = await getActiveBounties(); // already ordered newest first
-    const open = all.filter((b) => !b.bountyId.startsWith("pending-"));
-
     if (ctx.bountyContext) {
+      const all = await getAllBounties();
+      const nonPending = all.filter((b) => !b.bountyId.startsWith("pending-"));
+
       // Prefer exact bountyId match — avoids returning the wrong bounty when multiple exist on the same chain
       if (ctx.bountyContext.bountyId) {
-        const idMatch = open.find((b) => b.bountyId === ctx.bountyContext!.bountyId);
+        const idMatch = nonPending.find((b) => b.bountyId === ctx.bountyContext!.bountyId);
         if (idMatch) {
-          console.log(`[agent] resolveActiveBounty: matched by id — bountyId=${idMatch.bountyId} chain=${idMatch.chain}`);
-          return { bountyId: idMatch.bountyId, chain: idMatch.chain };
+          console.log(`[agent] resolveThreadBounty: matched by id — bountyId=${idMatch.bountyId} chain=${idMatch.chain} status=${idMatch.status}`);
+          return { bountyId: idMatch.bountyId, chain: idMatch.chain, status: idMatch.status };
         }
       }
       // Fallback: exact name + chain match
-      const match = open.find((b) => b.name === ctx.bountyContext!.name && b.chain === ctx.bountyContext!.chain);
+      const match = nonPending.find((b) => b.name === ctx.bountyContext!.name && b.chain === ctx.bountyContext!.chain);
       if (match) {
-        console.log(`[agent] resolveActiveBounty: matched by name — bountyId=${match.bountyId} chain=${match.chain}`);
-        return { bountyId: match.bountyId, chain: match.chain };
+        console.log(`[agent] resolveThreadBounty: matched by name — bountyId=${match.bountyId} chain=${match.chain} status=${match.status}`);
+        return { bountyId: match.bountyId, chain: match.chain, status: match.status };
       }
+
+      console.warn("[agent] resolveThreadBounty: no exact bounty match for thread context");
+      return null;
     }
 
     // Fall back to newest open bounty across all chains
+    const open = (await getActiveBounties()).filter((b) => !b.bountyId.startsWith("pending-"));
     if (open.length > 0) {
-      console.log(`[agent] resolveActiveBounty: using newest open bounty — bountyId=${open[0].bountyId} chain=${open[0].chain}`);
-      return { bountyId: open[0].bountyId, chain: open[0].chain };
+      console.log(`[agent] resolveThreadBounty: using newest open bounty — bountyId=${open[0].bountyId} chain=${open[0].chain}`);
+      return { bountyId: open[0].bountyId, chain: open[0].chain, status: open[0].status };
     }
   } catch (err) {
-    console.warn("[agent] resolveActiveBounty failed:", err);
+    console.warn("[agent] resolveThreadBounty failed:", err);
+  }
+  return null;
+}
+
+function formatAmount(value: number): string {
+  return value.toFixed(6).replace(/\.?0+$/, "");
+}
+
+function extractHistoricalPotFromThread(
+  threadHistory: Array<{ username: string; text: string }>,
+): { amount: string; currency: "ETH" | "DEGEN" } | null {
+  for (let i = threadHistory.length - 1; i >= 0; i--) {
+    const text = threadHistory[i]?.text ?? "";
+
+    const voteTotals = text.match(
+      /community vote passed\s*\(([\d.]+)\s*(ETH|DEGEN)\s+yes\s*\/\s*([\d.]+)\s*(ETH|DEGEN)\s+no\)/i,
+    );
+    if (voteTotals) {
+      const yes = parseFloat(voteTotals[1] ?? "0");
+      const yesCurrency = (voteTotals[2] ?? "").toUpperCase() as "ETH" | "DEGEN";
+      const no = parseFloat(voteTotals[3] ?? "0");
+      const noCurrency = (voteTotals[4] ?? "").toUpperCase() as "ETH" | "DEGEN";
+      if (Number.isFinite(yes) && Number.isFinite(no) && yesCurrency === noCurrency && yes + no > 0) {
+        return { amount: formatAmount(yes + no), currency: yesCurrency };
+      }
+    }
+
+    const potLine = text.match(/\bpot:\s*([\d.]+)\s*(ETH|DEGEN)\b/i);
+    if (potLine) {
+      const amount = parseFloat(potLine[1] ?? "0");
+      const currency = (potLine[2] ?? "").toUpperCase() as "ETH" | "DEGEN";
+      if (Number.isFinite(amount) && amount > 0) {
+        return { amount: formatAmount(amount), currency };
+      }
+    }
   }
   return null;
 }
@@ -916,17 +956,30 @@ export async function runAgent(ctx: AgentContext): Promise<AgentResponse> {
   let livePotContext: string | null = null;
   if (isAskingAboutPot(ctx.castText)) {
     if (ctx.bountyContext) {
-      // In a specific bounty thread — fetch just that bounty
-      const bountyRef = await resolveActiveBounty(ctx);
+      // In a specific bounty thread — use that exact bounty only.
+      // Never fall back to an unrelated open bounty from another thread.
+      const bountyRef = await resolveThreadBounty(ctx);
       if (bountyRef) {
-        const live = await fetchLivePotValue(bountyRef.bountyId, bountyRef.chain);
-        const curr = bountyRef.chain === "degen" ? "DEGEN" : "ETH";
-        console.log(`[agent] pot query (ctx): bountyId=${bountyRef.bountyId} chain=${bountyRef.chain} live=${live ?? "FAILED"}`);
-        if (live) {
-          livePotContext = `LIVE CONTRACT DATA: pot is ${live} ${curr} on ${bountyRef.chain} (live from contract, includes all contributions). reply with just the amount — no need to repeat the bounty title, they're already in the thread.`;
+        if (bountyRef.status === "closed") {
+          const historicalPot = extractHistoricalPotFromThread(threadHistory);
+          console.log(`[agent] pot query (closed thread): bountyId=${bountyRef.bountyId} chain=${bountyRef.chain} historical=${historicalPot ? `${historicalPot.amount} ${historicalPot.currency}` : "UNAVAILABLE"}`);
+          if (historicalPot) {
+            livePotContext = `THREAD DATA: this bounty is already closed. the final pot in the announcement thread was ${historicalPot.amount} ${historicalPot.currency}. reply with just the final amount — do not say current pot.`;
+          } else {
+            livePotContext = `THREAD DATA: this bounty is already closed and the final pot is not safely recoverable from thread context. do NOT guess. tell the user to check the poidh.xyz link in the thread for the final total.`;
+          }
         } else {
-          livePotContext = `LIVE CONTRACT DATA: contract query failed. do NOT make up an amount. tell the user to check poidh.xyz for the current total.`;
+          const live = await fetchLivePotValue(bountyRef.bountyId, bountyRef.chain);
+          const curr = bountyRef.chain === "degen" ? "DEGEN" : "ETH";
+          console.log(`[agent] pot query (ctx): bountyId=${bountyRef.bountyId} chain=${bountyRef.chain} status=${bountyRef.status} live=${live ?? "FAILED"}`);
+          if (live) {
+            livePotContext = `LIVE CONTRACT DATA: pot is ${live} ${curr} on ${bountyRef.chain} (live from contract, includes all contributions). reply with just the amount — no need to repeat the bounty title, they're already in the thread.`;
+          } else {
+            livePotContext = `LIVE CONTRACT DATA: contract query failed. do NOT make up an amount. tell the user to check poidh.xyz for the current total.`;
+          }
         }
+      } else {
+        livePotContext = `THREAD DATA: this is a bounty thread, but the exact bounty could not be matched safely. do NOT guess. tell the user to check the poidh.xyz link in the thread for the current or final total.`;
       }
     } else {
       // No specific bounty context — fetch ALL open bounties and report them all
