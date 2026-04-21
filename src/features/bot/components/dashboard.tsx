@@ -40,7 +40,6 @@ interface BountiesResponse {
 }
 
 type BountyTab = "open" | "closed" | "cancelled";
-type CancelledWindow = "all" | "new24h";
 
 const STATUS_COLOR: Record<string, string> = {
   open: "text-green-400",
@@ -84,7 +83,6 @@ export function Dashboard({ botUsername }: { botUsername: string }) {
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const [bountyTab, setBountyTab] = useState<BountyTab>("open");
-  const [cancelledWindow, setCancelledWindow] = useState<CancelledWindow>("new24h");
 
   const fetchAll = useCallback(async () => {
     try {
@@ -131,13 +129,6 @@ export function Dashboard({ botUsername }: { botUsername: string }) {
     // Open/evaluating should prioritize newest created bounty.
     return asTime(b.createdAt);
   };
-  const isRecentlyCancelled = (b: ActiveBounty): boolean => {
-    if (toBountyTab(b) !== "cancelled") return false;
-    const base = asTime(b.lastCheckedAt) || asTime(b.createdAt);
-    if (!base) return false;
-    const dayMs = 24 * 60 * 60 * 1000;
-    return Date.now() - base <= dayMs;
-  };
   const sortedBounties = [...bounties].sort((a, b) => {
     const tabDelta = TAB_ORDER[toBountyTab(a)] - TAB_ORDER[toBountyTab(b)];
     if (tabDelta !== 0) return tabDelta;
@@ -147,13 +138,7 @@ export function Dashboard({ botUsername }: { botUsername: string }) {
   const openBounties = sortedBounties.filter((b) => toBountyTab(b) === "open").length;
   const closedBounties = sortedBounties.filter((b) => toBountyTab(b) === "closed").length;
   const cancelledBounties = sortedBounties.filter((b) => toBountyTab(b) === "cancelled").length;
-  const recentCancelledBounties = sortedBounties.filter((b) => isRecentlyCancelled(b)).length;
-  const filteredBounties = sortedBounties.filter((b) => {
-    if (toBountyTab(b) !== bountyTab) return false;
-    if (bountyTab !== "cancelled") return true;
-    if (cancelledWindow === "new24h") return isRecentlyCancelled(b);
-    return true;
-  });
+  const filteredBounties = sortedBounties.filter((b) => toBountyTab(b) === bountyTab);
   const visibleBounties = showAllBounties ? filteredBounties : filteredBounties.slice(0, BOUNTIES_INITIAL);
   const hasMoreBounties = filteredBounties.length > BOUNTIES_INITIAL;
 
@@ -240,45 +225,10 @@ export function Dashboard({ botUsername }: { botUsername: string }) {
               </button>
             </div>
 
-            {bountyTab === "cancelled" && (
-              <div className="flex items-center gap-1 px-2 py-2 border-b border-white/5">
-                <button
-                  onClick={() => {
-                    setCancelledWindow("new24h");
-                    setShowAllBounties(false);
-                  }}
-                  className={`text-[10px] font-mono px-2 py-1 rounded transition-colors ${
-                    cancelledWindow === "new24h"
-                      ? "bg-red-500/20 text-red-300"
-                      : "text-gray-500 hover:text-gray-300"
-                  }`}
-                >
-                  new 24h ({recentCancelledBounties})
-                </button>
-                <button
-                  onClick={() => {
-                    setCancelledWindow("all");
-                    setShowAllBounties(false);
-                  }}
-                  className={`text-[10px] font-mono px-2 py-1 rounded transition-colors ${
-                    cancelledWindow === "all"
-                      ? "bg-white/12 text-white"
-                      : "text-gray-500 hover:text-gray-300"
-                  }`}
-                >
-                  all ({cancelledBounties})
-                </button>
-              </div>
-            )}
-
             <div className="divide-y divide-white/5">
             {filteredBounties.length === 0 ? (
               <div className="px-4 py-6 text-center">
-                <p className="text-gray-500 text-xs">
-                  {bountyTab === "cancelled" && cancelledWindow === "new24h"
-                    ? "no new cancelled bounties in the last 24h"
-                    : `no ${bountyTab} bounties yet`}
-                </p>
+                <p className="text-gray-500 text-xs">no {bountyTab} bounties yet</p>
                 <p className="text-gray-600 text-[10px] mt-1">mention @{botUsername} to create one</p>
               </div>
             ) : (

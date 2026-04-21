@@ -5,6 +5,7 @@ import { updateBounty } from "@/db/actions/bot-actions";
 import { db } from "@/neynar-db-sdk/db";
 import { bountyThreads } from "@/db/schema";
 import { formatEther } from "viem";
+import { getPublicClient } from "@/features/bot/poidh-contract";
 
 // This endpoint powers live mini-app state; never serve a build-time snapshot.
 export const dynamic = "force-dynamic";
@@ -33,6 +34,17 @@ async function resolveAddressesToFarcasterUsernames(addresses: string[]): Promis
     // non-critical — fall back to address display
   }
   return map;
+}
+
+async function getTxTimestampIso(chain: string, txHash: string): Promise<string | null> {
+  try {
+    const publicClient = getPublicClient(chain);
+    const receipt = await publicClient.getTransactionReceipt({ hash: txHash as `0x${string}` });
+    const block = await publicClient.getBlock({ blockHash: receipt.blockHash });
+    return new Date(Number(block.timestamp) * 1000).toISOString();
+  } catch {
+    return null;
+  }
 }
 
 function winnerIssuerFromEvalResults(
@@ -183,6 +195,24 @@ export async function GET(): Promise<NextResponse> {
         } catch { /* non-critical */ }
       }
       await updateBounty(b.bountyId, { winnerReasoning: `bounty cancelled by ${label}` }).catch(() => {});
+    }),
+  );
+
+  // Backfill a real cancellation/refund timestamp for legacy rows so the dashboard can sort
+  // cancelled bounties by actual cancel activity instead of original creation time.
+  const cancelledMissingTimestamp = bounties.filter(
+    (b) =>
+      (b.winnerReasoning ?? "").toLowerCase().includes("bounty cancelled by") &&
+      !b.lastCheckedAt &&
+      !!b.winnerTxHash,
+  );
+
+  await Promise.all(
+    cancelledMissingTimestamp.map(async (b) => {
+      const timestampIso = await getTxTimestampIso(b.chain, b.winnerTxHash!);
+      if (!timestampIso) return;
+      await updateBounty(b.bountyId, { lastCheckedAt: timestampIso }).catch(() => {});
+      b.lastCheckedAt = timestampIso;
     }),
   );
 
