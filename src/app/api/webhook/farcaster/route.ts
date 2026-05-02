@@ -180,6 +180,17 @@ function isSimpleAffirmation(text: string): boolean {
   ]).has(normalized);
 }
 
+// Ignore POIDH auto-generated contribution broadcasts.
+// Example:
+// "I just added 1337 DEGEN to @user's bounty controlled by @poidh-sentinel ..."
+function isContributionBroadcast(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, " ").trim();
+  return (
+    normalized.startsWith("i just added ") &&
+    normalized.includes(" bounty controlled by @")
+  );
+}
+
 // Extract image URLs from Neynar embed objects
 function extractImageUrls(embeds: Array<{ url?: string }>): string[] {
   return embeds
@@ -735,6 +746,25 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   if (!mentioned && !inActiveThread && !inBountyThread && !replyToBot) {
     return NextResponse.json({ ok: true, skipped: "not mentioned" });
+  }
+
+  // Ignore standalone contribution status posts so the bot doesn't produce
+  // confusing "submission" feedback on normal funding broadcasts.
+  // Instead, send a short deterministic thank-you.
+  if (!inActiveThread && !inBountyThread && !replyToBot && isContributionBroadcast(text)) {
+    const thanks = "thank you for supporting this bounty! 🦾";
+    await reply(thanks, hash);
+    await appendLog({
+      id: hash,
+      timestamp: new Date().toISOString(),
+      triggerCastHash: hash,
+      triggerAuthor: author.username,
+      triggerText: text,
+      action: "contribution_thanks",
+      replyText: thanks,
+      status: "success",
+    });
+    return NextResponse.json({ ok: true, skipped: "contribution_broadcast" });
   }
 
   const logEntry: BotLogEntry = {
