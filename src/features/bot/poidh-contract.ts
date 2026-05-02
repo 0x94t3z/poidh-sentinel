@@ -1,5 +1,5 @@
 import "server-only";
-import { createPublicClient, createWalletClient, http, parseEther, formatEther, type Hash, keccak256, toBytes } from "viem";
+import { createPublicClient, createWalletClient, fallback, http, parseEther, formatEther, type Hash, keccak256, toBytes } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { arbitrum, base, degen } from "viem/chains";
 
@@ -305,10 +305,63 @@ function getViemChain(chain: string) {
   return arbitrum; // default + "arbitrum"
 }
 
-function getRpcUrl(chain: string): string {
-  if (chain === "base") return process.env.BASE_RPC_URL ?? "https://mainnet.base.org";
-  if (chain === "degen") return process.env.DEGEN_RPC_URL ?? "https://rpc.degen.tips";
-  return process.env.ARBITRUM_RPC_URL ?? "https://arb1.arbitrum.io/rpc";
+function parseRpcUrls(value: string | undefined): string[] {
+  if (!value) return [];
+  return value
+    .split(",")
+    .map((v) => v.trim())
+    .filter((v) => v.length > 0);
+}
+
+function dedupeUrls(urls: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const url of urls) {
+    if (seen.has(url)) continue;
+    seen.add(url);
+    out.push(url);
+  }
+  return out;
+}
+
+function getRpcUrls(chain: string): string[] {
+  if (chain === "base") {
+    return dedupeUrls([
+      ...parseRpcUrls(process.env.BASE_RPC_URLS),
+      ...(process.env.BASE_RPC_URL ? [process.env.BASE_RPC_URL] : []),
+      "https://mainnet.base.org",
+    ]);
+  }
+  if (chain === "degen") {
+    return dedupeUrls([
+      ...parseRpcUrls(process.env.DEGEN_RPC_URLS),
+      ...(process.env.DEGEN_RPC_URL ? [process.env.DEGEN_RPC_URL] : []),
+      "https://rpc.degen.tips",
+      "https://degen-mainnet.g.alchemy.com/public",
+      "https://666666666.rpc.thirdweb.com",
+    ]);
+  }
+  return dedupeUrls([
+    ...parseRpcUrls(process.env.ARBITRUM_RPC_URLS),
+    ...(process.env.ARBITRUM_RPC_URL ? [process.env.ARBITRUM_RPC_URL] : []),
+    "https://arb1.arbitrum.io/rpc",
+  ]);
+}
+
+function getFallbackTransport(chain: string) {
+  const urls = getRpcUrls(chain);
+  return fallback(
+    urls.map((url) =>
+      http(url, {
+        timeout: 15_000,
+        retryCount: 1,
+      }),
+    ),
+    {
+      rank: false,
+      retryCount: 1,
+    },
+  );
 }
 
 function getWalletAccount() {
@@ -321,7 +374,7 @@ function getWalletAccount() {
 export function getPublicClient(chain = "arbitrum") {
   return createPublicClient({
     chain: getViemChain(chain),
-    transport: http(getRpcUrl(chain)),
+    transport: getFallbackTransport(chain),
   });
 }
 
@@ -331,7 +384,7 @@ export function getWalletClient(chain = "arbitrum") {
     client: createWalletClient({
       account,
       chain: getViemChain(chain),
-      transport: http(getRpcUrl(chain)),
+      transport: getFallbackTransport(chain),
     }),
     account,
   };

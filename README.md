@@ -686,6 +686,9 @@ All modes except `run=1`, `register=1`, and `post=1` are dry-runs — no DB writ
 | `ARBITRUM_RPC_URL`       | Optional  | Custom Arbitrum RPC — defaults to `https://arb1.arbitrum.io/rpc`                   |
 | `BASE_RPC_URL`           | Optional  | Custom Base RPC — defaults to `https://mainnet.base.org`                           |
 | `DEGEN_RPC_URL`          | Optional  | Custom Degen Chain RPC — defaults to `https://rpc.degen.tips`                      |
+| `ARBITRUM_RPC_URLS`      | Optional  | Comma-separated Arbitrum fallback RPC pool (used before default endpoint)          |
+| `BASE_RPC_URLS`          | Optional  | Comma-separated Base fallback RPC pool (used before default endpoint)              |
+| `DEGEN_RPC_URLS`         | Optional  | Comma-separated Degen fallback RPC pool (used before built-in fallback endpoints)  |
 | `BOT_FID`                | Required  | Farcaster FID of the bot account (e.g. `3273077`)                                  |
 | `BOT_USERNAME`           | Required  | Farcaster username of the bot (e.g. `poidh-sentinel`) — used in casts, system prompt, and UI |
 | `BOT_APP_URL`            | Optional  | Public URL of this app — used as HTTP-Referer for OpenRouter (e.g. `https://poidh-sentinel.neynar.app`) |
@@ -807,6 +810,10 @@ BOT_REDIRECT_URL=
 ARBITRUM_RPC_URL=https://arb1.arbitrum.io/rpc
 BASE_RPC_URL=https://mainnet.base.org
 DEGEN_RPC_URL=https://rpc.degen.tips
+# Optional comma-separated fallback RPC pools
+ARBITRUM_RPC_URLS=
+BASE_RPC_URLS=
+DEGEN_RPC_URLS=
 
 # Bearer token to protect /api/cron/bounty-loop (Vercel cron convention)
 CRON_SECRET=
@@ -955,7 +962,7 @@ In production, if `CRON_SECRET` is missing, `/api/cron/bounty-loop` fails closed
 - **MIN_OPEN_DURATION_HOURS** — default 72h. A bounty must be open at least this long before the bot evaluates it, giving everyone fair time to submit. Override via `MIN_OPEN_DURATION_HOURS` env var. The value is printed in the bounty announcement cast so submitters know the window.
 - **NO_SUBMISSION_NUDGE_HOURS** — default 168h (7 days). Timeline for zero-submission bounties: at 72h the bot posts a one-time "no submissions yet — stays open, cancel for refund" reply. After 7 days it switches to a repeat nudge every 48h suggesting sharing or cancelling. The bounty never auto-closes — it stays open indefinitely until someone submits or the creator cancels.
 - **Video submissions** — vision AI can only evaluate images. Video proof is scored on submission name/description text only.
-- **Degen Chain** — fully supported end-to-end: conversation, deposit detection (`getBalance` via `https://rpc.degen.tips`), bounty creation (`0x18E5585ca7cE31b90Bc8BB7aAf84152857cE243f`), claim evaluation, and winner resolution. Bot wallet needs DEGEN tokens for gas (native token on Degen Chain). Set `DEGEN_RPC_URL` for a custom RPC; the public endpoint is used by default.
+- **Degen Chain** — fully supported end-to-end: conversation, deposit detection, bounty creation (`0x18E5585ca7cE31b90Bc8BB7aAf84152857cE243f`), claim evaluation, and winner resolution. Bot wallet needs DEGEN tokens for gas (native token on Degen Chain). You can set `DEGEN_RPC_URL` and/or `DEGEN_RPC_URLS`; the bot now uses fallback RPC transport to survive single-provider outages.
 - **Announcement cast embed** — every cast the bot posts includes the bounty URL as a Farcaster embed (renders as a link preview card). This applies to: nomination/scores reply in thread, winner pointer reply, vote-rejected replies, no-winner feedback, "still waiting" nudge, bounty ID resolved reply, and all top-level `/poidh` channel announcements. The URL is never repeated in the text body when it's present as an embed.
 - **Winner cast contributor tags** — for open bounties, winner announcements include `thank you for your contribution ...`, with the bot wallet filtered out and the winner excluded (already called out as winner). The bounty creator (`creatorFid` → `@username`) appears first. If the list is too long for cast limits, the bot compacts it (for example `+N more`) to stay under 1024 chars. In the `vote_resolved` path, the cast also includes `community vote passed` plus yes/no weight totals when available. The contract provides no per-voter records so contributors are listed regardless of whether they voted.
 - **Cancelled vs won detection** — the bounty-loop checks `claimer != 0x000...` to detect closed bounties. If `claimer == issuer`, the bounty was cancelled (`cancelSoloBounty` / `cancelOpenBounty`) and funds were refunded; if `claimer != issuer`, a winner was accepted. Both set status to `closed` in the DB. Only the bot wallet (EOA issuer) can cancel bounties it created.
