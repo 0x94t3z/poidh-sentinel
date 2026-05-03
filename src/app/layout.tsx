@@ -30,6 +30,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        <meta
+          name="talentapp:project_verification"
+          content="0fb1715ce2b3b4f4a4cf0aa2eb0f7102ee6fe9823fa3693797a1168fa94ab414e3fbc029052b36dd2436d28ed13be1b07af7f9c00d263f87d9c43bd43b502b96"
+        />
         <ThemeClient />
       </head>
       <body
